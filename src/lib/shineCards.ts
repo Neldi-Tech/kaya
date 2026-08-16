@@ -39,6 +39,8 @@ export interface ShineCard {
   /** 📣 FX PR-3 — set once the card is posted to Moments; powers the
    *  "In Moments →" link so recognition connects to the family feed. */
   momentsPostId?: string;
+  /** 🎁 FX PR-5 — structured gift record for future statistics. */
+  giftMeta?: { label: string; source: 'store' | 'custom' | 'surprise'; rewardId?: string };
   doubleShine?: boolean;
   notes?: ShineCardNote[];
   echo?: { reaction: string; text?: string; at: number };
@@ -84,6 +86,8 @@ export const sendShineCardEcho = (familyId: string, cardId: string, reaction: st
   recognitionApi('card-echo', { familyId, cardId, reaction, ...(text ? { text } : {}) });
 export const setShineCardPost = (familyId: string, cardId: string, postId: string) =>
   recognitionApi('card-set-post', { familyId, cardId, postId });
+export const emailShineCard = (familyId: string, cardId: string, imageUrl: string) =>
+  recognitionApi<{ ok: true; count: number }>('card-email', { familyId, cardId, imageUrl });
 export const getRound = (familyId: string, date: string) =>
   recognitionApi<{ ok: true; round: RecognitionRound | null }>('round-get', { familyId, date })
     .then((r) => r.round);

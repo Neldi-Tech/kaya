@@ -19,7 +19,7 @@ export const maxDuration = 30;
 
 type Action =
   | 'card-create' | 'card-list' | 'card-theme' | 'card-note' | 'card-echo'
-  | 'card-set-post' | 'round-get' | 'round-list';
+  | 'card-set-post' | 'card-email' | 'round-get' | 'round-list';
 
 const CARD_LIMIT = 120;
 
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
     switch (action) {
       case 'card-create': {
         if (!isAdult) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
-        const { kidId, kidName, kidEmoji, awardId, theme, quote, kindLabel, pointsLabel, category, roundDate, gift } = body;
+        const { kidId, kidName, kidEmoji, awardId, theme, quote, kindLabel, pointsLabel, category, roundDate, gift, giftMeta } = body;
         if (!kidId || !quote) return NextResponse.json({ error: 'bad-request' }, { status: 400 });
 
         // № via transactional counter on the family doc.
@@ -108,6 +108,15 @@ export async function POST(req: NextRequest) {
           ...(category ? { category: String(category) } : {}),
           ...(roundDate ? { roundDate: String(roundDate) } : {}),
           ...(gift ? { gift: String(gift).slice(0, 80) } : {}),
+          // 🎁 FX PR-5 — structured record so gift statistics can be
+          // computed later (label + store/custom/surprise + rewardId).
+          ...(giftMeta && typeof giftMeta === 'object' ? {
+            giftMeta: {
+              label: String((giftMeta as { label?: string }).label || gift || '').slice(0, 80),
+              source: ['store', 'custom', 'surprise'].includes(String((giftMeta as { source?: string }).source)) ? String((giftMeta as { source?: string }).source) : 'custom',
+              ...((giftMeta as { rewardId?: string }).rewardId ? { rewardId: String((giftMeta as { rewardId?: string }).rewardId) } : {}),
+            },
+          } : {}),
           doubleShine,
           notes: [] as unknown[],
         };
@@ -225,6 +234,77 @@ export async function POST(req: NextRequest) {
           });
         }
         return NextResponse.json({ ok: true });
+      }
+
+      case 'card-email': {
+        // 📧 FX PR-5 — send the card BY EMAIL to the kid (COPPA-resolved
+        // address) + the family mailing list (adults w/ award emails on
+        // + external contacts opted in). Traced in alertLog.
+        if (!isAdult) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+        const { cardId, imageUrl } = body;
+        if (!cardId || !imageUrl || !/^https:\/\//.test(String(imageUrl))) {
+          return NextResponse.json({ error: 'bad-request' }, { status: 400 });
+        }
+        const cardSnap = await cardsCol.doc(String(cardId)).get();
+        const cardDoc = cardSnap.data() as {
+          kidId?: string; kidName?: string; n?: number; quote?: string;
+          byName?: string; gift?: string;
+        } | undefined;
+        if (!cardDoc) return NextResponse.json({ error: 'not-found' }, { status: 404 });
+
+        const famSnap = await famRef.get();
+        const famData = famSnap.data() as {
+          externalContacts?: Array<{ name?: string; email?: string; notifyOnAward?: boolean }>;
+        } | undefined;
+
+        const to = new Set<string>();
+        // Kid's own address (COPPA source pointer — absent = no send).
+        try {
+          const { resolveKidEmailAddress } = await import('@/lib/kidEmails.server');
+          const kidEmail = cardDoc.kidId
+            ? await resolveKidEmailAddress(db, familyId, cardDoc.kidId, famData as never)
+            : null;
+          if (kidEmail?.email) to.add(kidEmail.email);
+        } catch { /* kid address is best-effort */ }
+        // Family mailing list.
+        const membersSnap = await db.collection('users').where('familyId', '==', familyId).get();
+        for (const m of membersSnap.docs) {
+          const u = m.data() as { role?: string; email?: string; notifyOnAward?: boolean };
+          if ((u.role === 'parent' || u.role === 'helper') && u.email && u.notifyOnAward !== false) to.add(u.email);
+        }
+        for (const c of famData?.externalContacts || []) {
+          if (c.email && c.notifyOnAward) to.add(c.email);
+        }
+        if (to.size === 0) return NextResponse.json({ error: 'no-recipients' }, { status: 400 });
+
+        const { Resend } = await import('resend');
+        const apiKey = process.env.RESEND_API_KEY;
+        if (!apiKey) return NextResponse.json({ error: 'email-not-configured' }, { status: 503 });
+        const resend = new Resend(apiKey);
+        const FROM = process.env.RESEND_FROM || 'Kaya <noreply@ourkaya.com>';
+        const subject = `🌟 Shine Card №${cardDoc.n} — ${cardDoc.kidName}`;
+        const html =
+          `<div style="font-family:-apple-system,Segoe UI,Arial,sans-serif;max-width:420px;margin:0 auto;padding:20px;text-align:center">
+            <p style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#9B8A72;font-weight:800;margin:0 0 12px">🌟 Kaya · Shine Card</p>
+            <img src="${String(imageUrl)}" alt="Shine Card №${cardDoc.n}" style="width:100%;max-width:360px;border-radius:14px"/>
+            <p style="font-size:13px;color:#1E120B;margin:14px 0 0">&ldquo;${String(cardDoc.quote || '').slice(0, 200)}&rdquo; — ${cardDoc.byName || 'family'}</p>
+            ${cardDoc.gift ? `<p style="font-size:12.5px;color:#A87D0F;font-weight:800;margin:8px 0 0">🎁 ${String(cardDoc.gift)}</p>` : ''}
+            <p style="font-size:11px;color:#9B8A72;margin:14px 0 0">Kept forever on the Shine Wall · www.ourkaya.com</p>
+          </div>`;
+        let sent = false; let error: string | undefined;
+        try {
+          await resend.emails.send({ from: FROM, to: [...to], subject, html });
+          sent = true;
+        } catch (e) { error = e instanceof Error ? e.message : 'send failed'; }
+        await famRef.collection('alertLog').add({
+          kind: 'shine_card_email',
+          firedAt: Date.now(),
+          trigger: `card №${cardDoc.n} emailed by ${user.displayName || uid}`,
+          sourceLabel: '🌟 Shine Card email',
+          channels: { email: { on: true, sent, ...(error ? { error } : {}), to: [...to].map((e) => ({ name: '', email: e })), subject, templateVersion: 1 } },
+        }).catch(() => {});
+        if (!sent) return NextResponse.json({ error: error || 'send-failed' }, { status: 500 });
+        return NextResponse.json({ ok: true, count: to.size });
       }
 
       case 'round-get': {
