@@ -115,6 +115,10 @@ export async function POST(req: NextRequest) {
               label: String((giftMeta as { label?: string }).label || gift || '').slice(0, 80),
               source: ['store', 'custom', 'surprise'].includes(String((giftMeta as { source?: string }).source)) ? String((giftMeta as { source?: string }).source) : 'custom',
               ...((giftMeta as { rewardId?: string }).rewardId ? { rewardId: String((giftMeta as { rewardId?: string }).rewardId) } : {}),
+              // FX PR-8 — the pathway seals the record: 💎 Treasures,
+              // 💰 Hive (with the amount), or 🎈 simple.
+              ...(['treasure', 'hive', 'simple'].includes(String((giftMeta as { pathway?: string }).pathway)) ? { pathway: String((giftMeta as { pathway?: string }).pathway) } : {}),
+              ...(Number.isInteger((giftMeta as { amountCents?: number }).amountCents) && ((giftMeta as { amountCents?: number }).amountCents as number) > 0 ? { amountCents: (giftMeta as { amountCents?: number }).amountCents } : {}),
             },
           } : {}),
           doubleShine,

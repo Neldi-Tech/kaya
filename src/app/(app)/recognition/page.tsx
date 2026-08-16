@@ -7,7 +7,7 @@
 
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
-import RecognitionHitMap from '@/components/rewards/RecognitionHitMap';
+import RecognitionHitMap, { RecognitionStats } from '@/components/rewards/RecognitionHitMap';
 import RecognitionWizard from '@/components/rewards/RecognitionWizard';
 import { ShineWall, GiftRegister } from '@/components/rewards/ShineCards';
 import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
@@ -46,11 +46,14 @@ export default function RecognitionPage() {
           points? → card → approve (rail+Moments+emails+📤) → streak. */}
       <RecognitionWizard />
 
+      {/* 📌 FX PR-8 — the counters live on TOP, always in good order. */}
+      <RecognitionStats />
+
       {/* 🗓️ FX PR-7 — everything below the wizard collapses so the page
           never overstacks as the record grows. */}
       <div className="mb-4">
         <CollapsibleSection id="rec-hitmap" remember icon="🗓️" title="Recognition Hit-Map" summary="rhythm · streak · pattern" defaultOpen>
-          <RecognitionHitMap />
+          <RecognitionHitMap showStats={false} />
         </CollapsibleSection>
       </div>
 

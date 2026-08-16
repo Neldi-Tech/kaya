@@ -23,6 +23,9 @@ import { safeUploadBytes } from '@/lib/storageUpload';
 import { storage } from '@/lib/firebase';
 import { ref as storageRef, getDownloadURL } from 'firebase/storage';
 import { toDisplayDate } from '@/lib/dates';
+import { useFamily } from '@/contexts/FamilyContext';
+import { readHiveConfig } from '@/lib/hive';
+import { formatCents } from '@/components/pantry/format';
 
 const svgDataUrl = (card: ShineCard) =>
   `data:image/svg+xml;utf8,${encodeURIComponent(shineCardSvg(card))}`;
@@ -158,6 +161,23 @@ export function CardShareRow({ familyId, card, compact = false }: {
         </p>
       )}
     </div>
+  );
+}
+
+// 🧭 FX PR-8 — pathway shortcuts on every card: the reward it points to,
+// the Treasures register for valuables, the Hive for money.
+export function CardPathwayLinks({ card }: { card: ShineCard }) {
+  const links: Array<{ href: string; label: string }> = [];
+  if (card.giftMeta?.rewardId) links.push({ href: '/rewards', label: '🎁 In the Rewards store →' });
+  if (card.giftMeta?.pathway === 'treasure') links.push({ href: '/sparks/treasures', label: '💎 In Treasures →' });
+  if (card.giftMeta?.pathway === 'hive') links.push({ href: '/hive', label: '💰 In the Hive ledger →' });
+  if (links.length === 0) return null;
+  return (
+    <p className="text-center mt-1.5 flex gap-3 justify-center flex-wrap">
+      {links.map((l) => (
+        <Link key={l.href} href={l.href} className="text-[11px] font-black text-kaya-gold hover:underline">{l.label}</Link>
+      ))}
+    </p>
   );
 }
 
@@ -398,6 +418,7 @@ export function ShineWall({ familyId, childId, childName, title, bare = false, f
                 <img src={svgDataUrl(openCard)} alt={`Shine Card ${openCard.n}`} className="w-full rounded-kaya border border-kaya-warm-dark/50" />
                 {/* HD PR-B — full share row on the Wall too (adults). */}
                 <CardShareRow familyId={familyId} card={openCard} compact />
+                <CardPathwayLinks card={openCard} />
                 {profile?.role === 'parent' && (
                   <button
                     type="button"
@@ -489,26 +510,45 @@ const GIFT_SOURCE_BADGE: Record<string, string> = {
 };
 
 export function GiftRegister({ familyId }: { familyId: string }) {
+  const { family } = useFamily();
+  const currency = readHiveConfig(family).currency;
   const [cards, setCards] = useState<ShineCard[]>([]);
   const [openCard, setOpenCard] = useState<ShineCard | null>(null);
   useEffect(() => {
     listShineCards(familyId).then(setCards).catch(() => setCards([]));
   }, [familyId]);
 
-  const gifts = useMemo(() => cards.filter((c) => c.gift), [cards]);
+  // 🧭 FX PR-8 — pathway filter (All / 💎 / 💰 / 🎈) + money totals.
+  const [pathFilter, setPathFilter] = useState<'all' | 'treasure' | 'hive' | 'simple'>('all');
+  const allGifts = useMemo(() => cards.filter((c) => c.gift), [cards]);
+  const gifts = useMemo(() => allGifts.filter((c) =>
+    pathFilter === 'all' ? true : (c.giftMeta?.pathway || 'simple') === pathFilter), [allGifts, pathFilter]);
+  const moneyTotal = useMemo(() =>
+    allGifts.reduce((sum, c) => sum + (c.giftMeta?.pathway === 'hive' ? (c.giftMeta?.amountCents || 0) : 0), 0), [allGifts]);
   const byLabel = useMemo(() => {
     const m = new Map<string, number>();
     for (const g of gifts) m.set(g.gift!, (m.get(g.gift!) || 0) + 1);
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
   }, [gifts]);
 
-  if (gifts.length === 0) {
+  if (allGifts.length === 0) {
     return <p className="text-[12px] text-kaya-sand">No gifts recorded yet — they land here the moment a recognition carries one.</p>;
   }
+  const PATH_CHIP: Array<[typeof pathFilter, string]> = [['all', 'All'], ['treasure', '💎 Treasures'], ['hive', '💰 Hive'], ['simple', '🎈 Simple']];
   return (
     <div>
+      <div className="flex gap-1.5 flex-wrap items-center mb-2">
+        {PATH_CHIP.map(([pf, label]) => (
+          <button key={pf} type="button" onClick={() => setPathFilter(pf)}
+            className={`px-2.5 py-1 rounded-full text-[10.5px] font-extrabold border ${pathFilter === pf ? 'bg-kaya-chocolate text-white border-transparent' : 'bg-white text-kaya-sand border-kaya-warm-dark'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
       <p className="text-[10.5px] font-bold text-kaya-sand mb-2">
-        🎁 {gifts.length} gift{gifts.length === 1 ? '' : 's'} recorded · top: {byLabel[0][0]}{byLabel[0][1] > 1 ? ` ×${byLabel[0][1]}` : ''}
+        🎁 {allGifts.length} gift{allGifts.length === 1 ? '' : 's'} recorded
+        {byLabel.length > 0 ? <> · top: {byLabel[0][0]}{byLabel[0][1] > 1 ? ` ×${byLabel[0][1]}` : ''}</> : null}
+        {moneyTotal > 0 ? <> · 💰 total gifted to Hive: <b>{formatCents(moneyTotal, currency)}</b></> : null}
       </p>
       <div className="space-y-1">
         {gifts.slice(0, 30).map((g) => (
@@ -518,6 +558,11 @@ export function GiftRegister({ familyId }: { familyId: string }) {
             <span className="text-[12px] font-bold shrink-0">{g.kidEmoji} {g.kidName}</span>
             <span className="text-[12px] font-semibold flex-1 truncate">{g.gift}</span>
             <span className="text-[9.5px] font-extrabold text-kaya-sand shrink-0 px-1.5 py-0.5 rounded-full bg-kaya-warm">{GIFT_SOURCE_BADGE[g.giftMeta?.source || 'custom']}</span>
+            <span className="text-[9.5px] font-extrabold shrink-0 px-1.5 py-0.5 rounded-full" style={
+              g.giftMeta?.pathway === 'hive' ? { background: '#E2F7F3', color: '#0E9C86' }
+              : g.giftMeta?.pathway === 'treasure' ? { background: '#EFE9FF', color: '#6B3FE0' }
+              : { background: '#FDF3E0', color: '#A87D0F' }
+            }>{g.giftMeta?.pathway === 'hive' ? `💰 Hive${g.giftMeta?.amountCents ? ` · ${formatCents(g.giftMeta.amountCents, currency)}` : ''}` : g.giftMeta?.pathway === 'treasure' ? '💎 Treasure' : '🎈 simple'}</span>
             <span className="text-[10.5px] font-black text-kaya-gold shrink-0">🌟 №{g.n}</span>
           </button>
         ))}
@@ -533,6 +578,7 @@ export function GiftRegister({ familyId }: { familyId: string }) {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={svgDataUrl(openCard)} alt={`Shine Card ${openCard.n}`} className="w-full rounded-kaya border border-kaya-warm-dark/50" />
             <CardShareRow familyId={familyId} card={openCard} compact />
+            <CardPathwayLinks card={openCard} />
           </div>
         </div>
       )}
