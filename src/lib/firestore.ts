@@ -234,6 +234,13 @@ export interface Family {
     rating?: { kidItsAbout?: boolean; groupIds?: string[]; emails?: string[] };
     award?: { kidItsAbout?: boolean; groupIds?: string[]; emails?: string[] };
   };
+  /** ⏰ Catch-Up Board (approved 2026-08-10). Pins = catch-ups a parent
+   *  tapped "🗣️ Raise on Sunday" — the Catch-Up Corner meeting step
+   *  reads them (keyed by childId) and clears after the meeting.
+   *  Visibility: whether kids see ONLY their own strip ('own', default)
+   *  or each other's On-Track scores too ('family') — parents choose. */
+  catchUpPins?: Record<string, Array<{ key: string; icon: string; label: string }>>;
+  catchUpVisibility?: 'own' | 'family';
   // ── Location ──
   // Where this family lives. Optional — when set, the country code
   // drives currency auto-detection (`countryToCurrency()` in

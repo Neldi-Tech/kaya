@@ -204,6 +204,33 @@ async function pushToUid(args: { uid: string; title: string; body: string; url?:
   }
 }
 
+/** ⏰ Catch-Up Board (2026-08-10) — parent-tapped "Remind now": in-app
+ *  bell + web-push to the kid. Fire-and-forget like everything here. */
+export function notifyCatchUpNudge(args: {
+  familyId: string;
+  kidUid: string;
+  kidName: string;
+  icon: string;
+  label: string;
+  href: string;
+}): void {
+  createNotification(args.familyId, {
+    type: 'points',
+    title: '⏰ A little catch-up',
+    message: `${args.icon} ${args.label} — you've got this, ${args.kidName.split(' ')[0]}! 💛`,
+    read: false,
+    forUserId: args.kidUid,
+    link: args.href,
+  } as Parameters<typeof createNotification>[1]).catch(() => {});
+  void pushToUid({
+    uid: args.kidUid,
+    title: '⏰ A little catch-up',
+    body: `${args.icon} ${args.label} — you've got this! 💛`,
+    url: args.href,
+    tag: 'catchup-nudge',
+  });
+}
+
 interface AdhocAssignedNotify {
   familyId: string;
   helperUid: string;        // the assignee
