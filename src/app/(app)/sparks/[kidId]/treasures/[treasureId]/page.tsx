@@ -20,6 +20,7 @@ import { toDisplayDate } from '@/lib/dates';
 import {
   getTreasure, setStory, reportCondition, markFound, addSighting,
   updateTreasure, treasuresApi, categoryDef, daysBetween, todayIso,
+  lendTreasure, returnTreasure, extendBorrow,
   STATUS_CHIP, STATUS_LABEL,
   type Treasure, type TreasureEvent, type TreasurePrivate,
 } from '@/lib/sparks/treasures';
@@ -54,6 +55,10 @@ export default function TreasureDetailPage() {
   const [storyOpen, setStoryOpen] = useState(false);
   const [storyText, setStoryText] = useState('');
   const [conditionOpen, setConditionOpen] = useState(false);
+  const [lendOpen, setLendOpen] = useState(false);
+  const [lendTo, setLendTo] = useState('');
+  const [lendToChildId, setLendToChildId] = useState('');
+  const [lendDue, setLendDue] = useState('');
   const [note, setNote] = useState('');
   const [where, setWhere] = useState('');
 
@@ -274,6 +279,69 @@ export default function TreasureDetailPage() {
             </div>
           )}
 
+          {/* 🤝 Borrow & Return (D11). Most things aren't lost — they're
+              lent and forgotten. This ledger is the cure, and the
+              record at the bottom is the sentence a parent gets to
+              say: "you've got back everything you've lent." */}
+          {t.status === 'lent' && t.borrow ? (
+            <div className="rounded-[14px] border border-[#E0D7FF] bg-[#F6F2FF] p-3 mt-2.5">
+              <div className="font-display font-extrabold text-[12.5px] text-[#0F1F44]">
+                🤝 Lent to {t.borrow.toName}
+              </div>
+              <p className="text-[10.8px] font-bold text-[#5B6B8C] mt-1 m-0">
+                Since {toDisplayDate(t.borrow.since)} · back by{' '}
+                <b>{toDisplayDate(t.borrow.dueOn)}</b>
+                {t.borrow.dueOn < today ? ' · overdue' : ''}
+              </p>
+              <p className="text-[10.5px] text-[#5B6B8C] mt-1 m-0 leading-snug">
+                Kaya reminds you both on the morning it&rsquo;s due.
+              </p>
+              {canEdit && (
+                <div className="flex gap-2 mt-2 flex-wrap">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => run(() => returnTreasure(familyId!, kidId, treasureId))}
+                    className="px-3.5 py-1.5 rounded-full text-white font-extrabold text-[11.5px]"
+                    style={{ background: '#0E6B5E' }}
+                  >
+                    ✅ Got it back
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      const d = prompt('New return date (YYYY-MM-DD)', t.borrow?.dueOn ?? '');
+                      if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
+                        run(() => extendBorrow(familyId!, kidId, treasureId, d));
+                      }
+                    }}
+                    className="px-3.5 py-1.5 rounded-full font-extrabold text-[11.5px] bg-white text-[#5A3CB8] border-[1.5px] border-[#5A3CB8]"
+                  >
+                    📅 Give more time
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : null}
+
+          {t.lending && t.lending.out + t.lending.backOnTime + t.lending.backLate > 0 && (
+            <div className="rounded-[14px] border border-[#ECE4D3] bg-white p-3 mt-2.5">
+              <div className="font-display font-extrabold text-[12.5px] text-[#0F1F44]">
+                Lending record
+              </div>
+              <p className="text-[11px] font-bold text-[#5B6B8C] mt-1 m-0">
+                Lent {t.lending.out + t.lending.backOnTime + t.lending.backLate} ·
+                {' '}back on time {t.lending.backOnTime} · late {t.lending.backLate}
+              </p>
+              {t.lending.backLate === 0 && t.lending.backOnTime > 0 && (
+                <p className="text-[10.8px] font-bold text-[#0E6B5E] mt-1 m-0 leading-snug">
+                  🏅 Everything you&rsquo;ve lent has come back. That&rsquo;s trust you can spend.
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Its story so far — the append-only trail IS the record. */}
           <div className="mt-4">
             <div className="text-[10px] font-extrabold tracking-[0.6px] uppercase text-[#8A8471] mb-1.5">
@@ -337,6 +405,15 @@ export default function TreasureDetailPage() {
                   🔧 It’s fixed
                 </button>
               )}
+              {t.status !== 'lent' && t.status !== 'lost' && (
+                <button
+                  type="button"
+                  onClick={() => setLendOpen((v) => !v)}
+                  className="px-4 py-2 rounded-full font-extrabold text-[12px] bg-[#EFE8FF] text-[#5A3CB8]"
+                >
+                  🤝 Lend it
+                </button>
+              )}
               <button
                 type="button"
                 disabled={busy}
@@ -373,6 +450,60 @@ export default function TreasureDetailPage() {
                 style={{ background: '#0E6B5E' }}
               >
                 👀 I’ve seen it
+              </button>
+            </div>
+          )}
+
+          {lendOpen && canEdit && (
+            <div className="mt-3 rounded-[12px] border border-[#E0D7FF] bg-[#F6F2FF] p-3">
+              <div className="text-[11.5px] font-extrabold text-[#5A3CB8]">🤝 Who&rsquo;s borrowing it?</div>
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {children.filter((c) => c.id !== kidId).map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => { setLendToChildId(c.id); setLendTo(c.name); }}
+                    className={`px-2.5 py-1.5 rounded-full text-[11px] font-extrabold border ${
+                      lendToChildId === c.id
+                        ? 'bg-[#E0D7FF] text-[#5A3CB8] border-[#5A3CB8]'
+                        : 'bg-white text-[#5B6B8C] border-[#E0D7FF]'
+                    }`}
+                  >
+                    {c.avatarEmoji || '🧒'} {c.name}
+                  </button>
+                ))}
+              </div>
+              <input
+                value={lendToChildId ? '' : lendTo}
+                onChange={(e) => { setLendToChildId(''); setLendTo(e.target.value); }}
+                placeholder="or a friend&rsquo;s name"
+                maxLength={60}
+                className="w-full mt-2 text-[12px] rounded-[10px] border border-[#E0D7FF] bg-white p-2 outline-none"
+              />
+              <input
+                type="date"
+                value={lendDue}
+                onChange={(e) => setLendDue(e.target.value)}
+                className="w-full mt-2 text-[12px] rounded-[10px] border border-[#E0D7FF] bg-white p-2 outline-none"
+              />
+              <p className="text-[10.5px] text-[#5B6B8C] mt-1 m-0 leading-snug">
+                Pick when it should come back. Kaya reminds you both that morning.
+              </p>
+              <button
+                type="button"
+                disabled={busy || !lendTo.trim() || !lendDue}
+                onClick={() => run(async () => {
+                  await lendTreasure(familyId!, kidId, treasureId, {
+                    toName: lendTo.trim(),
+                    toChildId: lendToChildId || undefined,
+                    dueOn: lendDue,
+                  });
+                  setLendOpen(false); setLendTo(''); setLendToChildId(''); setLendDue('');
+                })}
+                className="mt-2 px-3.5 py-1.5 rounded-full text-white font-extrabold text-[11.5px] disabled:opacity-40"
+                style={{ background: '#5A3CB8' }}
+              >
+                🤝 Lend it
               </button>
             </div>
           )}

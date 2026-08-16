@@ -12,13 +12,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
+import { toDisplayDate } from '@/lib/dates';
 import { useFamily } from '@/contexts/FamilyContext';
 import AreaScreen, { AddItemButton, AreaEmptyState } from '@/components/sparks/AreaScreen';
 import AddTreasureWizard from '@/components/sparks/AddTreasureWizard';
 import {
   subscribeToTreasures, computeCareScore, liveTreasures, memoryShelf,
   missingItems, lentItems, giverLine, daysBetween, todayIso,
-  STATUS_CHIP, STATUS_LABEL, type Treasure,
+  fetchTreasuresToday, CADENCE_LABEL,
+  STATUS_CHIP, STATUS_LABEL, type Treasure, type TreasuresToday,
 } from '@/lib/sparks/treasures';
 
 export default function TreasuresAreaPage() {
@@ -30,16 +32,23 @@ export default function TreasuresAreaPage() {
 
   const familyId = profile?.familyId;
   const isKid = profile?.role === 'kid';
+  const isParent = profile?.role === 'parent';
   const isOwner = !!profile?.childId && profile.childId === kidId;
   const kid = useMemo(() => children.find((c) => c.id === kidId), [children, kidId]);
 
   const [list, setList] = useState<Treasure[] | null>(null);
+  const [today0, setToday0] = useState<TreasuresToday | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [showMemory, setShowMemory] = useState(false);
 
   useEffect(() => {
     if (!familyId || !kidId) return;
-    return subscribeToTreasures(familyId, kidId, setList);
+    return subscribeToTreasures(familyId, kidId, (ts) => {
+      setList(ts);
+      // The check's due-state is computed server-side from the parent's
+      // cadence (D23) — the client never re-derives it.
+      fetchTreasuresToday(kidId).then(setToday0).catch(() => setToday0(null));
+    });
   }, [familyId, kidId]);
 
   if (loading || !kid) {
@@ -127,6 +136,54 @@ export default function TreasuresAreaPage() {
               </div>
             </div>
 
+            {/* D23 · the ritual, surfaced where the child already is.
+                Amber when it's due, red once it's slipping — the words
+                never change, only the urgency. */}
+            {today0?.check.due && (
+              <div
+                className={`rounded-[13px] border p-3 mt-3 ${
+                  today0.check.overdueDays >= 1
+                    ? 'border-[#F0C9CC] bg-[#FEF6F6]'
+                    : 'border-[#EFD9A0] bg-[#FFF1C9]'
+                }`}
+              >
+                <div
+                  className="font-display font-extrabold text-[12px]"
+                  style={{ color: today0.check.overdueDays >= 1 ? '#8B2830' : '#8A6800' }}
+                >
+                  🔑 Keeper Check is due
+                  {today0.check.overdueDays >= 1
+                    ? ` · ${today0.check.overdueDays} day${today0.check.overdueDays === 1 ? '' : 's'} ago`
+                    : ' today'}
+                </div>
+                <p className="text-[10.5px] font-bold mt-1 m-0 leading-snug" style={{ color: '#7a6320' }}>
+                  {today0.check.items} thing{today0.check.items === 1 ? '' : 's'} to tap · about 30 seconds
+                </p>
+                <Link
+                  href={`/sparks/${kidId}/treasures/check`}
+                  className="inline-flex mt-2 px-4 py-2 rounded-full font-extrabold text-[12px] no-underline"
+                  style={{ background: '#D4A847', color: '#3D2E08' }}
+                >
+                  Start the check
+                </Link>
+              </div>
+            )}
+
+            {today0 && !today0.check.due && today0.check.enabled && today0.check.items > 0 && (
+              <p className="text-[11px] font-bold text-[#8A8471] mt-3 mb-0">
+                🔑 Next Keeper Check: {toDisplayDate(today0.check.dueOn)} ·{' '}
+                {CADENCE_LABEL[today0.check.cadence].toLowerCase()}
+                {isParent && (
+                  <>
+                    {' · '}
+                    <Link href={`/sparks/${kidId}/treasures/setup`} className="text-[#0E6B5E] font-extrabold">
+                      change
+                    </Link>
+                  </>
+                )}
+              </p>
+            )}
+
             {missing.length > 0 && (
               <div className="mt-3">
                 {missing.map((t) => (
@@ -150,6 +207,29 @@ export default function TreasuresAreaPage() {
 
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 mt-3">
               {live.map((t) => <TreasureCard key={t.id} t={t} kidId={kidId} />)}
+            </div>
+
+            {/* The two rails that actually prevent loss (D10 · D11). */}
+            <div className="flex flex-wrap gap-2 mt-4">
+              <Link
+                href="/sparks/treasures/lost-found"
+                className="px-3.5 py-2 rounded-full font-extrabold text-[12px] no-underline bg-[#E2F3EE] text-[#0E6B5E]"
+              >
+                🔍 Lost &amp; Found{missing.length ? ` · ${missing.length}` : ''}
+              </Link>
+              {lent.length > 0 && (
+                <span className="px-3.5 py-2 rounded-full font-extrabold text-[12px] bg-[#EFE8FF] text-[#5A3CB8]">
+                  🤝 {lent.length} lent out
+                </span>
+              )}
+              {isParent && (
+                <Link
+                  href={`/sparks/${kidId}/treasures/setup`}
+                  className="px-3.5 py-2 rounded-full font-extrabold text-[12px] no-underline bg-[#EEF0F4] text-[#5B6B8C]"
+                >
+                  ⚙️ Check settings
+                </Link>
+              )}
             </div>
 
             {shelved.length > 0 && (
