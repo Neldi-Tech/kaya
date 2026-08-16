@@ -79,10 +79,12 @@ export default function MeetingSetupPage() {
   const [recapBookIncludeSong, setRecapBookIncludeSong] = useState<boolean>(true);
   // 🗣️ Open Floor (2026-07-20) — optional discussion step, off by default.
   const [openFloorEnabled, setOpenFloorEnabled] = useState<boolean>(false);
+  // ⏰ Catch-Up Corner (2026-08-10) — own flag, default ON.
+  const [catchUpCornerEnabled, setCatchUpCornerEnabled] = useState<boolean>(true);
   // 🧩 Agenda Builder (OF-3) — order of the reorderable steps + the
   // family's own 8th step. Pinned head (attendance/gratitude/celebrate)
   // never enters this array.
-  const [agendaOrder, setAgendaOrder] = useState<string[]>(['appreciations', 'goals', 'openfloor', 'reflection', 'custom']);
+  const [agendaOrder, setAgendaOrder] = useState<string[]>(['appreciations', 'catchup', 'goals', 'openfloor', 'reflection', 'custom']);
   const [customStepEmoji, setCustomStepEmoji] = useState('⭐');
   const [customStepName, setCustomStepName] = useState('');
   const [customStepEnabled, setCustomStepEnabled] = useState(false);
@@ -142,11 +144,18 @@ export default function MeetingSetupPage() {
       setRecapCustomEmails((s.recapCustomRecipients.emails || []).join(', '));
     }
     setOpenFloorEnabled(s?.openFloorEnabled === true);
+    setCatchUpCornerEnabled(s?.catchUpCornerEnabled !== false);
     if (s?.agendaOrder && s.agendaOrder.length > 0) {
       // Merge-migrate: keep saved order, append any ids added since.
-      const saved = s.agendaOrder.filter((id) => ['appreciations', 'goals', 'openfloor', 'reflection', 'custom'].includes(id));
-      const missing = ['appreciations', 'goals', 'openfloor', 'reflection', 'custom'].filter((id) => !saved.includes(id));
-      setAgendaOrder([...saved, ...missing]);
+      const ALL = ['appreciations', 'catchup', 'goals', 'openfloor', 'reflection', 'custom'];
+      const saved = s.agendaOrder.filter((id) => ALL.includes(id));
+      let merged = [...saved, ...ALL.filter((id) => !saved.includes(id) && id !== 'catchup')];
+      // 'catchup' slots BEFORE goals when a saved order predates it.
+      if (!merged.includes('catchup')) {
+        const gi = merged.indexOf('goals');
+        merged = gi >= 0 ? [...merged.slice(0, gi), 'catchup', ...merged.slice(gi)] : [...merged, 'catchup'];
+      }
+      setAgendaOrder(merged);
     }
     if (s?.customStep) {
       setCustomStepEmoji(s.customStep.emoji || '⭐');
@@ -279,6 +288,7 @@ export default function MeetingSetupPage() {
           emails: recapCustomEmails.split(/[,\s]+/).map((e) => e.trim()).filter((e) => /\S+@\S+\.\S+/.test(e)),
         },
         openFloorEnabled,
+        catchUpCornerEnabled,
         agendaOrder,
         customStep: { emoji: customStepEmoji || '⭐', name: customStepName.trim(), enabled: customStepEnabled && !!customStepName.trim() },
         openFloorRaisers,
@@ -319,7 +329,7 @@ export default function MeetingSetupPage() {
         <div className="flex items-baseline justify-between mb-1">
           <h2 className="font-display text-lg lg:text-xl font-black">Agenda flow</h2>
           <span className="text-[10px] uppercase tracking-wider font-bold text-kaya-sand">
-            {agendaSteps.length + (openFloorEnabled ? 1 : 0) + (customStepEnabled && customStepName.trim() ? 1 : 0)} of 8 on
+            {agendaSteps.length + (openFloorEnabled ? 1 : 0) + (catchUpCornerEnabled ? 1 : 0) + (customStepEnabled && customStepName.trim() ? 1 : 0)} of 9 on
           </span>
         </div>
         <p className="text-[12px] lg:text-[13px] text-kaya-sand mb-4">
@@ -339,16 +349,20 @@ export default function MeetingSetupPage() {
             const orderIdx = agendaOrder.indexOf(id);
             const isCustom = id === 'custom';
             const isOpenFloor = id === 'openfloor';
+            const isCatchUp = id === 'catchup';
             const def = isCustom
               ? { id, emoji: customStepEmoji || '⭐', title: customStepName || 'Your own step', desc: 'A step your family invented — the leader keeps notes on the night.' }
               : isOpenFloor
               ? { id, emoji: '🗣️', title: 'Open Floor', desc: 'Topics anyone raised — settings in the card below' }
+              : isCatchUp
+              ? { id, emoji: '⏰', title: 'Catch-Up Corner', desc: 'Cleared catch-ups cheered, open ones promised — right before Goals' }
               : defOf(id);
             if (!def) return null;
             const on = isCustom ? (customStepEnabled && !!customStepName.trim())
               : isOpenFloor ? openFloorEnabled
+              : isCatchUp ? catchUpCornerEnabled
               : agendaSteps.includes(id);
-            const customLabel = isCustom || isOpenFloor ? '' : (stepLabels[id] || '');
+            const customLabel = isCustom || isOpenFloor || isCatchUp ? '' : (stepLabels[id] || '');
             return (
               <div
                 key={id}
@@ -394,7 +408,7 @@ export default function MeetingSetupPage() {
                         on ? 'text-kaya-chocolate placeholder-kaya-chocolate/50' : 'text-kaya-sand placeholder-kaya-sand/60'
                       }`}
                     />
-                  ) : isOpenFloor ? (
+                  ) : (isOpenFloor || isCatchUp) ? (
                     <span className={`block font-display font-extrabold text-[14px] lg:text-base ${on ? 'text-kaya-chocolate' : 'text-kaya-sand'}`}>{def.title}</span>
                   ) : (
                     <input
@@ -416,6 +430,7 @@ export default function MeetingSetupPage() {
                   onClick={() => {
                     if (isCustom) setCustomStepEnabled((v) => !v);
                     else if (isOpenFloor) setOpenFloorEnabled((v) => !v);
+                    else if (isCatchUp) setCatchUpCornerEnabled((v) => !v);
                     else toggleAgendaStep(id);
                   }}
                   aria-pressed={on}
