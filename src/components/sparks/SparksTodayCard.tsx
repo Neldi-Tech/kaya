@@ -13,6 +13,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { subscribeSparksToday, type SparksToday } from '@/lib/sparks/quests';
+import KeeperCheckTodo from './KeeperCheckTodo';
 
 interface Props {
   familyId: string;
@@ -67,6 +68,9 @@ export default function SparksTodayCard({ familyId, kidId, kidName, variant = 'c
           </span>
         </div>
         <div className="grid gap-1.5">
+          {/* D23 · the Keeper Check joins the strip on its due days and
+              is absent on every other day, so the count stays honest. */}
+          <KeeperCheckTodo kidId={kidId} kidName={kidName} variant="row" />
           {dots.map((d) => (
             <Link
               key={d.key}
