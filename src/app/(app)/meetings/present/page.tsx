@@ -694,8 +694,22 @@ export default function MeetingPresenterPage() {
       if (lines > 0) cands.push({ name: m.name, emoji: m.emoji, lines, at: s.updatedAt || Number.MAX_SAFE_INTEGER });
     }
     if (cands.length === 0) return null;
-    const topLines = Math.max(...cands.map((c) => c.lines));
-    const top = cands.filter((c) => c.lines === topLines);
+    // 🗓️ FX PR-10 (Elia 16-Aug) — the Thu→Sun WINDOW: prep last touched
+    // BEFORE Thursday 00:00 doesn't compete for the crown (the content
+    // still counts in the meeting). Detects too-early fills and crowns
+    // only someone who filled within the window — and filled well.
+    const windowStart = (() => {
+      const d = new Date(); d.setHours(0, 0, 0, 0);
+      while (d.getDay() !== 4) d.setDate(d.getDate() - 1); // back to Thursday
+      return d.getTime();
+    })();
+    const inWindow = cands.filter((c) => c.at !== Number.MAX_SAFE_INTEGER && c.at >= windowStart);
+    if (inWindow.length === 0) {
+      // Everyone filled too early (or timestamps missing) — crown rests.
+      return { names: '', shared: false, lines: 0, readyLabel: null, noneInWindow: true };
+    }
+    const topLines = Math.max(...inWindow.map((c) => c.lines));
+    const top = inWindow.filter((c) => c.lines === topLines);
     const earliest = Math.min(...top.map((c) => c.at));
     // 6h grace: finishing the same stretch counts as together — shared crown.
     const winners = top.filter((c) => c.at <= earliest + 6 * 3600_000);
@@ -711,6 +725,7 @@ export default function MeetingPresenterPage() {
       shared: winners.length > 1,
       lines: topLines,
       readyLabel,
+      noneInWindow: false,
     };
   }, [prepRoster, submissions]);
 
@@ -1807,7 +1822,7 @@ function OpenStep({
                // name (both optional with safe fallbacks).
   leaderName?: string;
   leaderEmoji?: string;
-  mostPrepared?: { names: string; shared: boolean; lines: number; readyLabel: string | null } | null;
+  mostPrepared?: { names: string; shared: boolean; lines: number; readyLabel: string | null; noneInWindow?: boolean } | null;
   onContinue: () => void;
 }) {
   const sch = family?.meetingSetup?.schedule;
@@ -1893,12 +1908,18 @@ function OpenStep({
             the WHY, and the line below tells everyone how to win it. */}
         {mostPrepared && (
           <div className="mt-3">
-            <span className="inline-flex items-center gap-1.5 bg-kaya-gold/20 border border-kaya-gold-light/40 rounded-full px-3 py-1 text-kaya-gold-light text-[11px] lg:text-xs font-extrabold">
-              👑 Most Prepared · {mostPrepared.names}
-              <span className="opacity-80 font-bold">— {mostPrepared.lines}/9 lines{mostPrepared.readyLabel ? ` · ${mostPrepared.readyLabel}` : ''}{mostPrepared.shared ? ' · shared crown 🤝' : ''}</span>
-            </span>
+            {mostPrepared.noneInWindow ? (
+              <span className="inline-flex items-center gap-1.5 bg-white/10 border border-white/20 rounded-full px-3 py-1 text-white/70 text-[11px] lg:text-xs font-extrabold">
+                👑 Crown rests this week — prep was filled before Thursday
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 bg-kaya-gold/20 border border-kaya-gold-light/40 rounded-full px-3 py-1 text-kaya-gold-light text-[11px] lg:text-xs font-extrabold">
+                👑 Most Prepared · {mostPrepared.names}
+                <span className="opacity-80 font-bold">— {mostPrepared.lines}/9 lines{mostPrepared.readyLabel ? ` · ${mostPrepared.readyLabel}` : ''}{mostPrepared.shared ? ' · shared crown 🤝' : ''}</span>
+              </span>
+            )}
             <p className="text-[10.5px] text-white/50 mt-1.5 max-w-md mx-auto leading-relaxed">
-              How it&apos;s won: up to 3 lines in each of Gratitude · Appreciations · Goals (9 total) — fullest prep wins, earliest finisher breaks ties. New race every week.
+              How it&apos;s won: fill (or polish) your prep <b>between Thursday and Sunday</b> — up to 3 lines in each of Gratitude · Appreciations · Goals (9 total). Fullest prep wins, earliest in-window finisher breaks ties. Filled earlier? Come back and improve it in the window. New race every week.
             </p>
           </div>
         )}

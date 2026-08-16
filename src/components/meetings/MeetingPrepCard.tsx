@@ -300,7 +300,7 @@ export default function MeetingPrepCard({
             {/* 👑 R2-1 — the crown's rules, visible to every member so the
                 race is transparent (the kids asked why one name kept winning). */}
             <p className="text-[10.5px] text-kaya-gold-dark font-bold mt-1">
-              👑 Most Prepared crown: up to 3 lines in each section (9 total) — fullest prep wins, earliest finisher breaks ties. New race every week.
+              👑 Most Prepared crown: fill between <b>Thursday and Sunday</b> — up to 3 lines in each section (9 total). Fullest prep wins, earliest in-window finisher breaks ties. Filling before Thursday doesn&apos;t count for the crown (come back and polish it!). New race every week.
             </p>
           </div>
           <ChevronRight
