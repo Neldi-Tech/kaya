@@ -29,10 +29,11 @@ import {
 import { CardShareRow, postShineCardToMoments } from '@/components/rewards/ShineCards';
 import { notifyAward } from '@/lib/notify';
 
-type Step = 'list' | 'detail' | 'gift' | 'points' | 'preview' | 'done';
+type Step = 'list' | 'pick' | 'detail' | 'gift' | 'points' | 'preview' | 'done';
 type Item = WaitingRound['round']['items'][number];
 
 const PROPOSAL: Record<string, { chip: string; blurb: string }> = {
+  spontaneous: { chip: '✨ Your call', blurb: 'You spotted it yourself — that is the best kind of noticing.' },
   coverage: { chip: '✨ Mention', blurb: 'A warm mention goes a long way — they have waited the longest.' },
   best:     { chip: '🎁 Gift',    blurb: 'A strong week deserves something real — a gift fits.' },
   improved: { chip: '🎖️ Token',  blurb: 'Climbing hard — a token of the comeback keeps the climb going.' },
@@ -115,7 +116,13 @@ export default function RecognitionWizard() {
   const openItem = (it: Item) => {
     setItem(it);
     setMessage('');
-    setGift(''); setGiftCustom(false); setGiftSource(''); setGiftRewardId('');
+    // 🎁 FX PR-6 — the engine's recommendation arrives preselected.
+    if (it.giftIdea) {
+      setGift(it.giftIdea.label); setGiftSource('store'); setGiftRewardId(it.giftIdea.rewardId);
+    } else {
+      setGift(''); setGiftSource(''); setGiftRewardId('');
+    }
+    setGiftCustom(false);
     setPts(0);
     setTheme(profile ? rememberedTheme(profile.uid) : 'classic');
     setErr('');
@@ -160,7 +167,7 @@ export default function RecognitionWizard() {
         kindLabel: kindAward,
         pointsLabel: previewCard.pointsLabel,
         category: 'Recognition',
-        roundDate: waiting?.round.date,
+        ...(item.kind !== 'spontaneous' && waiting ? { roundDate: waiting.round.date } : {}),
         ...(previewCard.gift ? {
           gift: previewCard.gift,
           giftMeta: {
@@ -224,7 +231,9 @@ export default function RecognitionWizard() {
       return (
         <div className="rounded-kaya border border-kaya-warm-dark bg-white px-4 py-3 mb-5">
           <p className="text-[12.5px] font-bold">✅ Nothing waiting — every round is answered.</p>
-          <p className="text-[11px] text-kaya-sand mt-0.5">Spotted something shine-worthy anyway? <Link href="/award" className="text-kaya-gold font-bold hover:underline">Celebrate spontaneously →</Link></p>
+          <button type="button" onClick={() => setStep('pick')} className="text-[11px] font-bold text-kaya-gold mt-0.5 hover:underline">
+            ✨ Spotted something shine-worthy anyway? Recognize someone →
+          </button>
         </div>
       );
     }
@@ -241,12 +250,43 @@ export default function RecognitionWizard() {
                 className="w-full text-left rounded-kaya-sm px-3 py-2.5 transition-colors hover:bg-white/25"
                 style={{ background: 'rgba(255,255,255,.13)', border: '1px solid rgba(255,255,255,.25)' }}>
                 <p className="text-[12.5px] font-bold">{it.emoji} {it.line}</p>
-                <p className="text-[10.5px] font-black mt-1"><span className="px-2 py-0.5 rounded-full" style={{ background: 'rgba(255,255,255,.25)' }}>proposed: {prop.chip}</span></p>
+                <p className="text-[10.5px] font-black mt-1">
+                  <span className="px-2 py-0.5 rounded-full" style={{ background: 'rgba(255,255,255,.25)' }}>proposed: {prop.chip}</span>
+                  {it.giftIdea && <span className="ml-1.5 px-2 py-0.5 rounded-full" style={{ background: 'rgba(255,255,255,.25)' }}>🎁 idea: {it.giftIdea.label}</span>}
+                </p>
               </button>
             );
           })}
         </div>
+        <button type="button" onClick={() => setStep('pick')}
+          className="mt-2.5 text-[11px] font-black opacity-85 underline">
+          ✨ or recognize someone else spontaneously
+        </button>
       </>,
+    );
+  }
+
+  // ✨ Spontaneous pick — deliberate recognition outside a round (cards
+  // stay wizard-only so they never lose meaning).
+  if (step === 'pick') {
+    return shell(
+      <>
+        <p className="text-[13px] font-black mb-1.5">✨ Who shone?</p>
+        <div className="flex gap-1.5 flex-wrap">
+          {children.map((c) => (
+            <button key={c.id} type="button"
+              onClick={() => openItem({
+                kidId: c.id, kidName: c.name.split(' ')[0], emoji: c.avatarEmoji || '🧒',
+                kind: 'spontaneous', line: `${c.name.split(' ')[0]} — you spotted something shine-worthy.`,
+              })}
+              className="px-3 py-2 rounded-kaya-sm text-[12.5px] font-black"
+              style={{ background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.3)' }}>
+              {c.avatarEmoji || '🧒'} {c.name.split(' ')[0]}
+            </button>
+          ))}
+        </div>
+      </>,
+      'list',
     );
   }
 
@@ -269,7 +309,8 @@ export default function RecognitionWizard() {
           placeholder={detailLine}
           className="w-full px-3 py-2 rounded-kaya-sm text-[13px] text-kaya-chocolate focus:outline-none" />
         <button type="button" onClick={() => setStep('gift')}
-          className="mt-2.5 h-10 px-5 rounded-full text-[12.5px] font-black" style={{ background: '#fff', color: '#6B3FE0' }}>
+          disabled={item.kind === 'spontaneous' && !message.trim()}
+          className="mt-2.5 h-10 px-5 rounded-full text-[12.5px] font-black disabled:opacity-50" style={{ background: '#fff', color: '#6B3FE0' }}>
           Continue → 🎁
         </button>
       </>,

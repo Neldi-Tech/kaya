@@ -46,6 +46,10 @@ type RoundItem = {
   kind: 'coverage' | 'best' | 'improved' | 'comeback';
   line: string;
   daysSince?: number;
+  /** 🎁 FX PR-6 — the engine's gift recommendation for this kid: nearest
+   *  within-reach store reward NOT given recently (the system remembers
+   *  via shineCards.giftMeta). */
+  giftIdea?: { label: string; rewardId: string };
 };
 
 function localParts(d: Date): { hour: number; dow: number; dayKey: string } {
@@ -122,10 +126,41 @@ async function handle(req: NextRequest) {
       // ── Children ────────────────────────────────────────────────
       const kidsSnap = await famRef.collection('children').get();
       const kids = kidsSnap.docs.map((d) => {
-        const k = d.data() as { name?: string; avatarEmoji?: string };
-        return { id: d.id, name: (k.name || 'Kid').split(' ')[0], emoji: k.avatarEmoji || '🧒' };
+        const k = d.data() as { name?: string; avatarEmoji?: string; totalPoints?: number };
+        return { id: d.id, name: (k.name || 'Kid').split(' ')[0], emoji: k.avatarEmoji || '🧒', totalPoints: k.totalPoints || 0 };
       });
       if (kids.length === 0) continue;
+
+      // 🎁 FX PR-6 — gift recommendation engine: active store rewards vs
+      // each kid's spendable, EXCLUDING gifts recorded on their cards in
+      // the last 45 days (the system remembers what was given).
+      const rewardsSnap = await famRef.collection('rewards').get();
+      const storeRewards = rewardsSnap.docs
+        .map((d) => ({ id: d.id, ...(d.data() as { title?: string; icon?: string; pointsCost?: number; active?: boolean; kind?: string }) }))
+        .filter((r) => r.active && r.kind !== 'family' && (r.pointsCost ?? 0) > 0);
+      const recentCardsSnap = await famRef.collection('shineCards')
+        .where('at', '>=', now.getTime() - 45 * 86400_000).get();
+      const givenRewardIds = new Map<string, Set<string>>();
+      for (const d of recentCardsSnap.docs) {
+        const c = d.data() as { kidId?: string; giftMeta?: { rewardId?: string } };
+        if (!c.kidId || !c.giftMeta?.rewardId) continue;
+        const set = givenRewardIds.get(c.kidId) || new Set<string>();
+        set.add(c.giftMeta.rewardId);
+        givenRewardIds.set(c.kidId, set);
+      }
+      const cfgFloor = (fam as { rewardsConfig?: { minPointsFloor?: number; minPointsFloorPerKid?: Record<string, number> } }).rewardsConfig;
+      const giftIdeaFor = (kidId: string): { label: string; rewardId: string } | undefined => {
+        const kid = kids.find((k) => k.id === kidId);
+        if (!kid) return undefined;
+        const floor = cfgFloor?.minPointsFloorPerKid?.[kidId] ?? cfgFloor?.minPointsFloor ?? 0;
+        const spendable = Math.max(0, kid.totalPoints - floor);
+        const given = givenRewardIds.get(kidId) || new Set<string>();
+        const fresh = storeRewards.filter((r) => !given.has(r.id));
+        const within = fresh.filter((r) => (r.pointsCost ?? 0) <= spendable).sort((a, b) => (b.pointsCost ?? 0) - (a.pointsCost ?? 0))[0];
+        const stretch = fresh.filter((r) => (r.pointsCost ?? 0) > spendable).sort((a, b) => (a.pointsCost ?? 0) - (b.pointsCost ?? 0))[0];
+        const pick = within || stretch;
+        return pick ? { label: `${pick.icon || '🎁'} ${pick.title || 'Reward'}`, rewardId: pick.id } : undefined;
+      };
 
       // ── Awards (last 60 days) → days-since-last per kid ─────────
       const since = new Date(now.getTime() - 60 * 86400_000);
@@ -167,6 +202,7 @@ async function handle(req: NextRequest) {
       if (covDays >= 4) {
         items.push({
           kidId: covKid.id, kidName: covKid.name, emoji: covKid.emoji, kind: 'coverage',
+          ...(giftIdeaFor(covKid.id) ? { giftIdea: giftIdeaFor(covKid.id) } : {}),
           daysSince: covDays === 999 ? undefined : covDays,
           line: covDays === 999
             ? `${covKid.name} — no award on record yet. First shine tonight?`
@@ -187,6 +223,7 @@ async function handle(req: NextRequest) {
         if (!ranked) return null;
         return {
           kidId: ranked.k.id, kidName: ranked.k.name, emoji: ranked.k.emoji, kind: 'best',
+          ...(giftIdeaFor(ranked.k.id) ? { giftIdea: giftIdeaFor(ranked.k.id) } : {}),
           line: `${ranked.k.name} — best week: ${ranked.r.pct}% Excellent across ${ranked.r.rated} ratings.`,
         };
       };
@@ -199,6 +236,7 @@ async function handle(req: NextRequest) {
         if (!ranked) return null;
         return {
           kidId: ranked.k.id, kidName: ranked.k.name, emoji: ranked.k.emoji, kind: 'improved',
+          ...(giftIdeaFor(ranked.k.id) ? { giftIdea: giftIdeaFor(ranked.k.id) } : {}),
           line: `${ranked.k.name} — most improved: ${ranked.a.pct}% → ${ranked.b.pct}% in two weeks. 🏵️`,
         };
       };
@@ -222,6 +260,7 @@ async function handle(req: NextRequest) {
           if (hadRough && cleanRun) {
             return {
               kidId: k.id, kidName: k.name, emoji: k.emoji, kind: 'comeback',
+              ...(giftIdeaFor(k.id) ? { giftIdea: giftIdeaFor(k.id) } : {}),
               line: `${k.name} — comeback: three clean days in a row after a rough patch. 💪`,
             };
           }
@@ -297,7 +336,7 @@ async function handle(req: NextRequest) {
         const to = audience.map((u) => u.email).filter((e): e is string => !!e);
         if (to.length > 0) {
           const rows = items.map((i) =>
-            `<tr><td style="padding:8px 12px;background:#F7F1E3;border-radius:10px;font-size:14px;color:#1E120B"><b>${i.emoji} ${i.line}</b></td></tr>
+            `<tr><td style="padding:8px 12px;background:#F7F1E3;border-radius:10px;font-size:14px;color:#1E120B"><b>${i.emoji} ${i.line}</b>${i.giftIdea ? `<br/><span style="font-size:12px;color:#A87D0F;font-weight:700">🎁 gift idea: ${i.giftIdea.label}</span>` : ''}</td></tr>
              <tr><td style="height:8px"></td></tr>`).join('');
           const html =
             `<div style="font-family:-apple-system,Segoe UI,Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px">
