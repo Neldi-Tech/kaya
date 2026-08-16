@@ -483,9 +483,43 @@ export async function listTreasures(kidId: string): Promise<Treasure[]> {
 }
 
 export async function getTreasure(treasureId: string): Promise<{
-  treasure: Treasure; events: TreasureEvent[]; private?: TreasurePrivate;
+  treasure: Treasure;
+  events: TreasureEvent[];
+  /** D4 · parents only. Absent for kids, siblings and helpers — the
+   *  gateway does not send it, so there is nothing to redact. */
+  private?: TreasurePrivate;
+  /** R5 · parent-only "roughly worth now". Never on a kid screen. */
+  worthNowCents?: number;
+  /** D4 · what the CHILD sees instead of money — the same value in the
+   *  effort it actually took. `pointsPerWeek` is 0 until there is enough
+   *  of their own history to make the weeks figure true. */
+  effort?: { points: number; pointsPerWeek: number };
 }> {
   return treasuresApi('get', { treasureId });
+}
+
+/** D5 · the parent's cross-kid view. Carries behaviour for every child
+ *  and, for parents only, value — but the rows are never ranked and no
+ *  total is ever compared between children. */
+export interface TreasuresRollUp {
+  kids: Array<{
+    kidId: string; name: string; emoji: string;
+    live: number; careScore: number; missing: number; lent: number; ownedIt: number;
+    checkDueOn: string; checkOverdueDays: number; checkItems: number; cadence: CheckCadence;
+    costCents: number; nowCents: number; currency: string;
+  }>;
+  warrantyDue: Array<{
+    treasureId: string; kidId: string; kidName: string;
+    name: string; endsOn: string; days: number;
+  }>;
+  thankYous: Array<{
+    treasureId: string; kidId: string; kidName: string;
+    name: string; giverName: string; kind: string; text: string;
+  }>;
+}
+
+export async function fetchTreasuresRollUp(): Promise<TreasuresRollUp> {
+  return treasuresApi<TreasuresRollUp>('roll-up');
 }
 
 /** One call that answers "what is open right now?" for a kid — the nav

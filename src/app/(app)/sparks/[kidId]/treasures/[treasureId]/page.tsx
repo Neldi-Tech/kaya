@@ -20,7 +20,7 @@ import { toDisplayDate } from '@/lib/dates';
 import {
   getTreasure, setStory, reportCondition, markFound, addSighting,
   updateTreasure, treasuresApi, categoryDef, daysBetween, todayIso,
-  lendTreasure, returnTreasure, extendBorrow,
+  lendTreasure, returnTreasure, extendBorrow, setTreasureValue, effortLine,
   STATUS_CHIP, STATUS_LABEL,
   type Treasure, type TreasureEvent, type TreasurePrivate,
 } from '@/lib/sparks/treasures';
@@ -49,6 +49,11 @@ export default function TreasureDetailPage() {
   const [t, setT] = useState<Treasure | null>(null);
   const [events, setEvents] = useState<TreasureEvent[]>([]);
   const [priv, setPriv] = useState<TreasurePrivate | null>(null);
+  const [worthNow, setWorthNow] = useState<number | null>(null);
+  const [effort, setEffort] = useState<{ points: number; pointsPerWeek: number } | null>(null);
+  const [valueOpen, setValueOpen] = useState(false);
+  const [valueMajor, setValueMajor] = useState('');
+  const [warrantyMonths, setWarrantyMonths] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -69,7 +74,11 @@ export default function TreasureDetailPage() {
         setT(r.treasure);
         setEvents(r.events || []);
         setPriv(r.private ?? null);
+        setWorthNow(r.worthNowCents ?? null);
+        setEffort(r.effort ?? null);
         setStoryText(r.treasure.story || '');
+        setValueMajor(r.private?.valueCents ? String(r.private.valueCents / 100) : '');
+        setWarrantyMonths(r.private?.warrantyMonths ? String(r.private.warrantyMonths) : '');
       })
       .catch((e) => setErr(e instanceof Error ? e.message : 'Could not open that'));
   }, [treasureId]);
@@ -203,6 +212,24 @@ export default function TreasureDetailPage() {
             </div>
           )}
 
+          {/* D4 · ⚖️ The Real Cost. The child never sees money; they see
+              the effort it actually took, in their own currency. This is
+              the whole educational move — "about six weeks of chores" is
+              a sentence a nine-year-old can act on. */}
+          {effort && effort.points > 0 && (
+            <div className="rounded-[14px] border border-[#ECE4D3] bg-white p-3 mt-2.5">
+              <div className="font-display font-extrabold text-[12.5px] text-[#0F1F44]">
+                ⚖️ What it&rsquo;s worth to you
+              </div>
+              <p className="text-[12px] font-extrabold text-[#0E6B5E] mt-1.5 m-0">
+                {effortLine(effort.points, effort.pointsPerWeek)}
+              </p>
+              <p className="text-[10.8px] font-bold text-[#5B6B8C] mt-1 m-0 leading-snug">
+                Things wear out — looking after it keeps it yours longer.
+              </p>
+            </div>
+          )}
+
           {/* 📖 The story */}
           <div className="rounded-[14px] border border-[#ECE4D3] bg-white p-3 mt-2.5">
             <div className="font-display font-extrabold text-[12.5px] text-[#0F1F44]">
@@ -268,14 +295,69 @@ export default function TreasureDetailPage() {
               </div>
               <p className="text-[11px] font-bold text-[#5B6B8C] leading-snug mt-1 m-0">
                 {priv?.valueCents
-                  ? `Recorded value: ${(priv.valueCents / 100).toLocaleString()} ${priv.currency || 'TZS'}`
+                  ? `Cost ${(priv.valueCents / 100).toLocaleString()} ${priv.currency || 'TZS'}`
                   : 'No value recorded yet.'}
+                {worthNow !== null
+                  ? ` · roughly ${(worthNow / 100).toLocaleString()} ${priv?.currency || 'TZS'} now`
+                  : ''}
                 {priv?.warrantyEndsOn ? ` · warranty to ${toDisplayDate(priv.warrantyEndsOn)}` : ''}
               </p>
               <p className="text-[10.5px] text-[#8A8471] italic leading-snug mt-1.5 m-0">
-                Never shown on a kid, sibling or helper screen. {kid?.name ?? 'They'} sees what it
-                took to earn, not what it cost.
+                Never shown on a kid, sibling or helper screen — the gateway doesn&rsquo;t send it.
+                {' '}{kid?.name ?? 'They'} sees what it took to earn, not what it cost.
+                {worthNow !== null && ' "Roughly now" is a coarse age curve, not a market price.'}
               </p>
+
+              {valueOpen ? (
+                <div className="mt-2">
+                  <input
+                    value={valueMajor}
+                    onChange={(e) => setValueMajor(e.target.value.replace(/[^0-9.]/g, ''))}
+                    inputMode="decimal"
+                    placeholder={`What it cost (${priv?.currency || 'TZS'})`}
+                    className="w-full text-[12px] rounded-[10px] border border-[#DDE3EC] bg-white p-2 outline-none"
+                  />
+                  <input
+                    value={warrantyMonths}
+                    onChange={(e) => setWarrantyMonths(e.target.value.replace(/[^0-9]/g, ''))}
+                    inputMode="numeric"
+                    placeholder="Warranty, in months (optional)"
+                    className="w-full mt-2 text-[12px] rounded-[10px] border border-[#DDE3EC] bg-white p-2 outline-none"
+                  />
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => run(async () => {
+                        await setTreasureValue(familyId!, kidId, treasureId, {
+                          valueCents: Math.round(Number(valueMajor || 0) * 100),
+                          ...(warrantyMonths ? { warrantyMonths: Number(warrantyMonths) } : {}),
+                        });
+                        setValueOpen(false);
+                      })}
+                      className="px-3.5 py-1.5 rounded-full text-white font-extrabold text-[11.5px]"
+                      style={{ background: '#1F2A44' }}
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setValueOpen(false)}
+                      className="px-3.5 py-1.5 rounded-full font-extrabold text-[11.5px] bg-[#EEF0F4] text-[#5B6B8C]"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setValueOpen(true)}
+                  className="mt-2 px-3.5 py-1.5 rounded-full font-extrabold text-[11.5px] bg-[#EEF0F4] text-[#5B6B8C]"
+                >
+                  {priv?.valueCents ? '✏️ Edit value' : '💰 Record what it cost'}
+                </button>
+              )}
             </div>
           )}
 

@@ -67,7 +67,7 @@ type Action =
   | 'lend' | 'return' | 'lend-extend'
   | 'private-set' | 'end'
   | 'thankyou-set' | 'thankyou-send' | 'reply-add'
-  | 'family-board' | 'people';
+  | 'family-board' | 'people' | 'roll-up';
 
 const ALL_ACTIONS: Action[] = [
   'list', 'get', 'today', 'create', 'update', 'delete',
@@ -76,7 +76,7 @@ const ALL_ACTIONS: Action[] = [
   'lend', 'return', 'lend-extend',
   'private-set', 'end',
   'thankyou-set', 'thankyou-send', 'reply-add',
-  'family-board', 'people',
+  'family-board', 'people', 'roll-up',
 ];
 
 // ── Small validators ────────────────────────────────────────────────
@@ -163,6 +163,49 @@ function nextCheckDue(
   const dow = new Date(Date.UTC(y, (m || 1) - 1, d || 1)).getUTCDay();
   due = addDays(due, (dayOfWeek - dow + 7) % 7);
   return due;
+}
+
+// ── The coarse age curve (D15 · F8) ─────────────────────────────────
+//
+// Mirrors `residualFraction` in lib/sparks/treasures.ts. Deliberately
+// crude: no market data, no FX, no resale pricing. The teaching point is
+// "things wear out", not an exact figure — and the falling number is
+// PARENT-ONLY, because a child reading "your bike is worth less now"
+// hears "your bike is getting worse" (R5).
+const LIFE_YEARS: Record<string, number> = {
+  wearable: 5, school: 3, outdoor: 6, tech: 4, toy: 5,
+  book: 10, music: 10, clothes: 2, keepsake: 0, other: 5,
+};
+
+function residual(categoryId: string, yearsOld: number): number {
+  const life = LIFE_YEARS[categoryId] ?? 5;
+  if (life <= 0) return 1;                       // keepsakes never fall
+  const worn = Math.min(1, Math.max(0, yearsOld / life));
+  return Math.max(0.15, 1 - worn * 0.85);        // a working thing is never worth nothing
+}
+
+function yearsSince(fromIso: string, toIso: string): number {
+  return Math.max(0, daysBetween(fromIso, toIso) / 365.25);
+}
+
+/** D4 · the CHILD's currency. Money is converted into the effort it
+ *  actually took, because "about 6 weeks of chores" is a sentence a
+ *  9-year-old can act on and "TZS 420,000" is not.
+ *
+ *  Rate comes from the family's own Hive config (`hpToHoneyRate` points
+ *  per honey coin, `honeyToCashRate` USD per coin), and the weeks come
+ *  from the child's OWN earning rate — lifetime points over the weeks
+ *  they've been in Kaya. One doc read, no query, no index. */
+function effortPointsFor(
+  valueCents: number, currency: string, hive: { hpToHoneyRate?: number; honeyToCashRate?: number } | undefined,
+): number {
+  const perCoin = Number(hive?.hpToHoneyRate) > 0 ? Number(hive?.hpToHoneyRate) : 100;
+  const usdPerCoin = Number(hive?.honeyToCashRate) > 0 ? Number(hive?.honeyToCashRate) : 1;
+  const pointsPerMajorUnit = perCoin / usdPerCoin;
+  // We do NOT convert currencies here — an approximate effort figure in
+  // the family's own money is honest; a wrong FX number is not.
+  void currency;
+  return Math.round((valueCents / 100) * pointsPerMajorUnit);
 }
 
 // ── Route ───────────────────────────────────────────────────────────
@@ -310,6 +353,95 @@ export async function POST(req: NextRequest) {
       // What the My Day / Workplan / nav badge count as "open" (D23).
       openCount: (due ? 1 : 0) + missing + dueBack,
     });
+  }
+
+  if (action === 'roll-up') {
+    // D5 · the parent's cross-kid view. It carries BEHAVIOUR (Keeper
+    // Score, what's open) and — for parents only — value. It never
+    // compares children on count or on value; the numbers sit on their
+    // own rows and are never ranked.
+    if (!isParent) return NextResponse.json({ error: 'parents-only' }, { status: 403 });
+    const kidsSnap = await famRef.collection('children').get();
+    const rows: Array<Record<string, unknown>> = [];
+    let warrantyDue: Array<Record<string, unknown>> = [];
+    let thankYous: Array<Record<string, unknown>> = [];
+
+    for (const kidDoc of kidsSnap.docs) {
+      const kidId = kidDoc.id;
+      const kid = kidDoc.data() as { name?: string; avatarEmoji?: string };
+      const tSnap = await col.where('kidId', '==', kidId).get();
+      if (tSnap.empty) continue;
+      const all: Array<Record<string, unknown> & { id: string }> =
+        tSnap.docs.map((d) => ({ ...(d.data() as Record<string, unknown>), id: d.id }));
+      const live = all.filter((t) => LIVE_ONLY.includes(String(t.status || 'kept')));
+      const adrift = live.filter((t) => Number(t.missedChecks || 0) >= 2).length;
+      const settings = await readSettings(privateCol, kidId);
+      const dueOn = nextCheckDue(settings.lastDoneOn, settings.cadence, settings.dayOfWeek, today);
+      const watch = live.filter((t) => t.watchlisted !== false);
+
+      // D4 · values, parents only. Summed per kid so a parent can see
+      // the shape of what they're replacing — never rendered anywhere a
+      // child can reach.
+      let costCents = 0;
+      let nowCents = 0;
+      let currency = 'TZS';
+      for (const t of all) {
+        const p = await privateCol.doc(String(t.id)).get();
+        if (!p.exists) continue;
+        const pv = p.data() as { valueCents?: number; currency?: string; purchasedOn?: string; warrantyEndsOn?: string };
+        const cents = Number(pv.valueCents || 0);
+        if (pv.currency) currency = pv.currency;
+        if (cents > 0 && !ENDED.includes(String(t.status))) {
+          costCents += cents;
+          const from = String(pv.purchasedOn || t.givenOn || today);
+          nowCents += Math.round(cents * residual(String(t.categoryId || 'other'), yearsSince(from, today)));
+        }
+        // 🧾 the pathway that pays for the module for the PARENT — one
+        // honoured warranty repays a year of subscription.
+        if (pv.warrantyEndsOn && daysBetween(today, String(pv.warrantyEndsOn)) <= 60
+            && daysBetween(today, String(pv.warrantyEndsOn)) >= 0) {
+          warrantyDue.push({
+            treasureId: t.id, kidId, kidName: kid.name || '',
+            name: String(t.name || ''), endsOn: String(pv.warrantyEndsOn),
+            days: daysBetween(today, String(pv.warrantyEndsOn)),
+          });
+        }
+      }
+
+      // F17 · thank-yous a child composed and a parent still has to send.
+      for (const t of all) {
+        const ty = t.thankYou as { status?: string; text?: string; kind?: string } | undefined;
+        if (ty && ty.status && ty.status !== 'sent') {
+          thankYous.push({
+            treasureId: t.id, kidId, kidName: kid.name || '',
+            name: String(t.name || ''), giverName: String(t.giverName || ''),
+            kind: String(ty.kind || 'text'), text: String(ty.text || ''),
+          });
+        }
+      }
+
+      rows.push({
+        kidId,
+        name: kid.name || 'Child',
+        emoji: kid.avatarEmoji || '🧒',
+        live: live.length,
+        careScore: live.length === 0 ? 100 : Math.round(((live.length - adrift) / live.length) * 100),
+        missing: live.filter((t) => t.status === 'lost').length,
+        lent: live.filter((t) => t.status === 'lent').length,
+        ownedIt: all.filter((t) => t.ownedIt).length,
+        checkDueOn: dueOn,
+        checkOverdueDays: Math.max(0, daysBetween(dueOn, today)),
+        checkItems: watch.length,
+        cadence: settings.cadence,
+        costCents,
+        nowCents,
+        currency,
+      });
+    }
+
+    warrantyDue = warrantyDue.sort((a, b) => Number(a.days) - Number(b.days)).slice(0, 6);
+    thankYous = thankYous.slice(0, 10);
+    return NextResponse.json({ kids: rows, warrantyDue, thankYous });
   }
 
   if (action === 'people') {
@@ -501,9 +633,41 @@ export async function POST(req: NextRequest) {
     // D4/F14 · the value sub-document is returned to PARENTS ONLY. A
     // kid, a sibling and a helper never receive the field at all — not
     // redacted client-side, simply never sent.
+    const pSnap = await privateCol.doc(treasureId).get();
+    const pv = (pSnap.exists ? pSnap.data() : {}) as {
+      valueCents?: number; currency?: string; purchasedOn?: string;
+    };
     if (isParent) {
-      const p = await privateCol.doc(treasureId).get();
-      if (p.exists) out.private = { treasureId, ...(p.data() as Record<string, unknown>) };
+      if (pSnap.exists) out.private = { treasureId, ...(pSnap.data() as Record<string, unknown>) };
+      // R5 · the falling number is parent-only. A child reading "worth
+      // less now" hears "getting worse".
+      if (Number(pv.valueCents) > 0) {
+        const from = String(pv.purchasedOn || t.givenOn || today);
+        out.worthNowCents = Math.round(
+          Number(pv.valueCents) * residual(String(t.categoryId || 'other'), yearsSince(from, today)),
+        );
+      }
+    }
+
+    // D4 · what the CHILD gets instead: the same value expressed in the
+    // effort it actually took. This is the whole educational move — a
+    // 9-year-old cannot act on "TZS 420,000" but can act on "about six
+    // weeks of chores" — and it carries no money figure at all, so it is
+    // safe on any screen.
+    if (Number(pv.valueCents) > 0) {
+      const famSnap = await famRef.get();
+      const hive = (famSnap.data() as { hiveConfig?: { hpToHoneyRate?: number; honeyToCashRate?: number } } | undefined)?.hiveConfig;
+      const points = effortPointsFor(Number(pv.valueCents), String(pv.currency || 'TZS'), hive);
+      const kidSnap = await famRef.collection('children').doc(kidId).get();
+      const kidData = (kidSnap.exists ? kidSnap.data() : {}) as { lifetimePoints?: number; totalPoints?: number; joinedOn?: string };
+      const lifetime = Math.max(Number(kidData.lifetimePoints || 0), Number(kidData.totalPoints || 0));
+      const weeksInKaya = kidData.joinedOn
+        ? Math.max(1, daysBetween(String(kidData.joinedOn), today) / 7)
+        : 0;
+      // Only claim a "weeks of chores" figure once there is enough of
+      // their own history to make it true. Otherwise: points only.
+      const pointsPerWeek = weeksInKaya >= 3 && lifetime > 0 ? lifetime / weeksInKaya : 0;
+      out.effort = { points, pointsPerWeek: Math.round(pointsPerWeek) };
     }
     return NextResponse.json(out);
   }
