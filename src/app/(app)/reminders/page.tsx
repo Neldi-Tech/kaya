@@ -24,6 +24,7 @@ import {
   type EmailGroup,
 } from '@/lib/reminders';
 import GiftBrain from '@/components/reminders/GiftBrain';
+import CatchUpBoard from '@/components/catchup/CatchUpBoard';
 import TimeCapsule from '@/components/reminders/TimeCapsule';
 
 // Reminders accent (the approved indigo from the v3 mock). Scoped to this
@@ -315,6 +316,9 @@ export default function RemindersPage() {
 
       {/* 🎁 Gift Brain — parents only (never spoil the surprise). */}
       {role === 'parent' && <GiftBrain occurrences={occurrences} children={children} />}
+
+      {/* ⏰ Catch-Up Board (2026-08-10) — what kids keep skipping, parents only. */}
+      {role === 'parent' && <CatchUpBoard />}
 
       {/* 📮 Time Capsule — everyone can seal a future message. */}
       {profile?.familyId && <TimeCapsule members={members} ownUid={uid} familyId={profile.familyId} />}
