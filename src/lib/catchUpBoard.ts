@@ -66,6 +66,9 @@ export interface KidCatchUps {
    *  (chores re-ticked, reflections written after a miss, quest steps
    *  finished late). The celebration number. */
   cleared: number;
+  /** R2-3 · 🧹 helpers-style chores accomplishment for the period —
+   *  done ÷ due of the chores lane alone; null when none were due. */
+  choresPct: number | null;
   /** Open catch-ups, worst first. UI caps what it shows. */
   items: CatchUpItem[];
 }
@@ -85,12 +88,15 @@ function daysBack(n: number): Date {
 
 const DOW_KEYS: DayOfWeek[] = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 
-/** This week = 7 days ending yesterday; prior week = the 7 before. */
-function windows(): { thisWeek: Date[]; prevWeek: Date[] } {
+/** R2-3: the standard period — 7 (default) / 14 / 30 days, always
+ *  ending yesterday; the prior window (same length) drives the trend. */
+export type CatchUpPeriod = 7 | 14 | 30;
+
+function windows(days: CatchUpPeriod = 7): { thisWeek: Date[]; prevWeek: Date[] } {
   const thisWeek: Date[] = [];
   const prevWeek: Date[] = [];
-  for (let i = 7; i >= 1; i--) thisWeek.push(daysBack(i));
-  for (let i = 14; i >= 8; i--) prevWeek.push(daysBack(i));
+  for (let i = days; i >= 1; i--) thisWeek.push(daysBack(i));
+  for (let i = days * 2; i >= days + 1; i--) prevWeek.push(daysBack(i));
   return { thisWeek, prevWeek };
 }
 
@@ -140,7 +146,7 @@ function choreLane(
       key: `chore:${item.id}`,
       icon: item.icon || '🧹',
       label: item.label,
-      detail: `Due ${outcomes.length}× this week · done ${outcomes.filter(Boolean).length}${streak >= 2 ? ` · skipped ${streak} in a row` : ''}`,
+      detail: `Due ${outcomes.length}× this period · done ${outcomes.filter(Boolean).length}${streak >= 2 ? ` · skipped ${streak} in a row` : ''}`,
       streak,
       href: '/workplan',
     });
@@ -163,7 +169,7 @@ async function reflectionLane(
     const p = profile as { reflection_reminders?: { active_days?: DayOfWeek[] } } | null;
     const activeDays = p?.reflection_reminders?.active_days
       ?? DEFAULT_REFLECTION_REMINDERS.active_days;
-    const entries = await listReflections(familyId, childId, 30).catch(() => []);
+    const entries = await listReflections(familyId, childId, 70).catch(() => []);
     const have = new Set(entries.map((e) => (e as { date?: string }).date).filter(Boolean));
 
     const count = (win: Date[]): LaneTotals => {
@@ -309,8 +315,9 @@ export interface CatchUpKidInput {
 export async function computeKidCatchUps(
   familyId: string,
   kid: CatchUpKidInput,
+  period: CatchUpPeriod = 7,
 ): Promise<KidCatchUps> {
-  const { thisWeek, prevWeek } = windows();
+  const { thisWeek, prevWeek } = windows(period);
 
   const [items, completionRows] = await Promise.all([
     listKidWorkplanItems(familyId, kid.id).catch(() => [] as KidWorkplanItem[]),
@@ -334,6 +341,15 @@ export async function computeKidCatchUps(
   const prevDue = choresPrev.totals.due + reflections.prev.due;
   const prevDone = choresPrev.totals.done + reflections.prev.done;
 
+  // R2-3 fix ("Reflections not reading"): the open list is LANE-DIVERSE —
+  // round-robin one item per lane so a pile of chores can never crowd the
+  // other lanes out of a capped view. Within a lane, worst-first order kept.
+  const lanes = [chores.open, reflections.open, quests.open, treasures.open];
+  const interleaved: CatchUpItem[] = [];
+  for (let i = 0; lanes.some((l) => i < l.length); i++) {
+    for (const l of lanes) if (i < l.length) interleaved.push(l[i]);
+  }
+
   return {
     childId: kid.id,
     name: kid.name,
@@ -343,16 +359,25 @@ export async function computeKidCatchUps(
     due,
     done,
     cleared,
-    items: [...chores.open, ...reflections.open, ...quests.open, ...treasures.open],
+    choresPct: chores.totals.due > 0 ? Math.round((chores.totals.done / chores.totals.due) * 100) : null,
+    items: interleaved,
   };
 }
 
 export async function computeFamilyCatchUps(
   familyId: string,
   kids: CatchUpKidInput[],
+  period: CatchUpPeriod = 7,
 ): Promise<KidCatchUps[]> {
-  return Promise.all(kids.map((k) => computeKidCatchUps(familyId, k)));
+  return Promise.all(kids.map((k) => computeKidCatchUps(familyId, k, period)));
 }
+
+/** Shared UI helper — the period pills every surface renders. */
+export const CATCHUP_PERIODS: Array<{ days: CatchUpPeriod; label: string }> = [
+  { days: 7, label: 'Last 7 days' },
+  { days: 14, label: '14 days' },
+  { days: 30, label: '30 days' },
+];
 
 /** 🟢 ≥80 · 🟡 50–79 · 🔴 <50 — shared by every surface. */
 export function scoreMeta(pct: number | null): { emoji: string; cls: 'green' | 'amber' | 'red' | 'none'; label: string } {

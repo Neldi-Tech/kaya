@@ -13,8 +13,8 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
-  computeKidCatchUps, computeFamilyCatchUps, scoreMeta,
-  type KidCatchUps,
+  computeKidCatchUps, computeFamilyCatchUps, scoreMeta, CATCHUP_PERIODS,
+  type KidCatchUps, type CatchUpPeriod,
 } from '@/lib/catchUpBoard';
 
 const SCORE_CLS: Record<string, string> = {
@@ -32,6 +32,7 @@ export default function CatchUpStrip({ childId, showFamilyScores = false, classN
 }) {
   const { family, children } = useFamily();
   const [mine, setMine] = useState<KidCatchUps | null>(null);
+  const [period, setPeriod] = useState<CatchUpPeriod>(7);
   const [sibs, setSibs] = useState<KidCatchUps[] | null>(null);
 
   const familyWide = family?.catchUpVisibility === 'family';
@@ -41,17 +42,17 @@ export default function CatchUpStrip({ childId, showFamilyScores = false, classN
     const me = children.find((c) => c.id === childId);
     if (!me) return;
     let dead = false;
-    computeKidCatchUps(family.id, { id: me.id, name: me.name, avatarEmoji: me.avatarEmoji })
+    computeKidCatchUps(family.id, { id: me.id, name: me.name, avatarEmoji: me.avatarEmoji }, period)
       .then((r) => { if (!dead) setMine(r); })
       .catch(() => { if (!dead) setMine(null); });
     if (showFamilyScores && familyWide && children.length > 1) {
       computeFamilyCatchUps(family.id, children.filter((c) => c.id !== childId)
-        .map((c) => ({ id: c.id, name: c.name, avatarEmoji: c.avatarEmoji })))
+        .map((c) => ({ id: c.id, name: c.name, avatarEmoji: c.avatarEmoji })), period)
         .then((r) => { if (!dead) setSibs(r); })
         .catch(() => { if (!dead) setSibs(null); });
     }
     return () => { dead = true; };
-  }, [family?.id, childId, children, showFamilyScores, familyWide]);
+  }, [family?.id, childId, children, showFamilyScores, familyWide, period]);
 
   if (!mine) return null;
   const meta = scoreMeta(mine.onTrackPct);
@@ -64,10 +65,24 @@ export default function CatchUpStrip({ childId, showFamilyScores = false, classN
     <div className={`bg-kaya-cream border-2 border-kaya-gold/70 rounded-kaya-lg p-4 ${className}`}>
       <div className="flex items-center gap-2 flex-wrap">
         <p className="font-display font-black text-[14px] flex-1">⏰ Your catch-ups, {firstName}</p>
+        {mine.choresPct != null && (
+          <span className="text-[10.5px] font-black px-2 py-1 rounded-full bg-kaya-warm text-kaya-chocolate">🧹 {mine.choresPct}%</span>
+        )}
         <span className={`text-[11.5px] font-black px-2.5 py-1 rounded-full ${SCORE_CLS[meta.cls]}`}>
           {meta.emoji} {meta.label}
         </span>
       </div>
+      {showFamilyScores && (
+        <div className="flex gap-1.5 mt-2">
+          {CATCHUP_PERIODS.map((p) => (
+            <button key={p.days} type="button" onClick={() => setPeriod(p.days)}
+              aria-pressed={period === p.days}
+              className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold border-2 transition-colors ${
+                period === p.days ? 'bg-kaya-chocolate text-kaya-gold-light border-kaya-chocolate' : 'bg-white text-kaya-chocolate border-kaya-warm-dark'
+              }`}>{p.label}</button>
+          ))}
+        </div>
+      )}
 
       {mine.items.length === 0 ? (
         <p className="text-[12.5px] text-kaya-chocolate mt-2">
