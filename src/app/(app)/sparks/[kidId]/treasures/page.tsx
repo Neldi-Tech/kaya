@@ -222,6 +222,12 @@ export default function TreasuresAreaPage() {
                   🤝 {lent.length} lent out
                 </span>
               )}
+              <Link
+                href={`/sparks/${kidId}/treasures/wishes`}
+                className="px-3.5 py-2 rounded-full font-extrabold text-[12px] no-underline bg-[#FFF1C9] text-[#8A6800]"
+              >
+                ✨ Wish Shelf
+              </Link>
               {isParent && (
                 <Link
                   href={`/sparks/${kidId}/treasures/setup`}

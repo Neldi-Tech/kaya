@@ -67,7 +67,8 @@ type Action =
   | 'lend' | 'return' | 'lend-extend'
   | 'private-set' | 'end'
   | 'thankyou-set' | 'thankyou-send' | 'reply-add'
-  | 'family-board' | 'people' | 'roll-up';
+  | 'family-board' | 'people' | 'roll-up'
+  | 'wish-list' | 'wish-add' | 'wish-remove';
 
 const ALL_ACTIONS: Action[] = [
   'list', 'get', 'today', 'create', 'update', 'delete',
@@ -77,6 +78,7 @@ const ALL_ACTIONS: Action[] = [
   'private-set', 'end',
   'thankyou-set', 'thankyou-send', 'reply-add',
   'family-board', 'people', 'roll-up',
+  'wish-list', 'wish-add', 'wish-remove',
 ];
 
 // ── Small validators ────────────────────────────────────────────────
@@ -353,6 +355,79 @@ export async function POST(req: NextRequest) {
       // What the My Day / Workplan / nav badge count as "open" (D23).
       openCount: (due ? 1 : 0) + missing + dueBack,
     });
+  }
+
+  // ── ✨ The Wish Shelf → 🎁 Gift Brain (pathway 12) ────────────────
+  //
+  // The loop that closes the circle: wish → gift → treasure →
+  // thank-you → care → hand-on. A child adds what they hope for; the
+  // gateway MIRRORS it into the family's existing `giftIdeas` stash, so
+  // Gift Brain surfaces it 14 days before their birthday and the gift
+  // is something they actually wanted.
+  //
+  // The mirror only ever flows ONE way. Gift Brain is parents-only by
+  // design (it must not spoil a surprise), so nothing a parent writes
+  // there is ever readable from here.
+  if (action === 'wish-list' || action === 'wish-add' || action === 'wish-remove') {
+    const kidId = str(body.kidId, 80);
+    if (!kidId) return NextResponse.json({ error: 'bad-kid' }, { status: 400 });
+    const access = await accessFor(famRef, { isParent, isHelper, uid, viewerChildId }, kidId);
+    // Only the owner and their parents — a sibling must never read a
+    // wish list, and a helper has no business in it either.
+    if (!isParent && viewerChildId !== kidId) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    }
+    void access;
+    const wishesCol = famRef.collection('sparks_wishes');
+
+    if (action === 'wish-add') {
+      const text = str(body.text, 160);
+      if (!text) return NextResponse.json({ error: 'empty' }, { status: 400 });
+      const existing = await wishesCol.where('kidId', '==', kidId).get();
+      if (existing.size >= 30) {
+        return NextResponse.json({ error: 'wish-shelf-full' }, { status: 409 });
+      }
+      const ref = await wishesCol.add({
+        kidId, text, at: Date.now(), byName: actorName, on: today,
+      });
+      // Mirror into Gift Brain so the parent sees it at birthday time.
+      const kidSnap = await famRef.collection('children').doc(kidId).get();
+      const kidNameStr = str((kidSnap.data() as { name?: string } | undefined)?.name, 60) || 'Child';
+      await famRef.collection('giftIdeas').add({
+        familyId,
+        personName: kidNameStr,
+        linkedChildId: kidId,
+        text,
+        createdByUid: uid,
+        createdByName: actorName,
+        createdAt: Date.now(),
+        // So a parent can tell at a glance this came from the child.
+        source: 'wish_shelf',
+        wishId: ref.id,
+      }).catch(() => { /* the wish is saved; the mirror can be retried */ });
+      return NextResponse.json({ id: ref.id });
+    }
+
+    if (action === 'wish-remove') {
+      const wishId = str(body.wishId, 80);
+      if (!wishId) return NextResponse.json({ error: 'bad-wish' }, { status: 400 });
+      const wRef = wishesCol.doc(wishId);
+      const wSnap = await wRef.get();
+      if (!wSnap.exists) return NextResponse.json({ ok: true });
+      if (String((wSnap.data() as { kidId?: string }).kidId) !== kidId) {
+        return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+      }
+      await wRef.delete();
+      const mirrored = await famRef.collection('giftIdeas').where('wishId', '==', wishId).get();
+      for (const d of mirrored.docs) await d.ref.delete().catch(() => {});
+      return NextResponse.json({ ok: true });
+    }
+
+    const snap = await wishesCol.where('kidId', '==', kidId).get();
+    const wishes = snap.docs
+      .map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) }))
+      .sort((a, b) => Number((b as { at?: number }).at || 0) - Number((a as { at?: number }).at || 0));
+    return NextResponse.json({ wishes });
   }
 
   if (action === 'roll-up') {

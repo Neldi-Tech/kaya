@@ -720,6 +720,37 @@ export async function endTreasure(
   return r;
 }
 
+// ── ✨ The Wish Shelf (pathway 12) ──────────────────────────────────
+//
+// Wish → gift → treasure → thank-you → care → hand-on. A child adds
+// what they hope for; the gateway mirrors it into the family's existing
+// 🎁 Gift Brain stash, which already surfaces ideas 14 days before a
+// birthday. The mirror flows ONE way only — Gift Brain is parents-only
+// by design, because it must never spoil a surprise.
+
+export interface Wish {
+  id: string;
+  kidId: string;
+  text: string;
+  at: number;
+  on: string;
+  byName: string;
+}
+
+export async function listWishes(kidId: string): Promise<Wish[]> {
+  const { wishes } = await treasuresApi<{ wishes: Wish[] }>('wish-list', { kidId });
+  return wishes || [];
+}
+
+export async function addWish(kidId: string, text: string): Promise<string> {
+  const { id } = await treasuresApi<{ id: string }>('wish-add', { kidId, text });
+  return id;
+}
+
+export async function removeWish(kidId: string, wishId: string): Promise<void> {
+  await treasuresApi('wish-remove', { kidId, wishId });
+}
+
 // ── Selectors the pages share ───────────────────────────────────────
 
 export const liveTreasures = (list: Treasure[]) => list.filter((t) => !isEnded(t.status));
