@@ -14,6 +14,7 @@ import {
   KID_CATEGORIES, categoryMeta, KID_DAY_LABELS, KID_SCHOOL_STARTER,
   sortKidItemsByTime, formatTimeLocal, todayDateString,
 } from '@/lib/kidWorkplan';
+import { deleteField } from 'firebase/firestore';
 import { Trash2, Plus, Sparkles, Check, Copy, PauseCircle } from 'lucide-react';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useLocale } from '@/lib/useLocale';
@@ -172,7 +173,14 @@ export default function KidWorkplanEditor({ familyId, childId, childName, parent
     setBusy(true);
     setErr(null);
     try {
-      await updateKidWorkplanItem(familyId, childId, editingId, buildPayload(editDraft));
+      const payload = buildPayload(editDraft) as Record<string, unknown>;
+      // R2-4 fix: clearing points (empty / 0 / "No points") must actively
+      // DELETE the field — omitting it left the old value in Firestore,
+      // so points could be added but never removed.
+      if (!(editDraft.points && Number(editDraft.points) > 0)) {
+        payload.pointsValue = deleteField();
+      }
+      await updateKidWorkplanItem(familyId, childId, editingId, payload);
       setEditingId(null);
     } catch (e) {
       setErr(saveError(e));
@@ -558,9 +566,18 @@ function DraftForm({ draft, setDraft }: { draft: Draft; setDraft: (d: Draft) => 
         </div>
         <div>
           <label className="block text-[9px] font-black uppercase tracking-wider text-hive-muted mb-1">Points (optional)</label>
-          <input type="number" min={0} value={draft.points} onChange={(e) => set({ points: e.target.value })}
-            placeholder="0"
-            className="w-full h-10 px-3 rounded-hive border border-hive-line bg-white text-[13px] font-bold focus:outline-none focus:border-hive-navy" />
+          <div className="flex gap-1.5">
+            {/* R2-4 — "No points" is a first-class choice: some chores are
+                simply part of family life. */}
+            <button type="button" onClick={() => set({ points: '' })}
+              aria-pressed={!(draft.points && Number(draft.points) > 0)}
+              className={`h-10 px-2.5 rounded-hive border text-[11px] font-black whitespace-nowrap transition-colors ${
+                !(draft.points && Number(draft.points) > 0) ? 'bg-hive-navy text-white border-hive-navy' : 'bg-white text-hive-muted border-hive-line'
+              }`}>🚫 No points</button>
+            <input type="number" min={0} value={draft.points} onChange={(e) => set({ points: e.target.value })}
+              placeholder="0"
+              className="w-full h-10 px-3 rounded-hive border border-hive-line bg-white text-[13px] font-bold focus:outline-none focus:border-hive-navy" />
+          </div>
         </div>
       </div>
 
