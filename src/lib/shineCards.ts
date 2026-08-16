@@ -88,6 +88,8 @@ export const setShineCardPost = (familyId: string, cardId: string, postId: strin
   recognitionApi('card-set-post', { familyId, cardId, postId });
 export const emailShineCard = (familyId: string, cardId: string, imageUrl: string) =>
   recognitionApi<{ ok: true; count: number }>('card-email', { familyId, cardId, imageUrl });
+export const deleteShineCard = (familyId: string, cardId: string) =>
+  recognitionApi('card-delete', { familyId, cardId });
 export const getRound = (familyId: string, date: string) =>
   recognitionApi<{ ok: true; round: RecognitionRound | null }>('round-get', { familyId, date })
     .then((r) => r.round);
@@ -99,7 +101,7 @@ export interface RecognitionRound {
   id: string;
   date: string;
   lens: 'best' | 'improved' | 'comeback';
-  items: Array<{ kidId: string; kidName: string; emoji: string; kind: string; line: string; daysSince?: number }>;
+  items: Array<{ kidId: string; kidName: string; emoji: string; kind: string; line: string; daysSince?: number; giftIdea?: { label: string; rewardId: string } }>;
   sentTo: string[];
 }
 

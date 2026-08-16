@@ -19,7 +19,7 @@ export const maxDuration = 30;
 
 type Action =
   | 'card-create' | 'card-list' | 'card-theme' | 'card-note' | 'card-echo'
-  | 'card-set-post' | 'card-email' | 'round-get' | 'round-list';
+  | 'card-set-post' | 'card-email' | 'card-delete' | 'round-get' | 'round-list';
 
 const CARD_LIMIT = 120;
 
@@ -183,6 +183,17 @@ export async function POST(req: NextRequest) {
         const { cardId, theme } = body;
         if (!cardId || !theme) return NextResponse.json({ error: 'bad-request' }, { status: 400 });
         await cardsCol.doc(String(cardId)).update({ theme: String(theme) });
+        return NextResponse.json({ ok: true });
+      }
+
+      case 'card-delete': {
+        // 🗑 FX PR-6 — remove a WRONG recognition card (parents only).
+        // The underlying award/points are untouched — this deletes the
+        // memory record, not the rail entry.
+        if (!isParent) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+        const { cardId } = body;
+        if (!cardId) return NextResponse.json({ error: 'bad-request' }, { status: 400 });
+        await cardsCol.doc(String(cardId)).delete();
         return NextResponse.json({ ok: true });
       }
 

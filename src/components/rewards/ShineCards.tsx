@@ -13,7 +13,7 @@ import {
   type ShineCard, type ShineTheme, SHINE_THEMES,
   shineCardSvg, shineCardPngBlob, downloadShineCard,
   setShineCardTheme, addShineCardNote, sendShineCardEcho, listShineCards,
-  setShineCardPost, emailShineCard, rememberTheme,
+  setShineCardPost, emailShineCard, deleteShineCard, rememberTheme,
 } from '@/lib/shineCards';
 import { getFamilyMembers, type UserProfile } from '@/lib/firestore';
 import { reservePost, finalizePost, uploadProcessedPhoto, type Post } from '@/lib/moments';
@@ -345,6 +345,24 @@ export function ShineWall({ familyId, childId, childName, title }: {
                 <img src={svgDataUrl(openCard)} alt={`Shine Card ${openCard.n}`} className="w-full rounded-kaya border border-kaya-warm-dark/50" />
                 {/* HD PR-B — full share row on the Wall too (adults). */}
                 <CardShareRow familyId={familyId} card={openCard} compact />
+                {profile?.role === 'parent' && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={async () => {
+                      // 🗑 FX PR-6 — remove a WRONG recognition. Points stay.
+                      if (!window.confirm(`Delete Shine Card №${openCard.n}? The points/award stay — only the card is removed.`)) return;
+                      setBusy(true);
+                      try { await deleteShineCard(familyId, openCard.id); setOpenCard(null); await load(); }
+                      catch { /* retryable */ }
+                      setBusy(false);
+                    }}
+                    className="mt-2 text-[11px] font-bold text-kaya-rose hover:underline disabled:opacity-50"
+                    style={{ color: '#E06A7B' }}
+                  >
+                    🗑 Delete this card (wrong recognition)
+                  </button>
+                )}
               </>
             ) : (
               <div className="rounded-kaya border-[1.5px] border-dashed border-kaya-warm-dark bg-kaya-cream/60 p-4 min-h-[240px]">
