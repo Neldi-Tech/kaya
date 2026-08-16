@@ -36,6 +36,7 @@ import {
   getRatingsInDateRange, getAwardsInDateRange, getRedemptions,
   Meeting, ReflectionMode, todayString,
 } from '@/lib/firestore';
+import { computeFamilyCatchUps, type KidCatchUps } from '@/lib/catchUpBoard';
 import { computeWindowRange, computeReview, computeDayScores } from '@/lib/meetingReview';
 import SundaySurpriseStep, { type SurpriseRecord } from '@/components/meetings/SundaySurpriseStep';
 import { giveAward } from '@/lib/firestore';
@@ -75,6 +76,7 @@ const STEPS = [
   { id: 'gratitude',     title: 'Gratitude Circle',   emoji: '🙏', sub: 'What is each of us thankful for today?' },
   { id: 'celebrate',     title: 'Celebrate the Wins', emoji: '🎉', sub: 'Look back at the week — points, badges, moments worth a cheer.' },
   { id: 'appreciations', title: 'Appreciations',      emoji: '💛', sub: 'Something kind, helpful, or brave you noticed this week.' },
+  { id: 'catchup',       title: 'Catch-Up Corner',    emoji: '⏰', sub: 'Celebrate what got cleared, face what\'s still open — then promise the catch-up.' },
   { id: 'goals',         title: 'Goals Review',       emoji: '🎯', sub: 'Mark last week\'s goals done, revisit older outstanding ones, then commit for next week.' },
   { id: 'openfloor',     title: 'Open Floor',         emoji: '🗣️', sub: 'Topics anyone raised — discuss together; the leader keeps the notes.' },
   { id: 'reflection',    title: 'Closing Reflection', emoji: '✨', sub: 'Pick one — or all — of story, song, or family prayer.' },
@@ -133,6 +135,8 @@ export default function MeetingPresenterPage() {
     const filteredRest = rest.filter((s) => {
       if (s.id === 'openingword') return openingWordOn;
       if (s.id === 'openfloor') return family?.meetingSetup?.openFloorEnabled === true;
+      // ⏰ Catch-Up Corner (2026-08-10) — own flag, default ON (absent=on).
+      if (s.id === 'catchup') return family?.meetingSetup?.catchUpCornerEnabled !== false;
       if (s.id === 'surprise') return surpriseOn;
       if (!enabled || enabled.length === 0) return true;
       return enabledSet.has(s.id);
@@ -147,11 +151,19 @@ export default function MeetingPresenterPage() {
     const withCustom: StepDef[] = customOn
       ? [...filteredRest, { id: 'custom', title: (cs!.name || '').trim(), emoji: cs!.emoji || '⭐', sub: 'Your family\u2019s own moment — the leader keeps the notes.' }]
       : [...filteredRest];
-    const REORDERABLE = ['appreciations', 'goals', 'openfloor', 'reflection', 'custom'];
+    const REORDERABLE = ['appreciations', 'catchup', 'goals', 'openfloor', 'reflection', 'custom'];
     const savedOrder = family?.meetingSetup?.agendaOrder;
-    const tailOrder = (savedOrder && savedOrder.length > 0)
-      ? [...savedOrder.filter((id) => REORDERABLE.includes(id)), ...REORDERABLE.filter((id) => !savedOrder.includes(id))]
-      : REORDERABLE;
+    let tailOrder = (savedOrder && savedOrder.length > 0)
+      ? [...savedOrder.filter((id) => REORDERABLE.includes(id)), ...REORDERABLE.filter((id) => !savedOrder.includes(id) && id !== 'catchup')]
+      : REORDERABLE.filter((id) => id !== 'catchup');
+    // 'catchup' slots BEFORE goals for families with saved orders from
+    // before it existed (append would bury it at the end).
+    if (!tailOrder.includes('catchup')) {
+      const gi = tailOrder.indexOf('goals');
+      tailOrder = gi >= 0
+        ? [...tailOrder.slice(0, gi), 'catchup', ...tailOrder.slice(gi)]
+        : [...tailOrder, 'catchup'];
+    }
     const head = withCustom.filter((st) => !REORDERABLE.includes(st.id) && st.id !== 'surprise');
     const tail = tailOrder.map((id) => withCustom.find((st) => st.id === id)).filter((st): st is StepDef => !!st);
     const last = withCustom.filter((st) => st.id === 'surprise');
@@ -162,7 +174,7 @@ export default function MeetingPresenterPage() {
       const custom = (labels[s.id] || '').trim();
       return custom ? { ...s, title: custom } : s;
     });
-  }, [family?.meetingSetup?.agendaSteps, family?.meetingSetup?.stepLabels, family?.meetingSetup?.openingWordEnabled, family?.meetingSetup?.sundaySurpriseEnabled, family?.meetingSetup?.openFloorEnabled, family?.meetingSetup?.agendaOrder, family?.meetingSetup?.customStep]);
+  }, [family?.meetingSetup?.agendaSteps, family?.meetingSetup?.stepLabels, family?.meetingSetup?.openingWordEnabled, family?.meetingSetup?.sundaySurpriseEnabled, family?.meetingSetup?.openFloorEnabled, family?.meetingSetup?.agendaOrder, family?.meetingSetup?.customStep, family?.meetingSetup?.catchUpCornerEnabled]);
 
   // Step index — persisted in sessionStorage so navigating away (e.g.
   // "Open Points Review" → /meetings/review → browser Back) returns
@@ -585,6 +597,11 @@ export default function MeetingPresenterPage() {
 
   // 🧩 Custom 8th step (OF-3) — the leader's notes on the family's own step.
   const [customStepNotes, setCustomStepNotes] = useState('');
+
+  // ⏰ Catch-Up Corner (2026-08-10) — the computed board rows for the
+  // record + each kid's promise (also appended into `goals` on commit).
+  const [catchUpData, setCatchUpData] = useState<Record<string, { cleared: number; open: string[] }>>({});
+  const [catchUpPromises, setCatchUpPromises] = useState<Record<string, string>>({});
   useEffect(() => {
     if (openFloorSeeded || family?.meetingSetup?.openFloorEnabled !== true) return;
     if (submissions.length === 0 && recentMeetings.length === 0) return;
@@ -892,6 +909,13 @@ export default function MeetingPresenterPage() {
           ...(family?.meetingSetup?.customStep?.emoji ? { emoji: family.meetingSetup.customStep.emoji } : {}),
           ...(customStepNotes.trim() ? { notes: customStepNotes.trim() } : {}),
         },
+      } : {}),
+      ...(Object.keys(catchUpData).length > 0 ? {
+        catchUps: Object.fromEntries(Object.entries(catchUpData).map(([kidId, d]) => [kidId, {
+          cleared: d.cleared,
+          open: d.open,
+          ...(catchUpPromises[kidId]?.trim() ? { promise: catchUpPromises[kidId].trim() } : {}),
+        }])),
       } : {}),
       ...(pinkyPromised.size > 0 ? { pinkyPromised: Array.from(pinkyPromised) } : {}),
       ...(openingWordDone ? {
@@ -1352,6 +1376,29 @@ export default function MeetingPresenterPage() {
                   liveValues={appreciations}
                   onChangeLive={(id, v) => setAppreciations({ ...appreciations, [id]: v })}
                   placeholder="I appreciate @name for…"
+                />
+              )}
+
+              {step.id === 'catchup' && family && (
+                <CatchUpCornerStep
+                  familyId={family.id}
+                  kids={children.map((c) => ({ id: c.id, name: c.name, avatarEmoji: c.avatarEmoji }))}
+                  pins={family.catchUpPins || {}}
+                  promises={catchUpPromises}
+                  onLoaded={setCatchUpData}
+                  onPromise={(kidId, text) => {
+                    setCatchUpPromises((prev) => ({ ...prev, [kidId]: text }));
+                    // The promise IS a goal — merge into the kid's goal line
+                    // so Goals Review commits + next week checks it.
+                    if (text.trim()) {
+                      setGoals((prev) => ({
+                        ...prev,
+                        [kidId]: prev[kidId]?.trim()
+                          ? (prev[kidId].includes(text.trim()) ? prev[kidId] : `${prev[kidId]} · ⏰ ${text.trim()}`)
+                          : `⏰ Catch up: ${text.trim()}`,
+                      }));
+                    }
+                  }}
                 />
               )}
 
@@ -3764,6 +3811,103 @@ function AnthemCard({ familyId }: { familyId: string }) {
       >
         🎵 Play our anthem
       </a>
+    </div>
+  );
+}
+
+// ── ⏰ Catch-Up Corner (approved 2026-08-10 · CU-4) ────────────────────
+// Celebrate what got cleared FIRST, face what's still open (max two per
+// kid — parent 🗣️ pins get priority), then the kid promises ONE catch-up
+// which merges straight into their next-week goal.
+function CatchUpCornerStep({ familyId, kids, pins, promises, onLoaded, onPromise }: {
+  familyId: string;
+  kids: Array<{ id: string; name: string; avatarEmoji?: string }>;
+  pins: Record<string, Array<{ key: string; icon: string; label: string }>>;
+  promises: Record<string, string>;
+  onLoaded: (data: Record<string, { cleared: number; open: string[] }>) => void;
+  onPromise: (kidId: string, text: string) => void;
+}) {
+  const [rows, setRows] = useState<KidCatchUps[] | null>(null);
+
+  useEffect(() => {
+    let dead = false;
+    computeFamilyCatchUps(familyId, kids).then((r) => {
+      if (dead) return;
+      setRows(r);
+      onLoaded(Object.fromEntries(r.map((k) => {
+        const pinned = (pins[k.childId] || []).map((p) => `${p.icon} ${p.label}`);
+        const computed = k.items.map((i) => `${i.icon} ${i.label}`);
+        const open = Array.from(new Set([...pinned, ...computed])).slice(0, 2);
+        return [k.childId, { cleared: k.cleared, open }];
+      })));
+    }).catch(() => { if (!dead) setRows([]); });
+    return () => { dead = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [familyId]);
+
+  if (rows === null) {
+    return <p className="text-center text-white/50 text-sm py-8">⏰ Reading the week…</p>;
+  }
+
+  const best = rows.reduce((b, k) => (k.cleared > (b?.cleared ?? 0) ? k : b), null as KidCatchUps | null);
+
+  return (
+    <div className="space-y-3.5">
+      <div className="text-center">
+        <p className="text-[10px] lg:text-[11px] uppercase tracking-[0.2em] font-bold text-kaya-gold-light/80">
+          👏 cleared first · then the promise — max two each, no dwelling
+        </p>
+      </div>
+      {rows.map((kid) => {
+        const pinned = (pins[kid.childId] || []).map((p) => ({ key: p.key, icon: p.icon, label: p.label }));
+        const computed = kid.items.map((i) => ({ key: i.key, icon: i.icon, label: i.label }));
+        const seen = new Set<string>();
+        const open = [...pinned, ...computed].filter((i) => {
+          if (seen.has(i.key)) return false;
+          seen.add(i.key);
+          return true;
+        }).slice(0, 2);
+        const promise = promises[kid.childId] || '';
+        return (
+          <div key={kid.childId} className="bg-white/5 border border-white/10 rounded-kaya-lg p-4">
+            <p className="font-display font-extrabold text-[14.5px] text-white">
+              {kid.avatarEmoji || '🧒'} {kid.name.split(' ')[0]}
+              {kid.cleared > 0 && (
+                <span className="ml-2 text-[12px] text-emerald-300 font-bold">
+                  👏 cleared {kid.cleared} this week{best?.childId === kid.childId && rows.length > 1 && kid.cleared > 0 ? ' — best in the family 🏅' : ''}
+                </span>
+              )}
+            </p>
+            {open.length === 0 ? (
+              <p className="text-[12.5px] text-white/70 mt-1.5">✨ Nothing open — fully caught up. Cheer loudly!</p>
+            ) : (
+              <>
+                <p className="text-[12.5px] text-white/80 mt-1.5">
+                  Still open: {open.map((i) => `${i.icon} ${i.label}`).join(' · ')}
+                </p>
+                {promise ? (
+                  <p className="mt-2 inline-block bg-kaya-gold text-kaya-chocolate text-[12px] font-black rounded-full px-3 py-1.5">
+                    🤝 “I&apos;ll catch up on: {promise}” → next week&apos;s goal
+                  </p>
+                ) : (
+                  <div className="flex gap-1.5 mt-2 flex-wrap">
+                    {open.map((i) => (
+                      <button key={i.key} type="button"
+                        onClick={() => onPromise(kid.childId, i.label)}
+                        className="px-3 py-1.5 rounded-full bg-white/10 border border-kaya-gold/50 text-kaya-gold-light text-[11.5px] font-extrabold hover:bg-kaya-gold/20 transition-colors">
+                        🤝 Promise: {i.icon} {i.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        );
+      })}
+      <p className="text-[11px] text-white/40 px-1 text-center">
+        A promise lands in the kid&apos;s goals — next week&apos;s Goals Review checks it. The loop closes itself.
+      </p>
     </div>
   );
 }

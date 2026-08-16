@@ -589,6 +589,10 @@ export interface Family {
      *  Per-step ON/OFF stays in `agendaSteps` — order and enablement are
      *  independent, so turning a step off never loses its position. */
     agendaOrder?: string[];
+    /** ⏰ Catch-Up Corner (approved 2026-08-10) — own flag like Opening
+     *  Word/Open Floor, default ON (absent = on), sits BEFORE Goals
+     *  Review so promises flow straight into goal commitments. */
+    catchUpCornerEnabled?: boolean;
     /** OF-3: the family's own 8th step — shown in the presenter with a
      *  notes box the leader fills. Off when absent/disabled/unnamed. */
     customStep?: { emoji: string; name: string; enabled: boolean };
@@ -1297,6 +1301,10 @@ export interface Meeting {
   openFloor?: Array<{ text: string; by?: string; outcome: 'discussed' | 'decided' | 'parked'; note?: string }>;
   /** 🧩 Custom 8th step (OF-3) — what the family's own step recorded. */
   customStep?: { name: string; emoji?: string; notes?: string };
+  /** ⏰ Catch-Up Corner (2026-08-10) — per kid: cleared count, the open
+   *  items the family faced, and the promise made (also merged into the
+   *  kid's goals so next week's review checks it). */
+  catchUps?: Record<string, { cleared: number; open: string[]; promise?: string }>;
   /** Meeting Notes (2026-06-21) — leadership captured on the record so the
    *  structured notes + recap email can tell the story: who led tonight,
    *  who led the prayer, and who leads next week (post-wheel snapshot). */
