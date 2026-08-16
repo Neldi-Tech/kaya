@@ -36,7 +36,7 @@ import {
   getRatingsInDateRange, getAwardsInDateRange, getRedemptions,
   Meeting, ReflectionMode, todayString,
 } from '@/lib/firestore';
-import { computeFamilyCatchUps, type KidCatchUps } from '@/lib/catchUpBoard';
+import { computeFamilyCatchUps, CATCHUP_PERIODS, type KidCatchUps, type CatchUpPeriod } from '@/lib/catchUpBoard';
 import { computeWindowRange, computeReview, computeDayScores } from '@/lib/meetingReview';
 import SundaySurpriseStep, { type SurpriseRecord } from '@/components/meetings/SundaySurpriseStep';
 import { giveAward } from '@/lib/firestore';
@@ -3856,10 +3856,13 @@ function CatchUpCornerStep({ familyId, kids, pins, promises, onLoaded, onPromise
   onPromise: (kidId: string, text: string) => void;
 }) {
   const [rows, setRows] = useState<KidCatchUps[] | null>(null);
+  // R2-3 — the standard period filter, default last 7 days.
+  const [period, setPeriod] = useState<CatchUpPeriod>(7);
 
   useEffect(() => {
     let dead = false;
-    computeFamilyCatchUps(familyId, kids).then((r) => {
+    setRows(null);
+    computeFamilyCatchUps(familyId, kids, period).then((r) => {
       if (dead) return;
       setRows(r);
       onLoaded(Object.fromEntries(r.map((k) => {
@@ -3871,10 +3874,22 @@ function CatchUpCornerStep({ familyId, kids, pins, promises, onLoaded, onPromise
     }).catch(() => { if (!dead) setRows([]); });
     return () => { dead = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [familyId]);
+  }, [familyId, period]);
+
+  const periodPills = (
+    <div className="flex justify-center gap-1.5">
+      {CATCHUP_PERIODS.map((p) => (
+        <button key={p.days} type="button" onClick={() => setPeriod(p.days)}
+          aria-pressed={period === p.days}
+          className={`px-3 py-1.5 rounded-full text-[10.5px] font-extrabold border transition-colors ${
+            period === p.days ? 'bg-kaya-gold text-kaya-chocolate border-kaya-gold' : 'bg-white/5 text-white/60 border-white/15 hover:bg-white/15'
+          }`}>{p.label}</button>
+      ))}
+    </div>
+  );
 
   if (rows === null) {
-    return <p className="text-center text-white/50 text-sm py-8">⏰ Reading the week…</p>;
+    return <div className="space-y-4">{periodPills}<p className="text-center text-white/50 text-sm py-8">⏰ Reading the days…</p></div>;
   }
 
   const best = rows.reduce((b, k) => (k.cleared > (b?.cleared ?? 0) ? k : b), null as KidCatchUps | null);
@@ -3886,6 +3901,7 @@ function CatchUpCornerStep({ familyId, kids, pins, promises, onLoaded, onPromise
           👏 cleared first · then the promise — max two each, no dwelling
         </p>
       </div>
+      {periodPills}
       {rows.map((kid) => {
         const pinned = (pins[kid.childId] || []).map((p) => ({ key: p.key, icon: p.icon, label: p.label }));
         const computed = kid.items.map((i) => ({ key: i.key, icon: i.icon, label: i.label }));
@@ -3900,6 +3916,9 @@ function CatchUpCornerStep({ familyId, kids, pins, promises, onLoaded, onPromise
           <div key={kid.childId} className="bg-white/5 border border-white/10 rounded-kaya-lg p-4">
             <p className="font-display font-extrabold text-[14.5px] text-white">
               {kid.emoji || '🧒'} {kid.name.split(' ')[0]}
+              {kid.choresPct != null && (
+                <span className="ml-2 text-[10.5px] font-black bg-white/10 text-kaya-gold-light rounded-full px-2 py-0.5 align-middle">🧹 Chores {kid.choresPct}%</span>
+              )}
               {kid.cleared > 0 && (
                 <span className="ml-2 text-[12px] text-emerald-300 font-bold">
                   👏 cleared {kid.cleared} this week{best?.childId === kid.childId && rows.length > 1 && kid.cleared > 0 ? ' — best in the family 🏅' : ''}
