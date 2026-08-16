@@ -13,7 +13,7 @@ import {
   type ShineCard, type ShineTheme, SHINE_THEMES,
   shineCardSvg, shineCardPngBlob, downloadShineCard,
   setShineCardTheme, addShineCardNote, sendShineCardEcho, listShineCards,
-  setShineCardPost, emailShineCard, deleteShineCard, rememberTheme,
+  setShineCardPost, emailShineCard, deleteShineCard, setShineCardGift, rememberTheme,
 } from '@/lib/shineCards';
 import { getFamilyMembers, type UserProfile } from '@/lib/firestore';
 import { reservePost, finalizePost, uploadProcessedPhoto, type Post } from '@/lib/moments';
@@ -24,7 +24,7 @@ import { storage } from '@/lib/firebase';
 import { ref as storageRef, getDownloadURL } from 'firebase/storage';
 import { toDisplayDate } from '@/lib/dates';
 import { useFamily } from '@/contexts/FamilyContext';
-import { readHiveConfig } from '@/lib/hive';
+import { readHiveConfig, depositCash } from '@/lib/hive';
 import { formatCents } from '@/components/pantry/format';
 
 const svgDataUrl = (card: ShineCard) =>
@@ -253,6 +253,7 @@ export function ShineWall({ familyId, childId, childName, title, bare = false, f
   const [echoText, setEchoText] = useState('');
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [giftFormOpen, setGiftFormOpen] = useState(false);
 
   // 📖 RR PR-4 — yearly Shine Book state.
   const [albumOpen, setAlbumOpen] = useState(false);
@@ -359,7 +360,7 @@ export function ShineWall({ familyId, childId, childName, title, bare = false, f
       )}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
         {shownCards.slice(0, 12).map((c) => (
-          <button key={c.id} onClick={() => { setOpenCard(c); setFlipped(false); setNoteText(''); setEchoText(''); }} className="text-left group">
+          <button key={c.id} onClick={() => { setOpenCard(c); setFlipped(false); setNoteText(''); setEchoText(''); setGiftFormOpen(false); }} className="text-left group">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={svgDataUrl(c)} alt={`Shine Card ${c.n}`} className="w-full rounded-kaya-sm border border-kaya-warm-dark/40 group-hover:border-kaya-gold transition-colors" />
             <p className="text-[10px] font-bold text-kaya-sand mt-1">№{c.n}{c.doubleShine ? ' · 🤝' : ''}{c.echo ? ` · ${c.echo.reaction}` : ''}{(c.notes?.length || 0) > 0 ? ' · 📝' : ''}</p>
@@ -419,6 +420,22 @@ export function ShineWall({ familyId, childId, childName, title, bare = false, f
                 {/* HD PR-B — full share row on the Wall too (adults). */}
                 <CardShareRow familyId={familyId} card={openCard} compact />
                 <CardPathwayLinks card={openCard} />
+                {/* 🎁 FX PR-9 — retro-add a gift to a card that has none. */}
+                {isAdult && !openCard.gift && (
+                  giftFormOpen ? (
+                    <GiftForm familyId={familyId} card={openCard}
+                      onSaved={(gm) => {
+                        setGiftFormOpen(false);
+                        setOpenCard((c) => c ? { ...c, gift: gm.label, giftMeta: gm } : c);
+                        void load();
+                      }} />
+                  ) : (
+                    <button type="button" onClick={() => setGiftFormOpen(true)}
+                      className="mt-2 text-[11.5px] font-black text-kaya-gold hover:underline">
+                      ＋ 🎁 Add a gift to this recognition
+                    </button>
+                  )
+                )}
                 {profile?.role === 'parent' && (
                   <button
                     type="button"
@@ -501,6 +518,80 @@ export function ShineWall({ familyId, childId, childName, title, bare = false, f
 }
 
 
+// ── 🎁 Retro gift form (FX PR-9) ──────────────────────────────────
+// Record a gift on an EXISTING card — same pathways as the wizard:
+// 🎈 simple · 💎 valuable → Treasures · 💰 money → real Hive deposit.
+export function GiftForm({ familyId, card, onSaved }: {
+  familyId: string;
+  card: ShineCard;
+  onSaved: (giftMeta: NonNullable<ShineCard['giftMeta']>) => void;
+}) {
+  const { profile } = useAuth();
+  const { family } = useFamily();
+  const currency = readHiveConfig(family).currency;
+  const [label, setLabel] = useState('');
+  const [pathway, setPathway] = useState<'simple' | 'treasure' | 'hive'>('simple');
+  const [amount, setAmount] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  const save = async () => {
+    if (busy || !label.trim()) return;
+    if (pathway === 'hive' && !(parseFloat(amount) > 0)) { setMsg('Enter the amount.'); return; }
+    setBusy(true); setMsg('');
+    try {
+      const cents = pathway === 'hive' ? Math.round(parseFloat(amount) * 100) : 0;
+      const giftMeta: NonNullable<ShineCard['giftMeta']> = {
+        label: label.trim(),
+        source: 'custom',
+        pathway,
+        ...(cents > 0 ? { amountCents: cents } : {}),
+      };
+      await setShineCardGift(familyId, card.id, label.trim(), giftMeta);
+      if (pathway === 'hive' && cents > 0 && profile?.role === 'parent') {
+        await depositCash(familyId, card.kidId, cents, 'gift',
+          `🌟 Recognition gift — Shine Card №${card.n}`, profile.uid).catch(() => {});
+      }
+      onSaved(giftMeta);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Could not save — try again.');
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="rounded-kaya-sm border border-dashed border-kaya-warm-dark bg-kaya-cream/60 p-3 mt-2">
+      <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand mb-1.5">🎁 Record the gift for №{card.n} · {card.kidName}</p>
+      <input value={label} onChange={(e) => setLabel(e.target.value)} maxLength={60} autoFocus
+        placeholder="What was given? e.g. Ice cream cone, TZS 10,000, a bicycle…"
+        className="w-full h-10 px-3 rounded-kaya-sm border border-kaya-warm-dark text-[12.5px] bg-white focus:outline-none focus:border-kaya-gold" />
+      <div className="flex gap-1.5 flex-wrap items-center mt-2">
+        {([['simple', '🎈 Simple — settles here'], ['treasure', '💎 Valuable → Treasures'], ['hive', '💰 Money → Hive']] as const).map(([pw, l]) => (
+          <button key={pw} type="button" onClick={() => setPathway(pw)}
+            className={`px-2.5 py-1.5 rounded-full text-[10.5px] font-extrabold border ${pathway === pw ? 'bg-kaya-chocolate text-white border-transparent' : 'bg-white text-kaya-sand border-kaya-warm-dark'}`}>
+            {l}
+          </button>
+        ))}
+        {pathway === 'hive' && (
+          <input type="number" inputMode="numeric" min={1} value={amount} onChange={(e) => setAmount(e.target.value)}
+            placeholder={`Amount (${currency})`}
+            className="h-9 w-36 px-3 rounded-kaya-sm border border-kaya-warm-dark text-[12px] bg-white focus:outline-none focus:border-kaya-gold" />
+        )}
+      </div>
+      {pathway === 'hive' && profile?.role === 'parent' && (
+        <p className="text-[10px] text-kaya-sand mt-1">Deposits into {card.kidName}&apos;s Hive Cash with a 📜 ledger line.</p>
+      )}
+      <div className="flex items-center gap-2 mt-2.5">
+        <button type="button" onClick={() => void save()} disabled={busy || !label.trim()}
+          className="h-9 px-4 rounded-kaya-sm bg-kaya-gold text-white text-[11.5px] font-black disabled:opacity-50">
+          {busy ? 'Saving…' : '🎁 Seal the record'}
+        </button>
+        {msg && <span className="text-[11px] font-bold text-kaya-rose" style={{ color: '#E06A7B' }}>{msg}</span>}
+      </div>
+    </div>
+  );
+}
+
 // ── 🎁 Gift register (FX PR-7) ────────────────────────────────────
 // Every gift, linked to the recognition (card №) it rode on — the
 // visible face of the giftMeta statistics substrate.
@@ -514,6 +605,9 @@ export function GiftRegister({ familyId }: { familyId: string }) {
   const currency = readHiveConfig(family).currency;
   const [cards, setCards] = useState<ShineCard[]>([]);
   const [openCard, setOpenCard] = useState<ShineCard | null>(null);
+  // 🎁 FX PR-9 — record-a-gift entry point (retro-add on giftless cards).
+  const [pickOpen, setPickOpen] = useState(false);
+  const [pickCard, setPickCard] = useState<ShineCard | null>(null);
   useEffect(() => {
     listShineCards(familyId).then(setCards).catch(() => setCards([]));
   }, [familyId]);
@@ -531,12 +625,52 @@ export function GiftRegister({ familyId }: { familyId: string }) {
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
   }, [gifts]);
 
+  const giftless = cards.filter((c) => !c.gift).slice(0, 10);
+  const recordEntry = giftless.length > 0 ? (
+    <div className="mb-2.5">
+      {!pickOpen ? (
+        <button type="button" onClick={() => setPickOpen(true)}
+          className="h-9 px-3.5 rounded-kaya-sm bg-kaya-gold text-white text-[11.5px] font-black">
+          ＋ 🎁 Record a gift on a card
+        </button>
+      ) : pickCard ? (
+        <GiftForm familyId={familyId} card={pickCard}
+          onSaved={() => {
+            setPickOpen(false); setPickCard(null);
+            listShineCards(familyId).then(setCards).catch(() => {});
+          }} />
+      ) : (
+        <div className="rounded-kaya-sm border border-dashed border-kaya-warm-dark bg-kaya-cream/60 p-3">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand mb-1.5">Which recognition was the gift for?</p>
+          <div className="space-y-1">
+            {giftless.map((c) => (
+              <button key={c.id} type="button" onClick={() => setPickCard(c)}
+                className="w-full flex items-center gap-2 text-left bg-white border border-kaya-warm-dark rounded-kaya-sm px-3 py-1.5 hover:border-kaya-gold">
+                <span className="text-[11px] font-black text-kaya-gold shrink-0">🌟 №{c.n}</span>
+                <span className="text-[12px] font-bold shrink-0">{c.kidEmoji} {c.kidName}</span>
+                <span className="text-[11px] text-kaya-sand truncate flex-1">&ldquo;{c.quote}&rdquo;</span>
+                <span className="text-[10px] font-bold text-kaya-sand shrink-0">{toDisplayDate(new Date(c.at).toISOString().slice(0, 10))}</span>
+              </button>
+            ))}
+          </div>
+          <button type="button" onClick={() => setPickOpen(false)} className="text-[11px] font-bold text-kaya-sand mt-1.5">cancel</button>
+        </div>
+      )}
+    </div>
+  ) : null;
+
   if (allGifts.length === 0) {
-    return <p className="text-[12px] text-kaya-sand">No gifts recorded yet — they land here the moment a recognition carries one.</p>;
+    return (
+      <div>
+        {recordEntry}
+        <p className="text-[12px] text-kaya-sand">No gifts recorded yet — record one on any card above, or they land here automatically when a recognition carries one.</p>
+      </div>
+    );
   }
   const PATH_CHIP: Array<[typeof pathFilter, string]> = [['all', 'All'], ['treasure', '💎 Treasures'], ['hive', '💰 Hive'], ['simple', '🎈 Simple']];
   return (
     <div>
+      {recordEntry}
       <div className="flex gap-1.5 flex-wrap items-center mb-2">
         {PATH_CHIP.map(([pf, label]) => (
           <button key={pf} type="button" onClick={() => setPathFilter(pf)}

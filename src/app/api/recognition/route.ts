@@ -19,7 +19,7 @@ export const maxDuration = 30;
 
 type Action =
   | 'card-create' | 'card-list' | 'card-theme' | 'card-note' | 'card-echo'
-  | 'card-set-post' | 'card-email' | 'card-delete' | 'round-get' | 'round-list';
+  | 'card-set-post' | 'card-email' | 'card-delete' | 'card-gift' | 'round-get' | 'round-list';
 
 const CARD_LIMIT = 120;
 
@@ -187,6 +187,27 @@ export async function POST(req: NextRequest) {
         const { cardId, theme } = body;
         if (!cardId || !theme) return NextResponse.json({ error: 'bad-request' }, { status: 400 });
         await cardsCol.doc(String(cardId)).update({ theme: String(theme) });
+        return NextResponse.json({ ok: true });
+      }
+
+      case 'card-gift': {
+        // 🎁 FX PR-9 — record a gift on an EXISTING card (Elia: cards
+        // minted before the feature had no way to receive one). Same
+        // validation as card-create's giftMeta; the record seals in place.
+        if (!isAdult) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+        const { cardId, gift, giftMeta } = body;
+        if (!cardId || !String(gift || '').trim()) return NextResponse.json({ error: 'bad-request' }, { status: 400 });
+        const gm = (giftMeta && typeof giftMeta === 'object' ? giftMeta : {}) as { label?: string; source?: string; rewardId?: string; pathway?: string; amountCents?: number };
+        await cardsCol.doc(String(cardId)).update({
+          gift: String(gift).slice(0, 80),
+          giftMeta: {
+            label: String(gm.label || gift).slice(0, 80),
+            source: ['store', 'custom', 'surprise'].includes(String(gm.source)) ? String(gm.source) : 'custom',
+            ...(gm.rewardId ? { rewardId: String(gm.rewardId) } : {}),
+            ...(['treasure', 'hive', 'simple'].includes(String(gm.pathway)) ? { pathway: String(gm.pathway) } : {}),
+            ...(Number.isInteger(gm.amountCents) && (gm.amountCents as number) > 0 ? { amountCents: gm.amountCents } : {}),
+          },
+        });
         return NextResponse.json({ ok: true });
       }
 
