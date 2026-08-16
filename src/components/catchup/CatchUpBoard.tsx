@@ -20,8 +20,8 @@ import { updateFamily } from '@/lib/firestore';
 import { notifyCatchUpNudge } from '@/lib/notify';
 import { addKidWorkplanItem, todayDateString } from '@/lib/kidWorkplan';
 import {
-  computeFamilyCatchUps, scoreMeta, trendLabel,
-  type KidCatchUps, type CatchUpItem,
+  computeFamilyCatchUps, scoreMeta, trendLabel, CATCHUP_PERIODS,
+  type KidCatchUps, type CatchUpItem, type CatchUpPeriod,
 } from '@/lib/catchUpBoard';
 
 const SCORE_CLS: Record<string, string> = {
@@ -37,15 +37,26 @@ export default function CatchUpBoard() {
   const [rows, setRows] = useState<KidCatchUps[] | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
+  // R2-2/R2-3 — standard period filter + collapsible kid cards (the
+  // worst score auto-expands when a fresh compute lands).
+  const [period, setPeriod] = useState<CatchUpPeriod>(7);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!family?.id || children.length === 0) return;
     let dead = false;
+    setRows(null);
     computeFamilyCatchUps(family.id, children.map((c) => ({
       id: c.id, name: c.name, avatarEmoji: c.avatarEmoji,
-    }))).then((r) => { if (!dead) setRows(r); }).catch(() => { if (!dead) setRows([]); });
+    })), period).then((r) => {
+      if (dead) return;
+      setRows(r);
+      const scored = r.filter((k) => k.onTrackPct != null);
+      const worst = scored.sort((a, b) => (a.onTrackPct! - b.onTrackPct!))[0];
+      setExpanded(new Set(worst ? [worst.childId] : []));
+    }).catch(() => { if (!dead) setRows([]); });
     return () => { dead = true; };
-  }, [family?.id, children]);
+  }, [family?.id, children, period]);
 
   if (!family?.id || !profile?.familyId || children.length === 0) return null;
 
@@ -114,7 +125,7 @@ export default function CatchUpBoard() {
         <div>
           <h2 className="font-display text-lg font-black">⏰ Catch-Up Board</h2>
           <p className="text-[12px] text-kaya-sand mt-0.5">
-            What each kid keeps skipping — chores, reflections, quests, treasures — last 7 days, honestly counted (sick days never count).
+            What each kid keeps skipping — chores, reflections, quests, treasures — honestly counted (sick days never count).
           </p>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
@@ -133,24 +144,77 @@ export default function CatchUpBoard() {
         <p className="mt-3 text-[12px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-kaya-sm px-3 py-2">{flash}</p>
       )}
 
+      {/* R2-3 — the standard period pills */}
+      <div className="flex gap-1.5 mt-3">
+        {CATCHUP_PERIODS.map((p) => (
+          <button key={p.days} type="button" onClick={() => setPeriod(p.days)}
+            aria-pressed={period === p.days}
+            className={`px-3 py-1.5 rounded-full text-[10.5px] font-extrabold border-2 transition-colors ${
+              period === p.days ? 'bg-kaya-chocolate text-kaya-gold-light border-kaya-chocolate' : 'bg-white text-kaya-chocolate border-kaya-warm-dark'
+            }`}>{p.label}</button>
+        ))}
+      </div>
+
       {rows === null ? (
-        <p className="mt-4 text-[12.5px] text-kaya-sand">Reading the week…</p>
+        <p className="mt-4 text-[12.5px] text-kaya-sand">Reading the days…</p>
       ) : (
+        <>
+        {/* R2-2 — statistics first: the family in one glance. Tap a chip
+            to expand that kid below. */}
+        {(() => {
+          const due = rows.reduce((n, k) => n + k.due, 0);
+          const done = rows.reduce((n, k) => n + k.done, 0);
+          const famPct = due > 0 ? Math.round((done / due) * 100) : null;
+          const famMeta = scoreMeta(famPct);
+          const clearedTotal = rows.reduce((n, k) => n + k.cleared, 0);
+          return (
+            <div className="mt-3 grid grid-cols-2 lg:grid-cols-5 gap-2">
+              <div className="rounded-kaya border border-kaya-warm-dark bg-kaya-cream/60 px-3 py-2.5 text-center">
+                <p className="text-[16px] font-black">{famMeta.emoji} {famPct == null ? '—' : `${famPct}%`}</p>
+                <p className="text-[9.5px] uppercase tracking-wider font-bold text-kaya-sand mt-0.5">Family on-track</p>
+              </div>
+              {rows.map((k) => {
+                const m = scoreMeta(k.onTrackPct);
+                const t = trendLabel(k);
+                return (
+                  <button key={k.childId} type="button"
+                    onClick={() => setExpanded((prev) => { const n = new Set(prev); if (n.has(k.childId)) n.delete(k.childId); else n.add(k.childId); return n; })}
+                    className={`rounded-kaya border px-3 py-2.5 text-center transition-colors ${expanded.has(k.childId) ? 'border-kaya-gold bg-kaya-gold/10' : 'border-kaya-warm-dark bg-white hover:border-kaya-sand'}`}>
+                    <p className="text-[16px] font-black">{k.emoji} <span className={m.cls === 'green' ? 'text-emerald-600' : m.cls === 'amber' ? 'text-amber-600' : m.cls === 'red' ? 'text-red-500' : 'text-kaya-sand'}>{k.onTrackPct == null ? '—' : `${k.onTrackPct}%`}</span>{t ? ` ${t.startsWith('▲') ? '▲' : t.startsWith('▼') ? '▼' : '—'}` : ''}</p>
+                    <p className="text-[9.5px] uppercase tracking-wider font-bold text-kaya-sand mt-0.5">{k.name.split(' ')[0]}</p>
+                  </button>
+                );
+              })}
+              <div className="rounded-kaya border border-kaya-warm-dark bg-kaya-cream/60 px-3 py-2.5 text-center">
+                <p className="text-[16px] font-black text-emerald-600">👏 {clearedTotal}</p>
+                <p className="text-[9.5px] uppercase tracking-wider font-bold text-kaya-sand mt-0.5">Cleared this period</p>
+              </div>
+            </div>
+          );
+        })()}
+
         <div className="mt-4 space-y-3">
           {rows.map((kid) => {
             const meta = scoreMeta(kid.onTrackPct);
             const trend = trendLabel(kid);
             const open = kid.items;
+            const isOpen = expanded.has(kid.childId);
             return (
               <div key={kid.childId} className="border border-kaya-warm-dark rounded-kaya p-3.5">
-                <div className="flex items-center gap-2.5 flex-wrap">
+                <button type="button" className="w-full flex items-center gap-2.5 flex-wrap text-left"
+                  onClick={() => setExpanded((prev) => { const n = new Set(prev); if (n.has(kid.childId)) n.delete(kid.childId); else n.add(kid.childId); return n; })}
+                  aria-expanded={isOpen}>
                   <span className="text-xl">{kid.emoji}</span>
                   <span className="font-display font-black text-[14.5px] flex-1">{kid.name}</span>
+                  {kid.choresPct != null && <span className="text-[10.5px] font-black px-2 py-0.5 rounded-full bg-kaya-warm text-kaya-chocolate">🧹 {kid.choresPct}%</span>}
                   {trend && <span className="text-[11px] font-bold text-kaya-sand">{trend}</span>}
                   <span className={`text-[12px] font-black px-2.5 py-1 rounded-full ${SCORE_CLS[meta.cls]}`}>
                     {meta.emoji} {meta.label}
                   </span>
-                </div>
+                  <span className="text-kaya-sand font-black text-[12px]">{isOpen ? '▾' : '▸'}</span>
+                </button>
+                {isOpen && (
+                <div>
 
                 {kid.cleared > 0 && (
                   <p className="mt-2 text-[12.5px] font-bold text-emerald-700">
@@ -193,10 +257,13 @@ export default function CatchUpBoard() {
                     </div>
                   </div>
                 ))}
+                </div>
+                )}
               </div>
             );
           })}
         </div>
+        </>
       )}
       <p className="text-[10.5px] text-kaya-sand mt-3 leading-relaxed">
         🟢 ≥80% · 🟡 50–79% · 🔴 &lt;50% — done ÷ due across all lanes. The board only reads; nudges fire only when you tap. Skipped-3×-in-a-week items join Sunday&apos;s Catch-Up Corner automatically.

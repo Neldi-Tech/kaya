@@ -134,6 +134,9 @@ export default function RemindersPage() {
   // "All reminders" by-month list (approved 2026-06-14): search + which
   // month groups are expanded. Soonest month opens once on first load.
   const [search, setSearch] = useState('');
+  // R2-2 — two tabs: the original Reminders material vs the Catch-Up
+  // Board (parents only; kids just see the reminders content).
+  const [tab, setTab] = useState<'reminders' | 'catchup'>('reminders');
   const [openMonths, setOpenMonths] = useState<Set<string>>(new Set());
   const [monthsSeeded, setMonthsSeeded] = useState(false);
 
@@ -274,7 +277,7 @@ export default function RemindersPage() {
   }
 
   return (
-    <div className="px-4 lg:px-8 py-6 max-w-3xl mx-auto pb-24">
+    <div className={`px-4 lg:px-8 py-6 mx-auto pb-24 ${tab === 'catchup' ? 'max-w-5xl' : 'max-w-3xl'}`}>
       {/* Header */}
       <div className="flex items-center justify-between gap-3 mb-5">
         <div>
@@ -294,6 +297,23 @@ export default function RemindersPage() {
         </button>
       </div>
 
+      {/* R2-2 · Tabs — reminders material vs the Catch-Up Board. */}
+      {role === 'parent' && (
+        <div className="flex gap-1.5 bg-kaya-warm rounded-full p-1 w-fit mb-5">
+          {([['reminders', '🔔 Reminders'], ['catchup', '⏰ Catch-Up Board']] as const).map(([key, label]) => (
+            <button key={key} type="button" onClick={() => setTab(key)}
+              aria-pressed={tab === key}
+              className={`px-4 py-2 rounded-full text-[12.5px] font-black transition-colors ${
+                tab === key ? 'bg-kaya-chocolate text-kaya-gold-light' : 'text-kaya-sand hover:text-kaya-chocolate'
+              }`}>{label}</button>
+          ))}
+        </div>
+      )}
+
+      {tab === 'catchup' && role === 'parent' ? (
+        <CatchUpBoard />
+      ) : (
+      <>
       {/* Parent approvals */}
       {pending.length > 0 && (
         <div className="rounded-kaya border border-dashed p-4 mb-5" style={{ borderColor: CAL, background: CAL_SOFT }}>
@@ -317,11 +337,6 @@ export default function RemindersPage() {
       {/* 🎁 Gift Brain — parents only (never spoil the surprise). */}
       {role === 'parent' && <GiftBrain occurrences={occurrences} children={children} />}
 
-      {/* ⏰ Catch-Up Board (2026-08-10) — what kids keep skipping, parents only. */}
-      {role === 'parent' && <CatchUpBoard />}
-
-      {/* 📮 Time Capsule — everyone can seal a future message. */}
-      {profile?.familyId && <TimeCapsule members={members} ownUid={uid} familyId={profile.familyId} />}
 
       {loading ? (
         <div className="text-center text-kaya-sand py-16 text-sm">Loading your reminders…</div>
@@ -401,6 +416,12 @@ export default function RemindersPage() {
             </div>
           )}
         </>
+      )}
+
+      {/* 📮 Time Capsule — everyone can seal a future message. Sits BELOW
+          the reminders material now so Coming Up stays on top (R2-2). */}
+      {profile?.familyId && <TimeCapsule members={members} ownUid={uid} familyId={profile.familyId} />}
+      </>
       )}
 
       {editorOpen && (
