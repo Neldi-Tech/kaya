@@ -40,7 +40,7 @@ import SparksIcon from '@/components/brand/SparksIcon';
 // shape the mockup designs around. Keep edits in lockstep with the
 // mockup so the parent landing stays faithful.
 
-type Badge = '01 · Capture' | '02 · Capture + Action' | '03 · Capture' | '04 · Action' | '05 · Action' | '06 · Practice Loop' | '07 · Daily Habit' | '08 · Personal Book' | '09 · Growth Engine';
+type Badge = '01 · Capture' | '02 · Capture + Action' | '03 · Capture' | '04 · Action' | '05 · Action' | '06 · Practice Loop' | '07 · Daily Habit' | '08 · Personal Book' | '09 · Growth Engine' | '10 · Stewardship';
 
 const AREA_PITCH: Record<SparksArea, {
   badge: Badge;
@@ -52,6 +52,21 @@ const AREA_PITCH: Record<SparksArea, {
   aiTag: string;
   workplanTag?: string;
 }> = {
+  treasure: {
+    badge: '10 · Stewardship',
+    badgeBg: '#E2F3EE', badgeFg: '#0E6B5E', cornerBg: '#0E6B5E',
+    purpose: 'Every gift and every thing they own, on a register: what it is, when they got it, who gave it, and what has happened to it since. The point isn’t the inventory — it’s a child who knows where their things are, remembers who loved them enough to give them, and understands what those things cost.',
+    features: [
+      '💛 The Giver’s Thread — who gave it, and their reply pinned forever',
+      '🔑 A 30-second Keeper Check on a rhythm you set',
+      '🫱 Owned It — reporting a break or a loss yourself is the thing we reward',
+      '🔍 Lost & Found that records where it was seen, never who took it',
+      '🤝 Borrow & Return, so lending isn’t how things vanish',
+      '🕰 Nothing is ever deleted — handed on, donated or outgrown, the record stays',
+    ],
+    aiTag: 'Room Sweep — photograph a shelf, Kaya lists what it sees',
+    workplanTag: 'The Keeper Check lands on My Day + the Workplan',
+  },
   quest: {
     badge: '09 · Growth Engine',
     badgeBg: '#DFE3FB', badgeFg: '#3B2E86', cornerBg: '#3B2E86',

@@ -237,6 +237,7 @@ const AREA_ACCENT: Record<SparksArea, string> = {
   revision:            '#5A3CB8',
   reflection:          '#5AB7D6',
   diary:               '#C05299',
+  treasure:            '#0E6B5E',
 };
 
 export function categoryBreakdown(
@@ -269,6 +270,9 @@ export function categoryBreakdown(
     sports_subscription: { count: 0, stars: 0, sn: 0, pct: 0, pn: 0 },
     revision:            { count: 0, stars: 0, sn: 0, pct: 0, pn: 0 },
     reflection:          { count: 0, stars: 0, sn: 0, pct: 0, pn: 0 },
+    // Treasures own their collection (gateway-only) too — the row is
+    // fed by the treasures page, not by sparks_items.
+    treasure:            { count: 0, stars: 0, sn: 0, pct: 0, pn: 0 },
   };
 
   for (const it of items) {
