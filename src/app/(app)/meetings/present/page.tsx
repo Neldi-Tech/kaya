@@ -3871,7 +3871,7 @@ function CatchUpCornerStep({ familyId, kids, pins, promises, onLoaded, onPromise
         return (
           <div key={kid.childId} className="bg-white/5 border border-white/10 rounded-kaya-lg p-4">
             <p className="font-display font-extrabold text-[14.5px] text-white">
-              {kid.avatarEmoji || '🧒'} {kid.name.split(' ')[0]}
+              {kid.emoji || '🧒'} {kid.name.split(' ')[0]}
               {kid.cleared > 0 && (
                 <span className="ml-2 text-[12px] text-emerald-300 font-bold">
                   👏 cleared {kid.cleared} this week{best?.childId === kid.childId && rows.length > 1 && kid.cleared > 0 ? ' — best in the family 🏅' : ''}
