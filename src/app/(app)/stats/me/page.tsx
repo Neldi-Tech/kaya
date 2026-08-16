@@ -26,6 +26,7 @@
 // no Firestore-rules change.
 
 import { useEffect, useMemo, useState } from 'react';
+import CatchUpStrip from '@/components/catchup/CatchUpStrip';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { auth } from '@/lib/firebase';
@@ -1273,6 +1274,15 @@ export default function MyStatsPage() {
               <p className="text-[10px] font-black opacity-80 mt-0.5">— {coach.quote.by} · new quote every day</p>
             </div>
           </div>
+
+          {/* ⏰ Catch-Ups (2026-08-10) — under Stats per the approved
+              design; sibling score chips only when the family switch
+              allows (parents flip it on the Reminders board). */}
+          {myChildId && (
+            <div className="order-3 lg:col-span-2">
+              <CatchUpStrip childId={myChildId} showFamilyScores />
+            </div>
+          )}
 
           {/* 🏆 Records & more (PR 4) */}
           <div className="order-6 lg:col-span-2 bg-white border border-kaya-warm-dark rounded-kaya-lg p-4">

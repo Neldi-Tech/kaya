@@ -31,6 +31,7 @@ import TodaysSongCard from '@/components/meetings/TodaysSongCard';
 import RateClosingSongCard from '@/components/meetings/RateClosingSongCard';
 import MeetingMeterCard from '@/components/meetings/MeetingMeterCard';
 import SparksTodayCard from '@/components/sparks/SparksTodayCard';
+import CatchUpStrip from '@/components/catchup/CatchUpStrip';
 import type { WorkplanPeriod } from '@/lib/firestore';
 import { ChevronRight, Plus, Check, X } from 'lucide-react';
 
@@ -289,6 +290,12 @@ function MyDayKid({ familyId, childId, userUid, name, avatarEmoji }: {
           each one tapping straight into the action. */}
       <div className="mb-3">
         <SparksTodayCard familyId={familyId} kidId={childId} kidName={name} />
+      </div>
+
+      {/* ⏰ Catch-Up strip (2026-08-10) — the kid's own open catch-ups,
+          each row jumping to the REAL task. Hidden when nothing is due. */}
+      <div className="mb-3">
+        <CatchUpStrip childId={childId} />
       </div>
 
       {/* "You're leading next meeting" card — Sunday-Meeting v2 (b1).
