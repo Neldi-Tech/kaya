@@ -17,9 +17,10 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { toDisplayDate } from '@/lib/dates';
+import HandOnSheet from '@/components/sparks/HandOnSheet';
 import {
   getTreasure, setStory, reportCondition, markFound, addSighting,
-  updateTreasure, treasuresApi, categoryDef, daysBetween, todayIso,
+  updateTreasure, treasuresApi, categoryDef, daysBetween, todayIso, isEnded,
   lendTreasure, returnTreasure, extendBorrow, setTreasureValue, effortLine,
   STATUS_CHIP, STATUS_LABEL,
   type Treasure, type TreasureEvent, type TreasurePrivate,
@@ -64,6 +65,7 @@ export default function TreasureDetailPage() {
   const [lendTo, setLendTo] = useState('');
   const [lendToChildId, setLendToChildId] = useState('');
   const [lendDue, setLendDue] = useState('');
+  const [handOnOpen, setHandOnOpen] = useState(false);
   const [note, setNote] = useState('');
   const [where, setWhere] = useState('');
 
@@ -487,6 +489,15 @@ export default function TreasureDetailPage() {
                   🔧 It’s fixed
                 </button>
               )}
+              {t.status !== 'lent' && !isEnded(t.status) && (
+                <button
+                  type="button"
+                  onClick={() => setHandOnOpen(true)}
+                  className="px-4 py-2 rounded-full font-extrabold text-[12px] bg-[#F1FAF7] text-[#0E6B5E] border-[1.5px] border-[#BFE3D8]"
+                >
+                  🌱 I&rsquo;ve outgrown it
+                </button>
+              )}
               {t.status !== 'lent' && t.status !== 'lost' && (
                 <button
                   type="button"
@@ -658,6 +669,18 @@ export default function TreasureDetailPage() {
           {err && <p className="text-[11.5px] text-[#C0392B] font-bold mt-3">{err}</p>}
         </div>
       </div>
+
+      {handOnOpen && familyId && (
+        <HandOnSheet
+          familyId={familyId}
+          kidId={kidId}
+          kidName={kid?.name ?? 'them'}
+          treasure={t}
+          isParent={isParent}
+          onClose={() => setHandOnOpen(false)}
+          onDone={load}
+        />
+      )}
     </div>
   );
 }
