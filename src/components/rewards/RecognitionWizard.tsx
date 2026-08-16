@@ -63,6 +63,9 @@ export default function RecognitionWizard() {
   const [message, setMessage] = useState('');
   const [gift, setGift] = useState('');
   const [giftCustom, setGiftCustom] = useState(false);
+  // 🎁 FX PR-5 — structured gift record for future statistics.
+  const [giftSource, setGiftSource] = useState<'store' | 'custom' | 'surprise' | ''>('');
+  const [giftRewardId, setGiftRewardId] = useState('');
   const [pts, setPts] = useState(0); // 0 = mention only (kudos on the rail)
   const [theme, setTheme] = useState<ShineTheme>('classic');
   const [busy, setBusy] = useState(false);
@@ -112,7 +115,7 @@ export default function RecognitionWizard() {
   const openItem = (it: Item) => {
     setItem(it);
     setMessage('');
-    setGift(''); setGiftCustom(false);
+    setGift(''); setGiftCustom(false); setGiftSource(''); setGiftRewardId('');
     setPts(0);
     setTheme(profile ? rememberedTheme(profile.uid) : 'classic');
     setErr('');
@@ -158,7 +161,14 @@ export default function RecognitionWizard() {
         pointsLabel: previewCard.pointsLabel,
         category: 'Recognition',
         roundDate: waiting?.round.date,
-        ...(previewCard.gift ? { gift: previewCard.gift } : {}),
+        ...(previewCard.gift ? {
+          gift: previewCard.gift,
+          giftMeta: {
+            label: previewCard.gift,
+            source: giftSource || 'custom',
+            ...(giftRewardId ? { rewardId: giftRewardId } : {}),
+          },
+        } : {}),
       });
       const full: ShineCard = { ...previewCard, id: minted.id, n: minted.n, doubleShine: minted.doubleShine, notes: [] };
       setCard(full);
@@ -275,7 +285,12 @@ export default function RecognitionWizard() {
         <div className="flex gap-1.5 flex-wrap">
           {giftIdeas.map((g) => (
             <button key={g.id} type="button"
-              onClick={() => { setGift(gift === `${g.icon} ${g.title}` ? '' : `${g.icon} ${g.title}`); setGiftCustom(false); }}
+              onClick={() => {
+                const label = `${g.icon} ${g.title}`;
+                const off = gift === label;
+                setGift(off ? '' : label); setGiftCustom(false);
+                setGiftSource(off ? '' : 'store'); setGiftRewardId(off ? '' : g.id);
+              }}
               className="px-3 py-1.5 rounded-full text-[11.5px] font-black"
               style={gift === `${g.icon} ${g.title}` ? { background: '#fff', color: '#6B3FE0' } : { background: 'rgba(255,255,255,.18)', border: '1px solid rgba(255,255,255,.35)' }}>
               {g.icon} {g.title}
@@ -302,7 +317,7 @@ export default function RecognitionWizard() {
             className="h-10 px-5 rounded-full text-[12.5px] font-black" style={{ background: '#fff', color: '#6B3FE0' }}>
             Continue → ⭐
           </button>
-          <button type="button" onClick={() => { setGift(''); setStep('points'); }}
+          <button type="button" onClick={() => { setGift(''); setGiftSource(''); setGiftRewardId(''); setStep('points'); }}
             className="h-10 px-4 rounded-full text-[12px] font-black" style={{ background: 'rgba(255,255,255,.2)', border: '1px solid rgba(255,255,255,.4)' }}>
             Skip — no gift
           </button>

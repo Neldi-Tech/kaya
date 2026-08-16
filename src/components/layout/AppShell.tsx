@@ -169,6 +169,8 @@ type MobileGroup =
 const KAYA_NAV: NavItem[] = [
   { path: '/rate',            icon: '📋',           label: 'Rate routines',   mobileLabel: 'Rate' },
   { path: '/award',           icon: '🎖️',          label: 'Award points',    mobileLabel: 'Award' },
+  // 🌟 FX PR-5 (Elia 16-Aug: "appear all the time so it can be referenced")
+  { path: '/recognition',     icon: '🌟',           label: 'Recognition',     mobileLabel: 'Shine' },
   { path: '/meetings',        icon: '👨‍👩‍👧‍👦', label: 'Family meeting',  mobileLabel: 'Meet' },
   { path: '/rewards',         icon: '🎁',           label: 'Rewards',         mobileLabel: 'Rewards' },
   { path: '/parent/rewards',  icon: '⚙️',           label: 'Manage rewards',  mobileLabel: 'Manage' },
@@ -380,6 +382,7 @@ const HELPER_SIDEBAR: SidebarRow[] = [
   { kind: 'link', id: 'reminders', path: '/reminders',      icon: '🔔', label: 'Reminders' },
   { kind: 'link', id: 'rate',     path: '/rate',            icon: '📋', label: 'Rate' },
   { kind: 'link', id: 'award',    path: '/award',           icon: '🎖️', label: 'Award' },
+  { kind: 'link', id: 'recognition', path: '/recognition',  icon: '🌟', label: 'Recognition' },
   { kind: 'link', id: 'moments',  path: '/moments',         icon: '📸', label: 'Moments' },
   { kind: 'link', id: 'messages', path: '/messages',        icon: '💬', label: 'Messages' },
   { kind: 'link', id: 'pantry',   path: '/pantry',          icon: '🛒', label: 'Pantry' },

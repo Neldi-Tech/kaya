@@ -13,7 +13,7 @@ import {
   type ShineCard, type ShineTheme, SHINE_THEMES,
   shineCardSvg, shineCardPngBlob, downloadShineCard,
   setShineCardTheme, addShineCardNote, sendShineCardEcho, listShineCards,
-  setShineCardPost, rememberTheme,
+  setShineCardPost, emailShineCard, rememberTheme,
 } from '@/lib/shineCards';
 import { getFamilyMembers, type UserProfile } from '@/lib/firestore';
 import { reservePost, finalizePost, uploadProcessedPhoto, type Post } from '@/lib/moments';
@@ -116,17 +116,32 @@ export function CardShareRow({ familyId, card, compact = false }: {
 
   const savePicture = () => act('save', () => downloadShineCard(card), '🖼️ Saved!');
 
+  // 📧 FX PR-5 — card straight to the kid's inbox + the family mailing
+  // list. PNG uploads to the allowed messages path, server sends + logs.
+  const emailCard = () => act('email', async () => {
+    const blob = await shineCardPngBlob(card);
+    const path = `families/${familyId}/messages/shine-email/shine-${card.n}-${Date.now().toString(36)}.png`;
+    const r = storageRef(storage, path);
+    await safeUploadBytes(r, blob, { contentType: 'image/png' });
+    const url = await getDownloadURL(r);
+    const res = await emailShineCard(familyId, card.id, url);
+    setMsg(`📧 Sent to ${res.count} inbox${res.count === 1 ? '' : 'es'}!`);
+  }, '📧 Emailed!');
+
   if (!isAdult) return null;
   const btn = (extra: string) =>
     `${compact ? 'h-9 text-[10.5px]' : 'h-10 text-[11.5px]'} rounded-kaya-sm font-black disabled:opacity-50 ${extra}`;
   return (
     <div>
-      <div className="grid grid-cols-4 gap-1.5 mt-3">
+      <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5 mt-3">
         <button onClick={postToMoments} disabled={!!busy} className={btn('bg-kaya-gold text-white')}>
           {busy === 'moments' ? '…' : '📣 Moments'}
         </button>
         <button onClick={dropIntoChat} disabled={!!busy} className={btn('text-white')} style={{ background: '#6B3FE0' }}>
-          {busy === 'chat' ? '…' : '💬 Their chat'}
+          {busy === 'chat' ? '…' : '💬 Chat'}
+        </button>
+        <button onClick={emailCard} disabled={!!busy} className={btn('text-white')} style={{ background: '#D2691E' }}>
+          {busy === 'email' ? '…' : '📧 Email'}
         </button>
         <button onClick={deviceShare} disabled={!!busy} className={btn('text-white')} style={{ background: '#11A08A' }}>
           {busy === 'share' ? '…' : '📤 Share'}
@@ -253,9 +268,22 @@ export function ShineWall({ familyId, childId, childName, title }: {
 
   return (
     <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-4">
-      <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand mb-2.5">
+      <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand mb-1">
         {title || `🌟 ${wallName}'s Shine Wall`} · {cards.length} card{cards.length === 1 ? '' : 's'}
       </p>
+      {(() => {
+        // 🎁 FX PR-5 — gift statistics groundwork, visible from day one.
+        const gifts = cards.filter((c) => c.gift);
+        if (gifts.length === 0) return <div className="mb-1.5" />;
+        const byLabel = new Map<string, number>();
+        for (const g of gifts) byLabel.set(g.gift!, (byLabel.get(g.gift!) || 0) + 1);
+        const top = [...byLabel.entries()].sort((a, b) => b[1] - a[1])[0];
+        return (
+          <p className="text-[10.5px] font-bold text-kaya-sand mb-2.5">
+            🎁 {gifts.length} gift{gifts.length === 1 ? '' : 's'} recorded · top: {top[0]}{top[1] > 1 ? ` ×${top[1]}` : ''}
+          </p>
+        );
+      })()}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
         {cards.slice(0, 12).map((c) => (
           <button key={c.id} onClick={() => { setOpenCard(c); setFlipped(false); setNoteText(''); setEchoText(''); }} className="text-left group">
