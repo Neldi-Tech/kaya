@@ -48,7 +48,7 @@ import {
   type MeetingSubmission,
 } from '@/lib/meetingSubmissions';
 import { sendMeetingRecapEmail } from '@/lib/meetingRecap';
-import { archiveMeetingSubmissions } from '@/lib/meetingSubmissionHistory';
+import { getAllMeetingSubmissionHistory, archiveMeetingSubmissions } from '@/lib/meetingSubmissionHistory';
 import { resolveSongEmbed } from '@/lib/songEmbed';
 import { upsertSong, rateSong, getTodaysSong, getSongLibrary, approveTodaysSong, markSongRevealed, type SongLibraryEntry } from '@/lib/meetingSongLibrary';
 import {
@@ -575,6 +575,12 @@ export default function MeetingPresenterPage() {
   // reading + celebrating — see StepSubmissions for the "still to add"
   // nudge + optional in-meeting capture fallback.
   const [submissionsRaw, setSubmissions] = useState<MeetingSubmission[]>([]);
+  // 🔁 Same-day redo (2026-08-16): the buggy auto-close ARCHIVED + CLEARED
+  // tonight's prep before the family re-ran the meeting — so the redo lost
+  // everyone's preparedness. When the live submissions are empty but the
+  // history holds entries archived TODAY, we restore them so a re-run
+  // carries everything until the day ends.
+  const [restoredSubs, setRestoredSubs] = useState<MeetingSubmission[]>([]);
   useEffect(() => {
     if (!profile?.familyId) return;
     const unsub = subscribeMeetingSubmissions(profile.familyId, setSubmissions);
@@ -583,10 +589,42 @@ export default function MeetingPresenterPage() {
   // Cycle gating: only THIS meeting cycle's prep is shown/used — last
   // week's (a passed meeting) is ignored even if it wasn't cleared.
   const meetingScheduleDow = family?.meetingSetup?.schedule?.dayOfWeek;
-  const submissions = useMemo(
-    () => submissionsRaw.filter((s) => isCurrentCycle(s, meetingScheduleDow)),
-    [submissionsRaw, meetingScheduleDow],
-  );
+  const submissions = useMemo(() => {
+    const live = submissionsRaw.filter((s) => isCurrentCycle(s, meetingScheduleDow));
+    // Same-day redo fallback — live prep was cleared by an earlier finish
+    // tonight; the restored archive stands in until the day ends.
+    return live.length > 0 ? live : restoredSubs;
+  }, [submissionsRaw, meetingScheduleDow, restoredSubs]);
+
+  useEffect(() => {
+    if (!profile?.familyId) return;
+    const live = submissionsRaw.filter((s) => isCurrentCycle(s, meetingScheduleDow));
+    if (live.length > 0) { setRestoredSubs([]); return; }
+    let dead = false;
+    const today = todayString();
+    getAllMeetingSubmissionHistory(profile.familyId).then((docs) => {
+      if (dead) return;
+      const restored: MeetingSubmission[] = [];
+      for (const d of docs) {
+        const e = (d.entries || []).find((x) => x.date === today);
+        if (!e) continue;
+        const child = allChildren.find((c) => (c as { uid?: string }).uid === d.uid);
+        restored.push({
+          uid: d.uid,
+          childId: child?.id || '',
+          name: d.name,
+          emoji: d.emoji || (child ? '🧒' : '👤'),
+          role: child ? 'kid' : 'parent',
+          gratitudes: e.gratitudes || [],
+          appreciations: e.appreciations || [],
+          goals: e.goals || [],
+          updatedAt: Date.now(),
+        } as unknown as MeetingSubmission);
+      }
+      if (restored.length > 0) setRestoredSubs(restored);
+    }).catch(() => { /* restore is best-effort */ });
+    return () => { dead = true; };
+  }, [profile?.familyId, submissionsRaw, meetingScheduleDow, allChildren]);
 
   // 🗣️ Open Floor (2026-07-20) — tonight's topic rows. Seeded once from
   // prep submissions + last week's PARKED topics; the leader can add live.
@@ -1194,14 +1232,16 @@ export default function MeetingPresenterPage() {
               key={s.id}
               onClick={() => setStepIdx(i)}
               aria-label={`Jump to ${s.title}`}
-              className={`flex-1 h-1.5 rounded-full transition-colors ${
-                i < safeStepIdx ? 'bg-kaya-gold' : i === safeStepIdx ? 'bg-kaya-gold-light' : 'bg-white/15'
+              className={`flex-1 rounded-full transition-all ${
+                i < safeStepIdx ? 'h-1.5 bg-kaya-gold'
+                : i === safeStepIdx ? 'h-2.5 bg-kaya-gold ring-2 ring-kaya-gold-light/60'
+                : 'h-1.5 bg-white/15'
               }`}
             />
           ))}
         </div>
         <div className="flex justify-between mt-2 text-[10px] uppercase tracking-[0.16em] font-bold text-white/50">
-          <span>Step {safeStepIdx + 1} of {activeSteps.length}</span>
+          <span>Step {safeStepIdx + 1} of {activeSteps.length}{isLastStep ? ' · the last one 🎉' : ''}</span>
           <span>{step.title}</span>
         </div>
       </div>
@@ -4077,7 +4117,11 @@ function OpenFloorStep({ rows, onChange, leaderName, leaderRule }: {
                 <span className="block font-display font-extrabold text-[14px] lg:text-base text-white leading-snug">{r.text}</span>
                 <span className="block text-[10.5px] text-white/45 mt-0.5">
                   {r.by ? `raised by ${r.by}` : 'added tonight'}
-                  {r.outcome === 'parked' && openIdx !== i ? ' · parked → carries to next week' : ''}
+                  {openIdx !== i ? (
+                    r.outcome === 'decided' ? ' · ✔ decided'
+                    : r.outcome === 'discussed' ? ' · 💬 discussed'
+                    : ' · parked → carries to next week'
+                  ) : ''}
                 </span>
               </span>
             </div>
@@ -4097,7 +4141,14 @@ function OpenFloorStep({ rows, onChange, leaderName, leaderRule }: {
                   <button
                     key={o.id}
                     type="button"
-                    onClick={() => patch(i, { outcome: o.id })}
+                    onClick={() => {
+                      // React visibly (Elia 2026-08-16): choosing an outcome
+                      // collapses the card so the badge lands in the summary
+                      // line — a tap always changes what you see, even when
+                      // re-picking the default 'parked'.
+                      patch(i, { outcome: o.id });
+                      setOpenIdx(null);
+                    }}
                     aria-pressed={r.outcome === o.id}
                     className={`px-3 py-2 rounded-kaya-sm font-display font-extrabold text-[11.5px] transition-colors ${
                       r.outcome === o.id ? o.cls : 'bg-white/5 text-white/55 hover:bg-white/15'
