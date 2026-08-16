@@ -18,6 +18,7 @@ import type {
   SparksItem, SparksProfile, SparksRating,
 } from '@/lib/sparks/schema';
 import { toDisplayDate } from '@/lib/dates';
+import { createTreasure } from '@/lib/sparks/treasures';
 import AreaScreen, { AddItemButton, AreaEmptyState } from '@/components/sparks/AreaScreen';
 import CaptureSheet from '@/components/sparks/CaptureSheet';
 import RatingSheet from '@/components/sparks/RatingSheet';
@@ -50,6 +51,30 @@ export default function AchievementsPage() {
   const [lightbox, setLightbox] = useState<{ photos: string[]; index: number; caption: string; sub: string } | null>(null);
   const isParent = authProfile?.role === 'parent';
   const canEdit = isParent || (authProfile?.role === 'kid' && authProfile?.childId === kidId);
+  const [keptId, setKeptId] = useState<string | null>(null);
+
+  /** F2 · link, never duplicate. The Treasure carries
+   *  `achievementItemId` back to this row, so a trophy is one object
+   *  with two doors rather than two rows that drift apart. */
+  async function keepInTreasures(it: SparksItem) {
+    if (!familyId) return;
+    try {
+      const id = await createTreasure(familyId, {
+        kidId,
+        name: it.title,
+        categoryId: 'keepsake',
+        emoji: '🏅',
+        photoUrl: it.photo_urls?.[0],
+        thumbUrl: it.photo_urls?.[0],
+        giverKind: 'unknown',
+        occasion: 'Won it',
+        givenOn: it.date,
+        achievementItemId: it.id,
+        watchlisted: true,
+      });
+      setKeptId(id);
+    } catch { /* the achievement is untouched either way */ }
+  }
 
   useEffect(() => {
     if (!familyId || !kidId) return;
@@ -191,6 +216,25 @@ export default function AchievementsPage() {
                           <div className="text-[11px] text-[#5A6488] mt-0.5">
                             {it.description ? `${it.description} · ` : ''}{toDisplayDate(it.date)}
                           </div>
+                          {/* F2 · an achievement is the record of WINNING;
+                              a treasure is the OBJECT you have to keep.
+                              A trophy is both, so we LINK rather than
+                              duplicate — the photo, date and title are
+                              read from this row. */}
+                          {canEdit && (
+                            <button
+                              type="button"
+                              onClick={() => keepInTreasures(it)}
+                              className="mt-1.5 text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-[#E2F3EE] text-[#0E6B5E]"
+                            >
+                              💎 Also keep in Treasures
+                            </button>
+                          )}
+                          {keptId && (
+                            <span className="ml-1.5 text-[10px] font-extrabold text-[#0E6B5E]">
+                              saved ✓
+                            </span>
+                          )}
                         </div>
                         {(() => {
                           const latest = ratingsMap.get(it.id)?.[0] ?? null;

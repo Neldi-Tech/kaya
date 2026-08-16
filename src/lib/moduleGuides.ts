@@ -301,12 +301,121 @@ const QUESTS_GUIDE: ModuleGuide = {
   ],
 };
 
+// ── Treasures ──────────────────────────────────────────────────────────────
+// The pieces on screen never explain the ORDER they go in, which is the part
+// that actually confuses a new family. Swahili needs a native review pass like
+// the other guides.
+const TREASURES_GUIDE: ModuleGuide = {
+  id: 'treasures',
+  title: { en: 'Kaya Treasures', sw: 'Kaya Treasures' },
+  emoji: '💎',
+  blurb: {
+    en: 'Every gift and every thing they own, on a register — who gave it, and a 30-second check so nothing gets lost.',
+    sw: 'Kila zawadi na kila kitu wanachomiliki, kwenye daftari — nani alitoa, na ukaguzi wa sekunde 30 ili kisipotee.',
+  },
+  paths: ['/sparks'],
+  ctaLabel: { en: 'Open Sparks', sw: 'Fungua Sparks' },
+  ctaHref: '/sparks',
+  available: true,
+  scenes: [
+    {
+      visual: { kind: 'hero', emoji: '💎' },
+      title: { en: 'What Treasures is for', sw: 'Treasures ni ya nini' },
+      body: {
+        en: 'It looks like a list of things. It isn’t. It’s a child who knows where their things are, remembers who loved them enough to give them, and understands what those things cost. The register is just how we get there.',
+        sw: 'Inaonekana kama orodha ya vitu. Sivyo. Ni mtoto anayejua vitu vyake vilipo, anayekumbuka nani aliyempenda kiasi cha kumpa, na anayeelewa vitu hivyo viligharimu nini. Daftari ni njia tu ya kufika huko.',
+      },
+    },
+    {
+      visual: {
+        kind: 'flow',
+        steps: [
+          { emoji: '🎁', label: 'Register' },
+          { emoji: '💛', label: 'Who gave it' },
+          { emoji: '🔑', label: 'Check' },
+          { emoji: '🔍', label: 'Find' },
+          { emoji: '🤝', label: 'Hand on' },
+        ],
+      },
+      title: { en: 'The order it goes in', sw: 'Mpangilio wake' },
+      body: {
+        en: 'Add a thing with a photo and a name. Say who gave it. Every so often your child taps once per thing to say they still have it. Anything missing goes on the family board. And when they outgrow it, it gets a proper ending instead of just disappearing.',
+        sw: 'Ongeza kitu kwa picha na jina. Sema nani alitoa. Mara kwa mara mtoto wako hugusa mara moja kwa kila kitu kusema bado anacho. Kilichopotea huenda kwenye ubao wa familia. Na anapokikua, kinapata mwisho mzuri badala ya kutoweka tu.',
+      },
+    },
+    {
+      visual: { kind: 'hero', emoji: '🎁' },
+      title: { en: '1 · A photo and a name is enough', sw: '1 · Picha na jina yatosha' },
+      body: {
+        en: 'Don’t try to register everything — that’s how this dies in week one. Start with the ten things your child would be saddest to lose. Who gave it and why it matters can be filled in any time; a half-registered thing beats an unregistered one.',
+        sw: 'Usijaribu kusajili kila kitu — hivyo ndivyo hii hufa wiki ya kwanza. Anza na vitu kumi ambavyo mtoto wako angehuzunika zaidi kuvipoteza. Nani alitoa na kwa nini ni muhimu vinaweza kujazwa wakati wowote.',
+      },
+    },
+    {
+      visual: { kind: 'hero', emoji: '💛' },
+      title: { en: '2 · Who gave it is the point', sw: '2 · Nani alitoa ndilo jambo' },
+      body: {
+        en: 'Every treasure remembers the person it came from. Your child can record a thank-you — you read it and send it, never them — and whatever the giver says back is pinned to that object forever. Years later the watch still carries Grandma’s voice.',
+        sw: 'Kila hazina hukumbuka mtu iliyotoka kwake. Mtoto wako anaweza kurekodi shukrani — wewe unaisoma na kuituma, si yeye — na chochote mtoaji anachojibu hubandikwa kwenye kitu hicho milele.',
+      },
+    },
+    {
+      visual: {
+        kind: 'grid',
+        items: [
+          { emoji: '✅', label: 'Got it' },
+          { emoji: '🔧', label: 'Needs fixing' },
+          { emoji: '❓', label: 'Can’t find it' },
+        ],
+      },
+      title: { en: '3 · The Keeper Check', sw: '3 · Ukaguzi wa Mlinzi' },
+      body: {
+        en: 'The engine of the whole thing. On the rhythm you set — weekly, twice a month, monthly or once a term — your child taps once per thing. Thirty seconds. It shows up on My Day and the Workplan so nobody has to remember it, and if it slips, Kaya tells you before it becomes a habit.',
+        sw: 'Injini ya kila kitu. Kwa mdundo unaouweka — kila wiki, mara mbili kwa mwezi, kila mwezi au mara moja kwa muhula — mtoto wako hugusa mara moja kwa kila kitu. Sekunde thelathini.',
+      },
+    },
+    {
+      visual: { kind: 'hero', emoji: '🫱' },
+      title: { en: '4 · Never punish an accident', sw: '4 · Usiadhibu ajali' },
+      body: {
+        en: 'This is the rule that decides whether the register is true or fiction. A child who fears trouble hides a broken strap. So reporting it yourself EARNS something — 🫱 Owned It — and nothing is ever taken away for the accident itself. Please say it out loud to them too.',
+        sw: 'Hii ndiyo sheria inayoamua kama daftari ni la kweli au uongo. Mtoto anayeogopa shida huficha mkanda uliovunjika. Hivyo kuripoti mwenyewe HUPATA kitu — 🫱 Owned It — na hakuna kinachoondolewa kwa ajali yenyewe.',
+      },
+    },
+    {
+      visual: { kind: 'hero', emoji: '⚖️' },
+      title: { en: '5 · What things cost, in their money', sw: '5 · Vitu vinagharimu nini, kwa pesa zao' },
+      body: {
+        en: 'You record what something cost; your child never sees that number. What they see is the same value in the effort it took them — “about six weeks of chores”. A nine-year-old can act on that sentence and cannot act on a price tag.',
+        sw: 'Wewe unarekodi kitu kiligharimu nini; mtoto wako haoni namba hiyo kamwe. Anachokiona ni thamani ile ile kwa juhudi ilizochukua — “kama wiki sita za kazi za nyumbani”.',
+      },
+    },
+    {
+      visual: {
+        kind: 'grid',
+        items: [
+          { emoji: '🔍', label: 'Lost & Found' },
+          { emoji: '🤝', label: 'Borrow' },
+          { emoji: '✨', label: 'Wish Shelf' },
+          { emoji: '🕰', label: 'Memory Shelf' },
+        ],
+      },
+      title: { en: '6 · The four rails', sw: '6 · Reli nne' },
+      body: {
+        en: 'Lost & Found asks WHERE something was last seen — never who took it. Borrow & Return chases the thing your child lent and forgot, which is how most things actually vanish. The Wish Shelf feeds your Gift Brain before birthdays. And nothing is ever deleted — it moves to the Memory Shelf with its whole story.',
+        sw: 'Lost & Found huuliza kitu kilionekana WAPI mwisho — si nani alichukua. Borrow & Return hufuatilia kitu mtoto wako alichoazima na kusahau. Wish Shelf hulisha Gift Brain kabla ya siku za kuzaliwa. Na hakuna kinachofutwa kamwe.',
+      },
+    },
+  ],
+};
+
 // ── Registry ────────────────────────────────────────────────────────────────
 // `available: false` entries appear in the library as "Coming soon".
 export const MODULE_GUIDES: ModuleGuide[] = [
   HOUSEHOLD_GUIDE,
   PURCHASES_FLOW,
   QUESTS_GUIDE,
+  TREASURES_GUIDE,
   { id: 'hive', title: { en: 'The Hive' }, emoji: '🐝', blurb: { en: 'Points → Honey → real cash.' }, paths: ['/hive'], scenes: [], available: false },
   { id: 'games', title: { en: 'Kaya Games' }, emoji: '🎮', blurb: { en: 'Play, earn House Points, stay safe.' }, paths: ['/games'], scenes: [], available: false },
   { id: 'wealth', title: { en: 'Kaya Wealth' }, emoji: '💎', blurb: { en: 'The family vault & investments.' }, paths: ['/wealth'], scenes: [], available: false },

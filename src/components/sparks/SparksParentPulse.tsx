@@ -10,6 +10,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { subscribeSparksToday, type SparksToday } from '@/lib/sparks/quests';
+import { fetchTreasuresToday, type TreasuresToday } from '@/lib/sparks/treasures';
 
 interface Kid { id: string; name: string; avatarEmoji?: string }
 
@@ -32,13 +33,35 @@ export default function SparksParentPulse({ familyId, kids }: {
 
 function PulseRow({ familyId, kid }: { familyId: string; kid: Kid }) {
   const [t, setT] = useState<SparksToday | null>(null);
+  // 💎 Treasures joins the pulse (D23) — a parent who can see the check
+  // slipping is a parent who prompts, and the loop closes.
+  const [tr, setTr] = useState<TreasuresToday | null>(null);
 
   useEffect(() => {
     if (!familyId || !kid.id) return;
     return subscribeSparksToday(familyId, kid.id, setT);
   }, [familyId, kid.id]);
 
-  const clear = !!t && t.openCount === 0;
+  useEffect(() => {
+    if (!kid.id) return;
+    let dead = false;
+    fetchTreasuresToday(kid.id)
+      .then((r) => { if (!dead) setTr(r); })
+      .catch(() => { if (!dead) setTr(null); });
+    return () => { dead = true; };
+  }, [kid.id]);
+
+  const treasureLine = !tr
+    ? ''
+    : tr.check.due
+      ? (tr.check.overdueDays >= 1
+          ? ` · 🔑 check ${tr.check.overdueDays}d overdue`
+          : ' · 🔑 check due')
+      : tr.missing > 0
+        ? ` · 🔍 ${tr.missing} missing`
+        : '';
+
+  const clear = !!t && t.openCount === 0 && !treasureLine;
   const summary = !t
     ? '…'
     : clear
@@ -55,7 +78,7 @@ function PulseRow({ familyId, kid }: { familyId: string; kid: Kid }) {
         {kid.name}
       </span>
       <span className="text-[11.5px] text-[#5A6488] flex-1 min-w-0 truncate">
-        {t && t.bestStreak > 0 ? `🔥${t.bestStreak} · ` : ''}{summary}
+        {t && t.bestStreak > 0 ? `🔥${t.bestStreak} · ` : ''}{summary}{treasureLine}
       </span>
       {t && !clear && (
         <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full bg-[#DFE3FB] text-[#3B2E86] whitespace-nowrap">
