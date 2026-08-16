@@ -81,6 +81,8 @@ export default function MeetingSetupPage() {
   const [openFloorEnabled, setOpenFloorEnabled] = useState<boolean>(false);
   // ⏰ Catch-Up Corner (2026-08-10) — own flag, default ON.
   const [catchUpCornerEnabled, setCatchUpCornerEnabled] = useState<boolean>(true);
+  // 🚪 Close gate (2026-08-16) — auto-close-if-forgotten minutes.
+  const [autoCloseMinutes, setAutoCloseMinutes] = useState<0 | 5 | 10 | 20>(10);
   // 🧩 Agenda Builder (OF-3) — order of the reorderable steps + the
   // family's own 8th step. Pinned head (attendance/gratitude/celebrate)
   // never enters this array.
@@ -145,6 +147,7 @@ export default function MeetingSetupPage() {
     }
     setOpenFloorEnabled(s?.openFloorEnabled === true);
     setCatchUpCornerEnabled(s?.catchUpCornerEnabled !== false);
+    setAutoCloseMinutes((s?.autoCloseMinutes ?? 10) as 0 | 5 | 10 | 20);
     if (s?.agendaOrder && s.agendaOrder.length > 0) {
       // Merge-migrate: keep saved order, append any ids added since.
       const ALL = ['appreciations', 'catchup', 'goals', 'openfloor', 'reflection', 'custom'];
@@ -289,6 +292,7 @@ export default function MeetingSetupPage() {
         },
         openFloorEnabled,
         catchUpCornerEnabled,
+        autoCloseMinutes,
         agendaOrder,
         customStep: { emoji: customStepEmoji || '⭐', name: customStepName.trim(), enabled: customStepEnabled && !!customStepName.trim() },
         openFloorRaisers,
@@ -708,6 +712,40 @@ export default function MeetingSetupPage() {
             <p className="text-[11px] text-kaya-sand mt-2">Limits whether kids may run the discussion — independent of who leads the rest of the meeting.</p>
           </div>
         </div>
+      </section>
+
+      {/* ── 🚪 Close-the-Meeting gate (2026-08-16) ──────────────── */}
+      <section className="mb-8 bg-white border border-kaya-warm-dark rounded-kaya-lg p-5 lg:p-7">
+        <div className="flex items-baseline justify-between mb-1">
+          <h2 className="font-display text-lg lg:text-xl font-black">🚪 Closing the meeting</h2>
+          <span className="text-[10px] uppercase tracking-wider font-bold text-kaya-sand">
+            {autoCloseMinutes === 0 ? 'Manual only' : `Auto after ${autoCloseMinutes} min`}
+          </span>
+        </div>
+        <p className="text-[12px] lg:text-[13px] text-kaya-sand mb-4">
+          The night ends only when someone taps the big 🚪 <b>Close our Meeting!</b> gate — the minutes then fly to every participant instantly. If the family walks away and forgets, Kaya closes it after:
+        </p>
+        <div className="flex gap-2">
+          {([[0, 'Never'], [5, '5 min'], [10, '10 min'], [20, '20 min']] as const).map(([val, label]) => (
+            <button
+              key={val}
+              type="button"
+              onClick={() => setAutoCloseMinutes(val)}
+              className={`flex-1 h-10 rounded-kaya-sm font-display font-extrabold text-[12px] border-2 transition-colors ${
+                autoCloseMinutes === val
+                  ? 'bg-kaya-chocolate text-kaya-gold-light border-kaya-chocolate'
+                  : 'bg-white text-kaya-chocolate border-kaya-warm-dark hover:bg-kaya-warm'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="text-[11.5px] text-kaya-chocolate/60 leading-snug mt-2">
+          {autoCloseMinutes === 0
+            ? 'The meeting stays open until the gate is tapped — nothing closes on its own.'
+            : `The timer only starts once the family reaches the last step.`}
+        </p>
       </section>
 
       {/* ── Recap Book email (Sunday-Meeting v2 · b6) ────────────── */}
