@@ -27,6 +27,7 @@ import { updateFamily, readWorkplanProofMode } from '@/lib/firestore';
 import { useLocale } from '@/lib/useLocale';
 import PauseSheet from '@/components/workplan/PauseSheet';
 import MeetingPrepCard from '@/components/meetings/MeetingPrepCard';
+import KeeperCheckTodo from '@/components/sparks/KeeperCheckTodo';
 import SubmissionHistoryView from '@/components/meetings/SubmissionHistoryView';
 import GoalsReviewView from '@/components/meetings/GoalsReviewView';
 import TodaysSongCard from '@/components/meetings/TodaysSongCard';
@@ -123,6 +124,14 @@ function KidWorkplanView({ familyId, childId, name, userUid, avatarEmoji }: {
         childId={childId}
         avatarEmoji={avatarEmoji}
       />
+
+      {/* D23 · the Keeper Check resurfaces HERE too, on the parent's
+          cadence — many families hide /my-day, and a check that only
+          lives on one surface is a check half the house never sees.
+          Renders nothing when nothing is due. */}
+      <div className="mb-3">
+        <KeeperCheckTodo kidId={childId} kidName={name.split(' ')[0]} />
+      </div>
 
       {/* Tabs — Workplan vs My Submissions (PR F). Keeps the meeting
           submission history out of the to-do list so neither crowds the
