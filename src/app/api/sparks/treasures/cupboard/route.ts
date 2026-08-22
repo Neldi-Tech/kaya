@@ -85,7 +85,8 @@ type Action =
   | 'my-reading' | 'reading-start' | 'reading-mark' | 'reading-finish'
   | 'reading-reminder' | 'reading-invite' | 'reading-invite-respond'
   | 'reading-note' | 'reading-note-ai' | 'reading-note-rate' | 'reading-notes'
-  | 'quiz-start' | 'quiz-answer' | 'quiz-skip' | 'quiz-rate';
+  | 'quiz-start' | 'quiz-answer' | 'quiz-skip' | 'quiz-rate'
+  | 'play-log' | 'dust-snooze';
 
 const ALL_ACTIONS: Action[] = [
   'shelf', 'item', 'add', 'update',
@@ -95,6 +96,7 @@ const ALL_ACTIONS: Action[] = [
   'reading-reminder', 'reading-invite', 'reading-invite-respond',
   'reading-note', 'reading-note-ai', 'reading-note-rate', 'reading-notes',
   'quiz-start', 'quiz-answer', 'quiz-skip', 'quiz-rate',
+  'play-log', 'dust-snooze',
 ];
 
 const READING_MARKS_KEPT = 60;
@@ -974,7 +976,40 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'unknown-action' }, { status: 400 });
   }
 
+  // ── 🎲 "We played!" (D38) — any member logs a play; kid players get
+  //    the gamesPlayed counter; the 🕸 dust clock resets. ──────────────
+  if (action === 'play-log') {
+    if (t.categoryId !== 'game') return NextResponse.json({ error: 'not-a-game' }, { status: 409 });
+    if (ENDED.includes(String(t.status))) return NextResponse.json({ error: 'already-ended' }, { status: 409 });
+    const now = Date.now();
+    const whoIn = (Array.isArray(body.who) ? body.who : []).map((w) => str(w, 80)).filter(Boolean).slice(0, 12);
+    const kidsIn = whoIn.filter((w) => kidName.has(w));
+    const names = whoIn.map((w) => (w === 'me' ? actorName : kidName.get(w)?.name || '')).filter(Boolean);
+    const plays = (Array.isArray(t.plays) ? t.plays : []) as Array<Record<string, unknown>>;
+    const play: Record<string, unknown> = { on: today, at: now, who: whoIn, byName: actorName };
+    const note = str(body.note, 200); if (note) play.note = note;
+    const playedCount = Number(t.playedCount || 0) + 1;
+    await ref.update({
+      plays: [...plays, play].slice(-60), playedCount, lastPlayedOn: today,
+      dustSnoozedUntil: FieldValue.delete(),
+      updatedAt: now, updatedByName: actorName,
+    });
+    await logEvent(eventsCol, {
+      treasureId, kidId, kind: 'played', on: today, at: now, byName: actorName,
+      note: `🎲 Played${names.length ? ` — ${names.join(', ')}` : ''}${note ? ` · ${note}` : ''}`,
+    });
+    for (const k of kidsIn) await bumpBadgeCountersAdmin(db, familyId, k, { gamesPlayed: 1 });
+    return NextResponse.json({ ok: true, playedCount });
+  }
+
   if (!canEdit) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+
+  // ── 🕸 D40 · "keep, remind next quarter" ─────────────────────────
+  if (action === 'dust-snooze') {
+    const days = num(body.days, 7, 365, 90);
+    await ref.update({ dustSnoozedUntil: addDays(today, days), updatedAt: Date.now(), updatedByName: actorName });
+    return NextResponse.json({ ok: true });
+  }
 
   if (action === 'update') {
     const p = (body.patch ?? {}) as Record<string, unknown>;

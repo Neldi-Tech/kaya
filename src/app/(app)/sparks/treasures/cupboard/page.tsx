@@ -11,12 +11,14 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import {
-  subscribeToCupboard, liveItems, endedItems, books, games,
+  subscribeToCupboard, liveItems, endedItems, books, games, dustItems, snoozeDust, DAY_LABEL,
   type CupboardShelf, type CupboardKind,
 } from '@/lib/sparks/cupboard';
+import { todayIso, liveReadings } from '@/lib/sparks/treasures';
 import { CupboardFrame, Card, Pill, ShelfCard, WOOD, WOOD_DK, WOOD_BG, JADE, JADE_BG } from '@/components/sparks/CupboardShell';
 import CupboardAddSheet from '@/components/sparks/CupboardAddSheet';
 import CupboardScanSheet from '@/components/sparks/CupboardScanSheet';
+import GameNightPicker from '@/components/sparks/GameNightPicker';
 
 export default function CupboardHomePage() {
   const { profile } = useAuth();
@@ -27,6 +29,9 @@ export default function CupboardHomePage() {
   const [adding, setAdding] = useState<CupboardKind | null>(null);
   /** C2 · 📷 Scan to add is the primary door; ⌨ typing is tier 4. */
   const [scanning, setScanning] = useState<CupboardKind | null>(null);
+  /** C5 · 🎡 Game Night Picker + 🕸 dust snoozes. */
+  const [picker, setPicker] = useState(false);
+  const [snoozing, setSnoozing] = useState<string | null>(null);
 
   useEffect(() => {
     if (!familyId) return;
@@ -127,6 +132,46 @@ export default function CupboardHomePage() {
               </Card>
             )}
 
+            {/* 📖 who's reading now (the Bookworm Wall proper lands in C6) */}
+            {liveBooks.some((b) => liveReadings(b).length > 0) && (
+              <Card tone="good">
+                <div className="font-display font-extrabold text-[12.5px] text-[#0E6B5E]">📖 Reading now</div>
+                {liveBooks.flatMap((b) => liveReadings(b).map((r) => ({ b, r }))).slice(0, 5).map(({ b, r }) => (
+                  <Link key={`${b.id}-${r.id}`} href={`/sparks/treasures/cupboard/${b.id}`} className="block text-[11px] font-bold text-[#2C4A44] mt-1 no-underline">
+                    {r.readerName} — <b>{b.name}</b>{r.pages ? ` p.${r.currentPage}/${r.pages}` : ''}{r.readNo > 1 ? ' 🔁' : ''}{r.togetherWith ? ' 🤝' : ''}
+                  </Link>
+                ))}
+              </Card>
+            )}
+
+            {/* 🎲 Game Night (D38) */}
+            {liveGames.length > 0 && shelf.settings.gameNight.enabled && (
+              <div className="rounded-[13px] border border-[#EFD9A0] bg-[#FFF1C9] p-3 mb-2.5">
+                <div className="text-[12px] font-extrabold text-[#8A6800]">
+                  🎲 Family fun · {DAY_LABEL[shelf.settings.gameNight.dayOfWeek]} {String(shelf.settings.gameNight.hour).padStart(2, '0')}:{String(shelf.settings.gameNight.minute).padStart(2, '0')}
+                </div>
+                <p className="text-[10.5px] font-bold text-[#7a6320] mt-0.5 mb-0 leading-snug">
+                  {(() => { const last = liveGames.filter((g) => g.lastPlayedOn).sort((a, b) => (b.lastPlayedOn || '').localeCompare(a.lastPlayedOn || ''))[0]; return last ? `Last played: ${last.name} (${last.lastPlayedOn})` : 'Nothing played yet'; })()}
+                  {' · '}<button type="button" onClick={() => setPicker(true)} className="font-extrabold" style={{ color: '#8A6800' }}>Pick tonight&rsquo;s game →</button>
+                </p>
+              </div>
+            )}
+
+            {/* 🕸 Dust Detector (D40) — one gentle card per item */}
+            {dustItems(live, shelf.settings.dustDays, todayIso()).slice(0, 3).map((d) => (
+              <Card key={`dust-${d.id}`} tone="warn">
+                <div className="font-display font-extrabold text-[12.5px] text-[#8A6800]">🕸 Gathering dust — {d.emoji} {d.name}</div>
+                <p className="text-[10.8px] font-bold text-[#7a6320] mt-1 m-0">{d.categoryId === 'book' ? 'Not read' : 'Not played'} in {d.idleDays} days</p>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {d.categoryId === 'game'
+                    ? <Pill bg="#D4A847" fg="#3D2E08" onClick={() => setPicker(true)}>🎡 Play it this week</Pill>
+                    : <Pill bg="#D4A847" fg="#3D2E08" href={`/sparks/treasures/cupboard/${d.id}`}>💌 Invite someone to read it</Pill>}
+                  <Pill bg="#fff" fg={JADE} href={`/sparks/treasures/cupboard/${d.id}`}>🤝 Pass it on</Pill>
+                  <Pill bg="#EEF0F4" fg="#5B6B8C" disabled={snoozing === d.id} onClick={async () => { if (!familyId) return; setSnoozing(d.id); try { await snoozeDust(familyId, d.id, 90); } finally { setSnoozing(null); } }}>Keep · next quarter</Pill>
+                </div>
+              </Card>
+            ))}
+
             {live.length > 0 && (
               <div className="grid grid-cols-2 gap-2.5 mb-2.5">
                 <Link href="/sparks/treasures/cupboard/books" className="rounded-[14px] border border-[#E4CDB2] bg-[#F6ECDF] p-3 no-underline">
@@ -176,6 +221,15 @@ export default function CupboardHomePage() {
         )}
       </CupboardFrame>
 
+      {picker && familyId && shelf && (
+        <GameNightPicker
+          familyId={familyId}
+          shelf={shelf}
+          games={liveGames}
+          onClose={() => setPicker(false)}
+          onPlayed={() => { /* the shelf refreshes via the ping bus */ }}
+        />
+      )}
       {scanning && familyId && shelf && (
         <CupboardScanSheet
           familyId={familyId}

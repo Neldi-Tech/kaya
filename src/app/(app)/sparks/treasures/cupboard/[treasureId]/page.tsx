@@ -21,7 +21,7 @@ import {
   cupboardLend, cupboardReturn, cupboardEnd, fetchCupboard, pingCupboard,
   kindOf, gameMetaLine, bookMetaLine,
   startReading, markPage, finishReading, setReadingReminder, inviteToRead, respondToInvite,
-  READING_MODE_LABEL,
+  READING_MODE_LABEL, logPlay, snoozeDust, lastUsedOn,
   type CupboardItem, type CupboardShelf,
 } from '@/lib/sparks/cupboard';
 import {
@@ -150,6 +150,30 @@ export default function CupboardItemPage() {
           run={run}
         />
       )}
+
+      {/* 🎲 C5 · the play log (D38) — games only */}
+      {kind === 'game' && !ended && (
+        <PlayPanel item={item} kids={kids} familyId={familyId} busy={busy} canLog={!!shelf} isKid={profile?.role === 'kid'} run={run} />
+      )}
+
+      {/* 🕸 C5 · dust (D40) — one gentle card, snoozable */}
+      {!ended && shelf && shelf.settings.dustDays > 0 && (() => {
+        const today = todayIso();
+        const used = lastUsedOn(item);
+        const [uy, um, ud] = used.split('-').map(Number); const [ty, tm, td] = today.split('-').map(Number);
+        const idle = Math.round((Date.UTC(ty, (tm || 1) - 1, td || 1) - Date.UTC(uy, (um || 1) - 1, ud || 1)) / 86400000);
+        const snoozed = !!item.dustSnoozedUntil && item.dustSnoozedUntil > today;
+        if (idle < shelf.settings.dustDays || snoozed) return null;
+        return (
+          <Card tone="warn">
+            <div className="font-display font-extrabold text-[12.5px] text-[#8A6800]">🕸 Gathering dust · {kind === 'book' ? 'not read' : 'not played'} in {idle} days</div>
+            <p className="text-[10.8px] font-bold text-[#7a6320] mt-1 m-0 leading-snug">Play it, read it, or pass it on — nothing is ever deleted.</p>
+            <div className="flex flex-wrap gap-2 mt-2">
+              {perm.canEdit && <Pill bg="#EEF0F4" fg="#5B6B8C" disabled={busy} onClick={() => run(() => snoozeDust(familyId, item.id, 90))}>Keep · remind next quarter</Pill>}
+            </div>
+          </Card>
+        );
+      })()}
 
       {/* kid-owned → its full page lives in their register */}
       {!family && (
@@ -534,6 +558,53 @@ function ReadingPanel({ item, shelf, familyId, busy, me, run }: {
         </Card>
       )}
     </>
+  );
+}
+
+// ── 🎲 The play log (C5 · D38) ─────────────────────────────────────
+
+function PlayPanel({ item, kids, familyId, busy, canLog, isKid, run }: {
+  item: CupboardItem; kids: Array<{ id: string; name: string; emoji: string; age?: number }>;
+  familyId: string; busy: boolean; canLog: boolean; isKid: boolean;
+  run: (fn: () => Promise<unknown>) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [who, setWho] = useState<Set<string>>(() => new Set(isKid ? [] : ['me']));
+  const plays = (item.plays ?? []).slice().reverse().slice(0, 5);
+  const toggle = (id: string) => setWho((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  return (
+    <Card tone="wood">
+      <div className="flex items-center justify-between gap-2">
+        <div className="font-display font-extrabold text-[12.5px] text-[#0F1F44]">
+          🎲 Played {item.playedCount || 0}×{item.lastPlayedOn ? ` · last ${toDisplayDate(item.lastPlayedOn)}` : ' · never yet'}
+        </div>
+        {canLog && <button type="button" onClick={() => setOpen((v) => !v)} className="text-[11px] font-extrabold" style={{ color: WOOD_DK }}>{open ? 'Close' : 'We played!'}</button>}
+      </div>
+      {open && (
+        <div className="mt-2">
+          <div className="text-[10.5px] font-extrabold tracking-[.5px] uppercase text-[#8A8471] mb-1">Who was in?</div>
+          <div className="flex flex-wrap gap-1.5">
+            {!isKid && (
+              <button type="button" onClick={() => toggle('me')} className="text-[11px] font-extrabold px-2.5 py-1.5 rounded-full border-[1.5px] border-[#E8E0CF] bg-white text-[#0F1F44]" style={who.has('me') ? { background: JADE, color: '#fff', borderColor: JADE } : undefined}>🧑 Me</button>
+            )}
+            {kids.map((k) => (
+              <button key={k.id} type="button" onClick={() => toggle(k.id)} className="text-[11px] font-extrabold px-2.5 py-1.5 rounded-full border-[1.5px] border-[#E8E0CF] bg-white text-[#0F1F44]" style={who.has(k.id) ? { background: JADE, color: '#fff', borderColor: JADE } : undefined}>{k.emoji} {k.name}</button>
+            ))}
+          </div>
+          <div className="mt-2"><Pill bg={JADE} fg="#fff" disabled={busy} onClick={() => run(() => logPlay(familyId, item.id, Array.from(who)).then(() => setOpen(false)))}>✓ Log tonight&rsquo;s game</Pill></div>
+        </div>
+      )}
+      {plays.length > 0 && (
+        <div className="mt-2">
+          {plays.map((p, i) => (
+            <p key={`${p.at}-${i}`} className="text-[10.8px] font-bold text-[#5B6B8C] m-0 mt-0.5">
+              {toDisplayDate(p.on)} · {p.who.map((w) => (w === 'me' ? p.byName : kids.find((k) => k.id === w)?.name || '')).filter(Boolean).join(', ') || p.byName}
+            </p>
+          ))}
+        </div>
+      )}
+      {item.game?.piecesNote && <p className="text-[10.5px] font-bold text-[#8A6800] mt-2 m-0">🧩 {item.game.piecesNote}</p>}
+    </Card>
   );
 }
 

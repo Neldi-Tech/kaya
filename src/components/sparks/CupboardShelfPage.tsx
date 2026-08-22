@@ -7,7 +7,8 @@
 // chips that exist here are the ones the data already supports).
 
 import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import GameNightPicker from './GameNightPicker';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   subscribeToCupboard, liveItems, endedItems, books, games,
@@ -32,6 +33,10 @@ export default function CupboardShelfPage({ kind }: { kind: CupboardKind }) {
   const [showEnded, setShowEnded] = useState(false);
   const [adding, setAdding] = useState(false);
   const [scanning, setScanning] = useState(false);
+  /** C5 · 🎡 the Game Night Picker — `?pick=1` (the cron's push link) opens it. */
+  const search = useSearchParams();
+  const [picker, setPicker] = useState(false);
+  useEffect(() => { if (kind === 'game' && search?.get('pick') === '1') setPicker(true); }, [kind, search]);
 
   useEffect(() => {
     if (!familyId) return;
@@ -126,6 +131,7 @@ export default function CupboardShelfPage({ kind }: { kind: CupboardKind }) {
             <div className="flex flex-wrap gap-2 mt-4">
               <Pill bg={WOOD} fg="#fff" onClick={() => setScanning(true)}>📷 Scan a {noun}</Pill>
               <Pill bg={WOOD_BG} fg={WOOD_DK} onClick={() => setAdding(true)}>⌨ Type it</Pill>
+              {kind === 'game' && live.length > 0 && <Pill bg="#D4A847" fg="#3D2E08" onClick={() => setPicker(true)}>🎡 Pick tonight&rsquo;s game</Pill>}
               <Pill bg="#fff" fg={WOOD_DK} href={kind === 'book' ? '/sparks/treasures/cupboard/games' : '/sparks/treasures/cupboard/books'}>
                 {kind === 'book' ? '🎲 Game Shelf' : '📚 Book Shelf'}
               </Pill>
@@ -149,6 +155,15 @@ export default function CupboardShelfPage({ kind }: { kind: CupboardKind }) {
         )}
       </CupboardFrame>
 
+      {picker && familyId && shelf && kind === 'game' && (
+        <GameNightPicker
+          familyId={familyId}
+          shelf={shelf}
+          games={live}
+          onClose={() => setPicker(false)}
+          onPlayed={() => { /* the shelf refreshes via the ping bus */ }}
+        />
+      )}
       {scanning && familyId && shelf && (
         <CupboardScanSheet
           familyId={familyId}
