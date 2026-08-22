@@ -6,7 +6,7 @@
 // "About Kaya · join the waitlist" + "Stop these greetings" (R13).
 
 import {
-  cardHeadline, defaultMessage, defaultOneLiner, themePalette, typeEmoji,
+  cardHeadline, defaultMessage, defaultOneLiner, themePalette, typeEmoji, shortName,
   type GreetingCard,
 } from './greetingCards';
 import { toDisplayDate } from './dates';
@@ -36,7 +36,7 @@ export function renderGreetingCardEmail(a: RenderCardEmailArgs): { subject: stri
   const sw = lang === 'sw';
   const pal = themePalette(card.theme);
   const headline = cardHeadline(card.type, card.nth, lang, card.eventTitle);
-  const first = (card.honoree.name || '').split(/\s+/)[0] || card.honoree.name;
+  const first = shortName(card.honoree.name) || card.honoree.name;
   const oneLiner = card.oneLiner || defaultOneLiner(card);
   const message = card.message || defaultMessage(card, card.signatureLine);
   const dateLabel = toDisplayDate(card.dateKey);
