@@ -23,7 +23,7 @@ import {
   subscribeToDiary, saveDiaryEntry, setDiaryEntryLock,
   computeDiaryStats, diaryDayKey,
   kidHasDiaryPin, setDiaryPin, answerKnock, knockOnPage, quietOpenPage, getDiaryPrivacy,
-  markKnockSeen, nudgeKnock,
+  markKnockSeen, nudgeKnock, toggleDiaryStar,
   getDiaryPrompt, requestKayaReply, setEntryFeeling,
   addDiaryWord, DIARY_PAGE_STYLES,
 } from '@/lib/sparks/diary';
@@ -34,6 +34,7 @@ import AreaScreen from '@/components/sparks/AreaScreen';
 import { EntryCard, DiaryTimeline, PinCreateModal } from '@/components/sparks/DiaryShared';
 import { PolishControl } from '@/components/sparks/PolishedText';
 import { YearInPixelsCard, OnThisDayCard } from '@/components/sparks/DiaryFeatures';
+import FilledDaysBrowser from '@/components/sparks/FilledDaysBrowser';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 import DiaryInkCanvas, { type DiaryInkHandle } from '@/components/sparks/DiaryInkCanvas';
 import { uploadSparksPhotos } from '@/lib/sparks/uploadPhoto';
@@ -78,6 +79,8 @@ export default function DiaryPage() {
   const [scanFiles, setScanFiles] = useState<File[]>([]);
   // Slice 8c · timeline visibility + tapped-day sheet.
   const [timelineOpen, setTimelineOpen] = useState(false);
+  // PAST-1 · parents land with the past open — no hidden toggle.
+  useEffect(() => { if (isParent) setTimelineOpen(true); }, [isParent]);
   const [dayOpen, setDayOpen] = useState<string | null>(null);
   // Slice 8d · privacy: kid PIN gate + parent quiet-open flow.
   const [hasPin, setHasPin] = useState<boolean | null>(null);
@@ -161,6 +164,19 @@ export default function DiaryPage() {
     }
     return Array.from(byDay.entries()).slice(0, 7);
   }, [entries, today]);
+
+  // PAST-1 · 📚 filled days for the drill-down browser (one chip per day).
+  const filledDays = useMemo(() => {
+    const m = new Map<string, { date: string; emoji?: string; starred: boolean; locked: boolean; count: number }>();
+    for (const e of entries ?? []) {
+      const cur = m.get(e.date) ?? { date: e.date, emoji: e.feeling, starred: false, locked: false, count: 0 };
+      cur.count += 1;
+      if (e.parent_stars && Object.keys(e.parent_stars).length > 0) cur.starred = true;
+      if (e.locked && !e.knock_open) cur.locked = true;
+      m.set(e.date, cur);
+    }
+    return Array.from(m.values());
+  }, [entries]);
 
   // Slice 8g · feeling optional — Kaya infers when skipped (✨ badge).
   const canSave = !saving
@@ -344,6 +360,8 @@ export default function DiaryPage() {
             onNudge={isParent && familyId ? () => { void nudgeKnock(familyId, kidId, e.id); } : undefined}
                     onSetFeeling={isOwnerKid && familyId ? (f) => setEntryFeeling(familyId, kidId, e.id, f) : undefined}
             onQuietOpen={isParent ? () => setQuietFor(e) : undefined}
+            onStar={isParent && familyId ? () => { void toggleDiaryStar(familyId, kidId, e.id); } : undefined}
+            viewerUid={authProfile?.uid}
             onToggleLock={isOwnerKid && familyId ? (next) => (next ? withPin(() => setDiaryEntryLock(familyId, kidId, e.id, true)) : setDiaryEntryLock(familyId, kidId, e.id, false)) : undefined} />)}
         </div>
       )}
@@ -377,6 +395,7 @@ export default function DiaryPage() {
             sw={sw}
             onOpenDay={(d) => setDayOpen(d)}
           />
+          <FilledDaysBrowser days={filledDays} sw={sw} onOpenDay={(d) => setDayOpen(d)} />
           <YearInPixelsCard
             entries={entries ?? []}
             year={new Date().getFullYear()}
@@ -640,6 +659,8 @@ export default function DiaryPage() {
                     onNudge={isParent && familyId ? () => { void nudgeKnock(familyId, kidId, e.id); } : undefined}
                     onSetFeeling={isOwnerKid && familyId ? (f) => setEntryFeeling(familyId, kidId, e.id, f) : undefined}
                     onQuietOpen={isParent ? () => setQuietFor(e) : undefined}
+                    onStar={isParent && familyId ? () => { void toggleDiaryStar(familyId, kidId, e.id); } : undefined}
+                    viewerUid={authProfile?.uid}
                       onToggleLock={isOwnerKid && familyId ? (next) => (next ? withPin(() => setDiaryEntryLock(familyId, kidId, e.id, true)) : setDiaryEntryLock(familyId, kidId, e.id, false)) : undefined} />
                   ))}
                 </div>
@@ -664,6 +685,8 @@ export default function DiaryPage() {
                   onNudge={isParent && familyId ? () => { void nudgeKnock(familyId, kidId, e.id); } : undefined}
                     onSetFeeling={isOwnerKid && familyId ? (f) => setEntryFeeling(familyId, kidId, e.id, f) : undefined}
                   onQuietOpen={isParent ? () => setQuietFor(e) : undefined}
+                  onStar={isParent && familyId ? () => { void toggleDiaryStar(familyId, kidId, e.id); } : undefined}
+                  viewerUid={authProfile?.uid}
                   onToggleLock={isOwnerKid && familyId ? (next) => (next ? withPin(() => setDiaryEntryLock(familyId, kidId, e.id, true)) : setDiaryEntryLock(familyId, kidId, e.id, false)) : undefined} />
               ))}
             </div>

@@ -72,7 +72,7 @@ async function inferFeeling(text: string): Promise<string> {
 type Action = 'list' | 'save' | 'lock' | 'delete'
   | 'privacy-get' | 'pin-set' | 'pin-reset' | 'quota-set'
   | 'knock' | 'knock-answer' | 'quiet-open' | 'visibility-set' | 'feeling-set'
-  | 'word-jar-add' | 'knock-seen' | 'knock-nudge' | 'knocks-pending';
+  | 'word-jar-add' | 'knock-seen' | 'knock-nudge' | 'knocks-pending' | 'star';
 
 const FEELINGS = ['😊', '😄', '😐', '🙁', '😢', '😠', '😴', '🤔'];
 
@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
     visibility?: string; sealed_until?: string; polished?: string; page_style?: string; note?: string; mode?: string;
   };
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'bad-json' }, { status: 400 }); }
-  const ALL_ACTIONS: Action[] = ['list', 'save', 'lock', 'delete', 'privacy-get', 'pin-set', 'pin-reset', 'quota-set', 'knock', 'knock-answer', 'quiet-open', 'visibility-set', 'feeling-set', 'word-jar-add', 'knock-seen', 'knock-nudge', 'knocks-pending'];
+  const ALL_ACTIONS: Action[] = ['list', 'save', 'lock', 'delete', 'privacy-get', 'pin-set', 'pin-reset', 'quota-set', 'knock', 'knock-answer', 'quiet-open', 'visibility-set', 'feeling-set', 'word-jar-add', 'knock-seen', 'knock-nudge', 'knocks-pending', 'star'];
   const action: Action = ALL_ACTIONS.includes(body.action as Action)
     ? (body.action as Action) : 'list';
   const ownerId = typeof body.ownerId === 'string' ? body.ownerId : '';
@@ -277,6 +277,26 @@ export async function POST(req: NextRequest) {
     const quota = Math.max(0, Math.min(10, Math.round(Number(body.quota ?? 3))));
     await privRef.set({ quotas: { [uid]: quota } }, { merge: true });
     return NextResponse.json({ ok: true, quota });
+  }
+
+  if (action === 'star') {
+    // PAST-1 · ⭐ parent stars a kid's page (toggle). Only pages the
+    // parent can actually read right now: unlocked, knock-opened, or
+    // open-for-today. Meta only — lives beside the content, never in it.
+    if (!isParent || !ownerIsKid) return NextResponse.json({ error: 'parent-only' }, { status: 403 });
+    const entryId = String(body.entryId ?? '');
+    const eSnap = await col.doc(entryId).get();
+    const eData = eSnap.data() as { ownerId?: string; locked?: boolean; knock_open?: boolean; knock_open_until?: string; parent_stars?: Record<string, string> } | undefined;
+    if (!eSnap.exists || eData?.ownerId !== ownerId) return NextResponse.json({ error: 'not-found' }, { status: 404 });
+    const readable = eData.locked !== true || eData.knock_open === true || eData.knock_open_until === today;
+    if (!readable) return NextResponse.json({ error: 'locked' }, { status: 403 });
+    const me = (await familyParents()).find((pp) => pp.uid === uid);
+    const has = !!eData.parent_stars?.[uid];
+    await col.doc(entryId).update({ [`parent_stars.${uid}`]: has ? FieldValue.delete() : (me?.name || 'Parent') });
+    if (!has) {
+      await notifyUser(ownerId, '⭐ A star on your page', `${me?.name || 'A parent'} starred one of your diary pages 💛`);
+    }
+    return NextResponse.json({ starred: !has });
   }
 
   if (action === 'knock') {
@@ -505,6 +525,7 @@ export async function POST(req: NextRequest) {
             // status chips (sent / 👀 seen / ⏳ waiting / 👋 nudge) need
             // it, and it never contains page content.
             ...((r as { knock?: unknown }).knock ? { knock: (r as { knock?: unknown }).knock } : {}),
+            ...((r as { parent_stars?: unknown }).parent_stars ? { parent_stars: (r as { parent_stars?: unknown }).parent_stars } : {}),
           };
         }
         return r;
