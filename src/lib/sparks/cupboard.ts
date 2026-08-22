@@ -556,6 +556,87 @@ export function gameFits(
   return { fits: why.length === 0, why };
 }
 
+// ── 🐛 Bookworm Wall + the Sunday Meeting line (C6 · N3 · N8) ───────
+//
+// Coverage-first: everyone who is reading shows; nobody is ranked. The
+// numbers are the family's, not a league table (D5's spirit).
+
+export interface CupboardWeekStats {
+  weekStart: string; weekEnd: string; monthKey: string;
+  /** Pages marked this week (Mon–Sun), across all readers. */
+  pagesThisWeek: number;
+  /** Per reader, this week. */
+  byReader: Array<{ name: string; pages: number; kidId: string }>;
+  /** Readings finished this calendar month — book + reader. */
+  finishedThisMonth: Array<{ name: string; readerName: string; treasureId: string; on: string }>;
+  /** Games played this week — name + how many times. */
+  playedThisWeek: Array<{ name: string; times: number; treasureId: string }>;
+  /** Who is reading what right now. */
+  readingNow: Array<{ readerName: string; readerKidId: string; name: string; treasureId: string; currentPage: number; pages?: number; readNo: number; togetherWith?: string }>;
+}
+
+export function cupboardWeekStats(items: CupboardItem[], today: string): CupboardWeekStats {
+  const [y, m, d] = today.split('-').map(Number);
+  const t = new Date(Date.UTC(y, (m || 1) - 1, d || 1));
+  const dow = (t.getUTCDay() + 6) % 7; // Mon = 0
+  const iso = (x: Date) => `${x.getUTCFullYear()}-${String(x.getUTCMonth() + 1).padStart(2, '0')}-${String(x.getUTCDate()).padStart(2, '0')}`;
+  const ws = new Date(t); ws.setUTCDate(t.getUTCDate() - dow);
+  const we = new Date(ws); we.setUTCDate(ws.getUTCDate() + 6);
+  const weekStart = iso(ws); const weekEnd = iso(we); const monthKey = today.slice(0, 7);
+  const inWeek = (on: string) => on >= weekStart && on <= weekEnd;
+
+  let pagesThisWeek = 0;
+  const byReaderMap = new Map<string, { name: string; pages: number; kidId: string }>();
+  const finishedThisMonth: CupboardWeekStats['finishedThisMonth'] = [];
+  const playedMap = new Map<string, { name: string; times: number; treasureId: string }>();
+  const readingNow: CupboardWeekStats['readingNow'] = [];
+
+  for (const it of liveItems(items)) {
+    for (const r of it.readings ?? []) {
+      // pages this week = positive deltas between consecutive marks inside the week
+      const marks = (r.marks ?? []).slice().sort((a, b) => a.at - b.at);
+      let prev = 0; let pages = 0;
+      for (const mk of marks) {
+        if (inWeek(mk.on) && mk.page > prev) pages += mk.page - prev;
+        if (mk.page > prev) prev = mk.page;
+      }
+      if (r.finishedOn && inWeek(r.finishedOn) && r.pages && r.pages > prev) pages += r.pages - prev;
+      if (pages > 0) {
+        pagesThisWeek += pages;
+        const key = r.readerKidId || r.readerUid || r.readerName;
+        const cur = byReaderMap.get(key) || { name: r.readerName, pages: 0, kidId: r.readerKidId };
+        cur.pages += pages; byReaderMap.set(key, cur);
+      }
+      if (r.finishedOn && r.finishedOn.slice(0, 7) === monthKey) finishedThisMonth.push({ name: it.name, readerName: r.readerName, treasureId: it.id, on: r.finishedOn });
+      if (!r.finishedOn) readingNow.push({ readerName: r.readerName, readerKidId: r.readerKidId, name: it.name, treasureId: it.id, currentPage: r.currentPage, pages: r.pages, readNo: r.readNo, togetherWith: r.togetherWith });
+    }
+    for (const p of it.plays ?? []) {
+      if (!inWeek(p.on)) continue;
+      const cur = playedMap.get(it.id) || { name: it.name, times: 0, treasureId: it.id };
+      cur.times += 1; playedMap.set(it.id, cur);
+    }
+  }
+  return {
+    weekStart, weekEnd, monthKey, pagesThisWeek,
+    byReader: Array.from(byReaderMap.values()),
+    finishedThisMonth: finishedThisMonth.sort((a, b) => b.on.localeCompare(a.on)),
+    playedThisWeek: Array.from(playedMap.values()).sort((a, b) => b.times - a.times),
+    readingNow,
+  };
+}
+
+/** N8 · "This week we read 212 pages, Ayan finished Percy Jackson 🏁, and
+ *  we played Ticket to Ride 🎲." — '' when there is nothing to say. */
+export function meetingLineFor(s: CupboardWeekStats): string {
+  const parts: string[] = [];
+  if (s.pagesThisWeek > 0) parts.push(`we read ${s.pagesThisWeek} page${s.pagesThisWeek === 1 ? '' : 's'}`);
+  const fin = s.finishedThisMonth.filter((f) => f.on >= s.weekStart && f.on <= s.weekEnd);
+  if (fin.length) parts.push(fin.slice(0, 2).map((f) => `${f.readerName.split(' ')[0]} finished ${f.name} 🏁`).join(' and '));
+  if (s.playedThisWeek.length) parts.push(`we played ${s.playedThisWeek.slice(0, 2).map((p) => p.name).join(' and ')} 🎲`);
+  if (!parts.length) return '';
+  return `This week ${parts.join(', ')}.`;
+}
+
 // ── Selectors ───────────────────────────────────────────────────────
 
 const ENDED: TreasureStatus[] = ['handed_on', 'donated', 'sold', 'outgrown', 'retired'];
