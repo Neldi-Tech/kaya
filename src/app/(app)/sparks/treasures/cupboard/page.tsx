@@ -12,9 +12,10 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   subscribeToCupboard, liveItems, endedItems, books, games, dustItems, snoozeDust, DAY_LABEL,
+  cupboardWeekStats,
   type CupboardShelf, type CupboardKind,
 } from '@/lib/sparks/cupboard';
-import { todayIso, liveReadings } from '@/lib/sparks/treasures';
+import { todayIso } from '@/lib/sparks/treasures';
 import { CupboardFrame, Card, Pill, ShelfCard, WOOD, WOOD_DK, WOOD_BG, JADE, JADE_BG } from '@/components/sparks/CupboardShell';
 import CupboardAddSheet from '@/components/sparks/CupboardAddSheet';
 import CupboardScanSheet from '@/components/sparks/CupboardScanSheet';
@@ -132,17 +133,34 @@ export default function CupboardHomePage() {
               </Card>
             )}
 
-            {/* 📖 who's reading now (the Bookworm Wall proper lands in C6) */}
-            {liveBooks.some((b) => liveReadings(b).length > 0) && (
-              <Card tone="good">
-                <div className="font-display font-extrabold text-[12.5px] text-[#0E6B5E]">📖 Reading now</div>
-                {liveBooks.flatMap((b) => liveReadings(b).map((r) => ({ b, r }))).slice(0, 5).map(({ b, r }) => (
-                  <Link key={`${b.id}-${r.id}`} href={`/sparks/treasures/cupboard/${b.id}`} className="block text-[11px] font-bold text-[#2C4A44] mt-1 no-underline">
-                    {r.readerName} — <b>{b.name}</b>{r.pages ? ` p.${r.currentPage}/${r.pages}` : ''}{r.readNo > 1 ? ' 🔁' : ''}{r.togetherWith ? ' 🤝' : ''}
-                  </Link>
-                ))}
-              </Card>
-            )}
+            {/* 🐛 Bookworm Wall (N3) — coverage-first: everyone shows, nobody ranks */}
+            {(() => {
+              const s = cupboardWeekStats(live, todayIso());
+              if (!s.readingNow.length && !s.pagesThisWeek && !s.finishedThisMonth.length && !s.playedThisWeek.length) return null;
+              return (
+                <Card tone="good">
+                  <div className="font-display font-extrabold text-[12.5px] text-[#0E6B5E]">🐛 Bookworm Wall</div>
+                  {s.readingNow.slice(0, 6).map((r) => {
+                    const pct = r.pages ? Math.min(100, Math.round((r.currentPage / r.pages) * 100)) : 0;
+                    return (
+                      <Link key={`${r.treasureId}-${r.readerKidId}-${r.readerName}`} href={`/sparks/treasures/cupboard/${r.treasureId}`} className="block mt-1.5 no-underline">
+                        <div className="text-[11px] font-bold text-[#2C4A44]">
+                          {r.readerName} — <b>{r.name}</b>{r.pages ? ` p.${r.currentPage}/${r.pages}` : r.currentPage ? ` p.${r.currentPage}` : ''}{r.readNo > 1 ? ' 🔁' : ''}{r.togetherWith ? ` 🤝 with ${r.togetherWith}` : ''}
+                        </div>
+                        <div className="h-1.5 rounded-full bg-[#E4EDEA] overflow-hidden mt-1"><div className="h-full" style={{ width: `${pct}%`, background: JADE }} /></div>
+                      </Link>
+                    );
+                  })}
+                  <p className="text-[10.8px] font-bold text-[#2C4A44] mt-2 m-0 leading-snug">
+                    This week <b>{s.pagesThisWeek} page{s.pagesThisWeek === 1 ? '' : 's'}</b>
+                    {s.byReader.length ? ` (${s.byReader.map((b) => `${b.name.split(' ')[0]} ${b.pages}`).join(' · ')})` : ''}
+                    {' · '}this month <b>{s.finishedThisMonth.length} book{s.finishedThisMonth.length === 1 ? '' : 's'} finished</b>
+                    {s.playedThisWeek.length ? ` · 🎲 ${s.playedThisWeek.reduce((n, p) => n + p.times, 0)} game${s.playedThisWeek.reduce((n, p) => n + p.times, 0) === 1 ? '' : 's'} this week` : ''}
+                    {' · '}everyone shows, nobody ranks
+                  </p>
+                </Card>
+              );
+            })()}
 
             {/* 🎲 Game Night (D38) */}
             {liveGames.length > 0 && shelf.settings.gameNight.enabled && (

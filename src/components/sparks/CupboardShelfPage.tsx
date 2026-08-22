@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import GameNightPicker from './GameNightPicker';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -21,6 +22,53 @@ import CupboardScanSheet from './CupboardScanSheet';
 
 /** Books add the reading-state filters (D31 · design screen 3). */
 type Who = 'all' | 'family' | 'kids' | 'reading' | 'unread' | 'finished' | 'fav';
+
+/** N2 · the Book Shelf drawn as real spines — coloured by state: unread ·
+ *  reading (fill = progress) · finished · 🔁 favourite. Tap a spine = open. */
+function SpineShelf({ items }: { items: CupboardItem[] }) {
+  const state = (t: CupboardItem) => {
+    if (isFavouriteBook(t)) return 'fav' as const;
+    if (liveReadings(t).length) return 'reading' as const;
+    if (finishedReadings(t).length) return 'done' as const;
+    return 'unread' as const;
+  };
+  const colour = { unread: '#B9C3D2', reading: '#0E6B5E', done: '#8B5E34', fav: '#D4A847' };
+  const fg = { unread: '#2c3a52', reading: '#fff', done: '#fff', fav: '#3D2E08' };
+  const progress = (t: CupboardItem) => {
+    const r = liveReadings(t)[0];
+    return r?.pages ? Math.min(100, Math.round((r.currentPage / r.pages) * 100)) : 0;
+  };
+  const width = (t: CupboardItem) => {
+    const p = t.book?.pages || 200;
+    return Math.max(22, Math.min(40, Math.round(18 + p / 25)));
+  };
+  return (
+    <div>
+      <div className="flex flex-wrap items-end gap-1 px-2 pb-1.5 rounded-b-[4px]" style={{ minHeight: 128, borderBottom: '8px solid #8B5E34', background: 'linear-gradient(#fff,#F6ECDF)' }}>
+        {items.map((t) => {
+          const s = state(t);
+          const pct = s === 'reading' ? progress(t) : 0;
+          return (
+            <Link key={t.id} href={`/sparks/treasures/cupboard/${t.id}`} title={`${t.name}${t.book?.author ? ` · ${t.book.author}` : ''}`}
+              className="relative overflow-hidden no-underline rounded-t-[3px]"
+              style={{ width: width(t), height: 110, background: colour[s], color: fg[s] }}>
+              {pct > 0 && <span className="absolute left-0 right-0 bottom-0" style={{ height: `${pct}%`, background: 'rgba(255,255,255,.35)' }} aria-hidden />}
+              <span className="absolute inset-0 grid place-items-center text-[8.5px] font-extrabold leading-none px-0.5 text-center" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
+                {t.nameConfirmed === false ? '⚠ ' : ''}{t.name.slice(0, 26)}
+              </span>
+            </Link>
+          );
+        })}
+      </div>
+      <div className="flex flex-wrap gap-2.5 text-[9.5px] font-extrabold text-[#5B6B8C] mt-1.5">
+        <span><i className="inline-block w-2 h-2 rounded-[2px] mr-1 align-middle" style={{ background: colour.unread }} />unread</span>
+        <span><i className="inline-block w-2 h-2 rounded-[2px] mr-1 align-middle" style={{ background: colour.reading }} />reading (fill = progress)</span>
+        <span><i className="inline-block w-2 h-2 rounded-[2px] mr-1 align-middle" style={{ background: colour.done }} />finished</span>
+        <span><i className="inline-block w-2 h-2 rounded-[2px] mr-1 align-middle" style={{ background: colour.fav }} />🔁 read 2×+</span>
+      </div>
+    </div>
+  );
+}
 
 export default function CupboardShelfPage({ kind }: { kind: CupboardKind }) {
   const { profile } = useAuth();
@@ -37,6 +85,8 @@ export default function CupboardShelfPage({ kind }: { kind: CupboardKind }) {
   const search = useSearchParams();
   const [picker, setPicker] = useState(false);
   useEffect(() => { if (kind === 'game' && search?.get('pick') === '1') setPicker(true); }, [kind, search]);
+  /** C6 · N2 — the Book Shelf draws as spines by default; ≡ list view toggles. */
+  const [view, setView] = useState<'spines' | 'grid'>(kind === 'book' ? 'spines' : 'grid');
 
   useEffect(() => {
     if (!familyId) return;
@@ -123,8 +173,19 @@ export default function CupboardShelfPage({ kind }: { kind: CupboardKind }) {
             ) : visible.length === 0 ? (
               <p className="text-[12px] font-bold text-[#5A6488] text-center py-6">Nothing matches those filters.</p>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
-                {visible.map((t: CupboardItem) => <ShelfCard key={t.id} item={t} />)}
+              view === 'spines' && kind === 'book' ? (
+                <SpineShelf items={visible} />
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
+                  {visible.map((t: CupboardItem) => <ShelfCard key={t.id} item={t} />)}
+                </div>
+              )
+            )}
+            {kind === 'book' && live.length > 0 && (
+              <div className="flex justify-end mt-2">
+                <button type="button" onClick={() => setView((v) => (v === 'spines' ? 'grid' : 'spines'))} className="text-[10.5px] font-extrabold" style={{ color: WOOD_DK }}>
+                  {view === 'spines' ? '≡ list view' : '📚 spine view'}
+                </button>
               </div>
             )}
 

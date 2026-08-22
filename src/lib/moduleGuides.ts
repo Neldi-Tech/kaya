@@ -406,6 +406,24 @@ const TREASURES_GUIDE: ModuleGuide = {
         sw: 'Lost & Found huuliza kitu kilionekana WAPI mwisho — si nani alichukua. Borrow & Return hufuatilia kitu mtoto wako alichoazima na kusahau. Wish Shelf hulisha Gift Brain kabla ya siku za kuzaliwa. Na hakuna kinachofutwa kamwe.',
       },
     },
+    // 🗄 Treasures 2.0 (2026-08-22) — the Family Cupboard.
+    {
+      visual: {
+        kind: 'flow',
+        steps: [
+          { emoji: '📷', label: 'Scan' },
+          { emoji: '📚', label: 'Book Shelf' },
+          { emoji: '📖', label: 'Read · write' },
+          { emoji: '🎲', label: 'Game Shelf' },
+          { emoji: '🎡', label: 'Game Night' },
+        ],
+      },
+      title: { en: '7 · The Family Cupboard — ours, together', sw: '7 · Kabati la Familia — letu, pamoja' },
+      body: {
+        en: 'Beside each child’s own register sits the 🗄 Family Cupboard: 📚 books and 🎲 games the whole family shares. Scan the barcode or snap the front — the name comes from the scan, never from typing. A child reads, marks the page, and writes two lines that go through the same reflection engine (with a 📚 Book chip); when they finish, Kaya asks a few questions. Friday night Kaya asks “Family fun?” and picks a game that fits who’s in. Anything gathering dust gets one gentle nudge — play it, or pass it on.',
+        sw: 'Kando ya daftari la kila mtoto kuna 🗄 Kabati la Familia: 📚 vitabu na 🎲 michezo ambayo familia nzima hushiriki. Skani msimbo au piga picha ya mbele — jina hutoka kwenye skani, si kuandika. Mtoto husoma, huweka alama ya ukurasa, na kuandika mistari miwili inayopitia injini ile ile ya tafakari (kwa alama ya 📚 Kitabu); akimaliza, Kaya huuliza maswali machache. Ijumaa usiku Kaya huuliza “Burudani ya familia?” na kuchagua mchezo unaofaa waliopo. Chochote kinachokusanya vumbi hupata kumbusho moja la upole — kicheze, au kimpe mwingine.',
+      },
+    },
   ],
 };
 

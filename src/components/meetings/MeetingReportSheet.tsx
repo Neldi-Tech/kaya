@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { auth } from '@/lib/firebase';
 import { getFamilyMembers, type Meeting, type Child } from '@/lib/firestore';
+import { fetchCupboard, cupboardWeekStats, meetingLineFor, liveItems } from '@/lib/sparks/cupboard';
 
 const DAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -40,6 +41,19 @@ export default function MeetingReportSheet({ meeting, childrenList, familyId, on
 }) {
   const [parentNames, setParentNames] = useState<Record<string, string>>({});
   const [emailState, setEmailState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  // 🗄 Treasures 2.0 (N8) · one line from the Family Cupboard — pages read,
+  // books finished, games played in the meeting's week. Parent-toggled in
+  // Cupboard settings (meetingLine); silent when off or when nothing happened.
+  const [cupboardLine, setCupboardLine] = useState('');
+  useEffect(() => {
+    let off = false;
+    fetchCupboard().then((shelf) => {
+      if (off || !shelf?.settings?.meetingLine) return;
+      const s = cupboardWeekStats(liveItems(shelf.items), meeting.date);
+      setCupboardLine(meetingLineFor(s));
+    }).catch(() => {});
+    return () => { off = true; };
+  }, [meeting.date]);
 
   useEffect(() => {
     let off = false;
@@ -173,6 +187,11 @@ export default function MeetingReportSheet({ meeting, childrenList, familyId, on
 
           {meeting.notes && (
             <Section title="📝 Notes"><p>{meeting.notes}</p></Section>
+          )}
+
+          {/* 🗄 Treasures 2.0 (N8) · the Family Cupboard line — Learn & Grow */}
+          {cupboardLine && (
+            <Section title="🗄 Family Cupboard · Learn & Grow"><p>{cupboardLine}</p></Section>
           )}
 
           <button
