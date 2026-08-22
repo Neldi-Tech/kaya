@@ -181,6 +181,29 @@ export async function getMeetingSubmissions(
 /** Live subscription — the presenter uses this so a member filling from
  *  their OWN My Day / Workplan appears in the meeting in real time (no
  *  refresh, no in-meeting typing needed). Returns an unsubscribe fn. */
+// 🧒 Kid-led meetings (2026-08-16): kids may read only their OWN prep doc
+// (and a collection listen under that rule is denied outright), so the
+// presenter reads the family's prep through the Admin gateway. Any
+// verified family member gets the full set. Null = gateway unavailable
+// (caller falls back to the live listener).
+export async function fetchMeetingSubmissionsViaGateway(
+  familyId: string,
+): Promise<MeetingSubmission[] | null> {
+  try {
+    const { auth } = await import('./firebase');
+    const token = await auth.currentUser?.getIdToken();
+    if (!token) return null;
+    const res = await fetch(`/api/meetings/presenter-data?familyId=${encodeURIComponent(familyId)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { submissions?: MeetingSubmission[] };
+    return data.submissions || [];
+  } catch {
+    return null;
+  }
+}
+
 export function subscribeMeetingSubmissions(
   familyId: string,
   cb: (rows: MeetingSubmission[]) => void,
@@ -308,6 +331,20 @@ export async function setMeetingSubmission(
 /** Clear every submission for this family. Called after the meeting is
  *  successfully created so the next meeting starts with empty prompts. */
 export async function clearMeetingSubmissions(familyId: string): Promise<void> {
+  // Gateway first (kid leaders can't delete others' docs under rules);
+  // direct delete as the fallback for parents / local dev.
+  try {
+    const { auth } = await import('./firebase');
+    const token = await auth.currentUser?.getIdToken();
+    if (token) {
+      const res = await fetch('/api/meetings/finish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'clearSubmissions', familyId }),
+      });
+      if (res.ok) return;
+    }
+  } catch { /* fall through to direct delete */ }
   const snap = await getDocs(collection(db, 'families', familyId, SUBS));
   await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
 }
