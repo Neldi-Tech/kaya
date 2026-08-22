@@ -393,6 +393,8 @@ export interface Treasure {
   playedCount?: number;
   lastPlayedOn?: string;
   plays?: Array<{ on: string; at: number; who: string[]; byName: string }>;
+  /** D40 · "keep, remind next quarter" — the 🕸 card stays quiet until then. */
+  dustSnoozedUntil?: string;
 
   // ── Condition + check state ──
   lastCheckedOn?: string;      // YYYY-MM-DD

@@ -503,6 +503,59 @@ export async function fetchMyReading(kidId: string): Promise<MyReading> {
   return cupboardApi<MyReading>('my-reading', { kidId });
 }
 
+// ── 🎲 The play log + 🕸 dust (C5 · D38 · D40) ──────────────────────
+
+/** "We played!" — who was in (kid ids, 'me' for the caller), and when. */
+export async function logPlay(
+  familyId: string, treasureId: string, who: string[], note?: string,
+): Promise<{ ok: true; playedCount: number }> {
+  const r = await cupboardApi<{ ok: true; playedCount: number }>('play-log', { treasureId, who, note });
+  pingCupboard(familyId);
+  return r;
+}
+
+/** D40 · "keep, remind next quarter" — quiet the 🕸 card for N days. */
+export async function snoozeDust(familyId: string, treasureId: string, days = 90): Promise<void> {
+  await cupboardApi('dust-snooze', { treasureId, days });
+  pingCupboard(familyId);
+}
+
+/** D40 · the last time a thing was actually used: read/marked (books),
+ *  played (games), else the day it arrived. YYYY-MM-DD. */
+export function lastUsedOn(t: Pick<CupboardItem, 'categoryId' | 'lastReadOn' | 'lastPlayedOn' | 'givenOn' | 'createdAt'>): string {
+  const arrived = t.givenOn || new Date(t.createdAt || 0).toISOString().slice(0, 10);
+  if (t.categoryId === 'book') return t.lastReadOn || arrived;
+  if (t.categoryId === 'game') return t.lastPlayedOn || arrived;
+  return arrived;
+}
+
+/** D40 · untouched for ≥ dustDays, not ended, not snoozed. One gentle card. */
+export function dustItems(list: CupboardItem[], dustDays: number, today: string): Array<CupboardItem & { idleDays: number }> {
+  if (!dustDays || dustDays <= 0) return [];
+  const days = (a: string, b: string) => {
+    const [ay, am, ad] = a.split('-').map(Number); const [by, bm, bd] = b.split('-').map(Number);
+    return Math.round((Date.UTC(by, (bm || 1) - 1, bd || 1) - Date.UTC(ay, (am || 1) - 1, ad || 1)) / 86400000);
+  };
+  return liveItems(list)
+    .filter((t) => !(t.dustSnoozedUntil && t.dustSnoozedUntil > today))
+    .map((t) => ({ ...t, idleDays: days(lastUsedOn(t), today) }))
+    .filter((t) => t.idleDays >= dustDays)
+    .sort((a, b) => b.idleDays - a.idleDays);
+}
+
+/** D38 · does this game fit tonight? ages of who's in, how many, how long. */
+export function gameFits(
+  g: CupboardItem, who: { count: number; minAge?: number }, maxMinutes?: number,
+): { fits: boolean; why: string[] } {
+  const why: string[] = [];
+  const m = g.game ?? {};
+  if (m.ageMin && who.minAge !== undefined && who.minAge < m.ageMin) why.push(`ages ${m.ageMin}+`);
+  if (m.playersMin && who.count < m.playersMin) why.push(`needs ${m.playersMin}+ players`);
+  if (m.playersMax && who.count > m.playersMax) why.push(`max ${m.playersMax} players`);
+  if (maxMinutes && m.minutes && m.minutes > maxMinutes) why.push(`${m.minutes} min — too long`);
+  return { fits: why.length === 0, why };
+}
+
 // ── Selectors ───────────────────────────────────────────────────────
 
 const ENDED: TreasureStatus[] = ['handed_on', 'donated', 'sold', 'outgrown', 'retired'];
