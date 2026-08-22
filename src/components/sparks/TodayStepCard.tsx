@@ -48,6 +48,8 @@ export default function TodayStepCard({
   const [claim, setClaim] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // QF-1 · keep the last failed recording so "Try again" re-uploads it.
+  const [failedMedia, setFailedMedia] = useState<{ kind: 'audio' | 'video'; blob: Blob; seconds: number } | null>(null);
   const [celebrate, setCelebrate] = useState<null | { points: number; streak: number; late: boolean }>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
@@ -73,12 +75,24 @@ export default function TodayStepCard({
     try {
       const up = await uploadQuestMedia(quest.id, kind, blob, seconds);
       setProofs((p) => [...p, { kind: up.kind, url: up.url, seconds: up.seconds }]);
+      setFailedMedia(null);
     } catch (e) {
-      setError((e as Error).message === 'video-too-large'
-        ? 'That clip is too big. Keep videos under 45 seconds — or record audio instead, which is lighter and usually better proof anyway.'
-        : (e as Error).message === 'audio-too-large'
-          ? 'That recording is too long. Keep it under 60 seconds.'
-          : (e as Error).message);
+      const msg = (e as Error).message || '';
+      if (msg === 'video-too-large') {
+        setError('That clip is too big. Keep videos under 45 seconds — or record audio instead, which is lighter and usually better proof anyway.');
+      } else if (msg === 'audio-too-large') {
+        setError('That recording is too long. Keep it under 60 seconds.');
+      } else if (msg === 'not-signed-in' || msg === 'unauthenticated' || msg === 'invalid-token') {
+        setError('You got signed out — sign in again and your words will still be here.');
+      } else if (msg === 'no-such-quest' || msg === 'forbidden') {
+        setError('This quest isn’t yours to add proof to. Nothing was lost.');
+      } else {
+        // storage-write-failed (server hint) · upload-failed · network
+        setError(msg.includes('storage') || msg.includes('Kaya')
+          ? msg
+          : 'Your recording didn’t reach Kaya. Your words and photos are still here — try again, or tick it off without the recording.');
+        setFailedMedia({ kind, blob, seconds });
+      }
     }
     setBusy(false);
   }
@@ -99,8 +113,22 @@ export default function TodayStepCard({
         streak: res.streak?.current ?? 0,
         late: res.doneLate,
       });
-    } catch {
-      setError('Couldn’t save that. Check your connection and try again.');
+    } catch (e) {
+      // QF-1 · name the cause. "Check your connection" hid every real one.
+      const msg = (e as Error).message || '';
+      if (msg === 'forbidden') {
+        setError(`This quest is shared with you, but only ${kidName} (or a parent) can tick it. Nothing was lost.`);
+      } else if (msg === 'no-such-step' || msg === 'step-mismatch' || msg === 'not-found') {
+        setError('This step was changed or removed by a parent — pull down to refresh and try again.');
+      } else if (msg === 'not-signed-in' || msg === 'unauthenticated' || msg === 'invalid-token') {
+        setError('You got signed out — sign in again and your words will still be here.');
+      } else if (msg === 'bad-step' || msg === 'bad-quest') {
+        setError('Kaya couldn’t find this step. Refresh the page and try again.');
+      } else if (!navigator.onLine) {
+        setError('You’re offline — your words are still here. Try again when you’re back online.');
+      } else {
+        setError(`Couldn’t save that (${msg || 'unknown'}). Your words are still here — try again in a moment.`);
+      }
     }
     setBusy(false);
   }
@@ -275,7 +303,22 @@ export default function TodayStepCard({
 
             {error && (
               <div className="mt-3 rounded-xl bg-[#FDE8E8] border border-[#F5C6C6] px-3.5 py-2.5 text-[12px] text-[#8B2130] leading-snug">
+                <div className="text-[10px] font-extrabold tracking-[1px] uppercase text-[#D64550] mb-0.5">Couldn’t save</div>
                 {error}
+                {failedMedia && (
+                  <div className="flex gap-2 mt-2">
+                    <button type="button" disabled={busy}
+                      onClick={() => { const m = failedMedia; setFailedMedia(null); setError(''); void onMedia(m.kind, m.blob, m.seconds); }}
+                      className="px-3 py-1.5 rounded-full border border-[#F5C6C6] bg-white text-[11.5px] font-extrabold text-[#8B2130]">
+                      ↻ Try again
+                    </button>
+                    <button type="button" disabled={busy}
+                      onClick={() => { setFailedMedia(null); setError(''); }}
+                      className="px-3 py-1.5 rounded-full border border-[#ECE4D3] bg-white text-[11.5px] font-extrabold text-[#5A6488]">
+                      Tick without it
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 

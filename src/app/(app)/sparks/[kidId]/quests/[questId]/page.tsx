@@ -96,8 +96,17 @@ export default function QuestDetailPage() {
   const todayStep = dueToday ? stepForDate(steps, today) : null;
   const upNext = nextScheduledAfter(steps, today);
   // Server is the authority (D13); this only decides what to render.
+  // QF-1 · kid-owner rule: childId can be '' on a kid profile — resolve
+  // via `||` + uid/email match on the children list, never `??`/kids[0].
+  // (The server resolves the same way; this only decides what renders.)
+  const myKidId = profile?.role === 'kid'
+    ? ((profile.childId && children.find((c) => c.id === profile.childId)?.id)
+      || children.find((c) => (c as { uid?: string }).uid && (c as { uid?: string }).uid === profile.uid)?.id
+      || children.find((c) => c.email && profile.email && c.email.toLowerCase() === profile.email.toLowerCase())?.id
+      || '')
+    : '';
   const canAct = isParent
-    || profile?.childId === kidId
+    || (!!myKidId && myKidId === kidId)
     || profile?.role === 'helper';
 
   async function onPause() {
