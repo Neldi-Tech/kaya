@@ -6,7 +6,7 @@
 // PICK, never type addresses (COPPA). Lives on the family doc
 // (`family.contacts`, parent-writable like emailGroups — no rules change).
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { updateFamily } from '@/lib/firestore';
@@ -15,6 +15,7 @@ import {
   type FamilyContact,
 } from '@/lib/reminders';
 import { toDisplayDate } from '@/lib/dates';
+import { listCards, cardHeadline, type GreetingCard } from '@/lib/greetingCards';
 
 const CAL = '#5B6CC8';
 const CAL_DK = '#3E4DA0';
@@ -144,6 +145,16 @@ export default function PeopleBookCard() {
   const isParent = profile?.role === 'parent';
 
   const contacts: FamilyContact[] = useMemo(() => family?.contacts || [], [family?.contacts]);
+  // 📚 Card Album (innovation 3) — every card ever made for each person.
+  const [cards, setCards] = useState<GreetingCard[]>([]);
+  const [albumOpen, setAlbumOpen] = useState<string | null>(null);
+  useEffect(() => {
+    if (!familyId || !isParent) return;
+    listCards().then(setCards).catch(() => setCards([]));
+  }, [familyId, isParent]);
+  const albumFor = (contactId: string) => cards
+    .filter((c) => c.honoree.contactId === contactId)
+    .sort((a, b) => (a.dateKey < b.dateKey ? 1 : -1));
   const [draft, setDraft] = useState<ContactDraft | null>(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -190,7 +201,8 @@ export default function PeopleBookCard() {
       {contacts.length > 0 && (
         <div className="space-y-2 mb-3">
           {contacts.map((c) => (
-            <div key={c.id} className="flex items-center gap-2.5 rounded-kaya border border-kaya-warm-dark px-3 py-2.5">
+            <div key={c.id}>
+              <div className="flex items-center gap-2.5 rounded-kaya border border-kaya-warm-dark px-3 py-2.5">
               <span className="w-9 h-9 rounded-full flex items-center justify-center text-base shrink-0 font-extrabold" style={{ background: CAL_SOFT, color: CAL_DK }}>
                 {c.relationship === 'kid-friend' ? '🧒' : (c.name.trim()[0] || '👤').toUpperCase()}
               </span>
@@ -204,9 +216,28 @@ export default function PeopleBookCard() {
                   {[c.email && `📧 ${c.email}`, c.whatsapp && `💬 ${formatWhatsapp(c.whatsapp)}`, c.birthday && `🎂 ${toDisplayDate(c.birthday)}`].filter(Boolean).join(' · ') || 'No channel yet'}
                 </div>
               </div>
+              {albumFor(c.id).length > 0 && (
+                <button onClick={() => setAlbumOpen(albumOpen === c.id ? null : c.id)} className="rounded-kaya-sm px-2 py-1.5 text-[11px] font-bold shrink-0" style={{ background: CAL_SOFT, color: CAL_DK }} title="Card album">
+                  📚 {albumFor(c.id).length}
+                </button>
+              )}
               {c.optOut && <button onClick={() => clearOptOut(c.id)} disabled={saving} className="rounded-kaya-sm px-2 py-1.5 text-[11px] font-bold text-kaya-sand bg-kaya-warm shrink-0" title="They asked Kaya to stop — only clear this if they asked you to">↺</button>}
               <button onClick={() => { setDraft(toDraft(c)); setError(''); }} className="rounded-kaya-sm px-2.5 py-1.5 text-[11px] font-bold text-kaya-sand bg-kaya-warm shrink-0">✏️ Edit</button>
               <button onClick={() => remove(c.id)} disabled={saving} className="rounded-kaya-sm px-2 py-1.5 text-[11px] font-bold text-red-500 bg-white border border-red-200 shrink-0">🗑️</button>
+              </div>
+              {albumOpen === c.id && (
+                <div className="ml-4 -mt-1 mb-1 rounded-b-kaya border border-t-0 border-kaya-warm-dark bg-kaya-cream px-3 py-2">
+                  <div className="text-[10px] font-extrabold uppercase tracking-wide mb-1" style={{ color: CAL_DK }}>📚 Card album · {c.name}</div>
+                  {albumFor(c.id).map((k) => (
+                    <div key={k.id} className="flex items-center gap-2 py-1 text-[12px]">
+                      <span className="text-[10.5px] font-extrabold text-kaya-sand w-[84px] shrink-0">{toDisplayDate(k.dateKey)}</span>
+                      <span className="truncate"><b>{cardHeadline(k.type, k.nth, k.lang, k.eventTitle)}</b>{k.oneLiner ? <span className="italic text-kaya-chocolate"> · “{k.oneLiner}”</span> : ''}</span>
+                      <span className="ml-auto text-[9px] font-extrabold rounded px-1.5 py-0.5 shrink-0" style={k.status === 'sent' || k.status === 'belated' ? { background: '#E6F4EC', color: '#2E7D34' } : { background: CAL_SOFT, color: CAL_DK }}>{k.status === 'sent' ? 'SENT' : k.status === 'belated' ? 'BELATED' : k.status === 'ready' ? 'READY' : k.status === 'pending_parent' ? 'PENDING' : 'DRAFT'}</span>
+                    </div>
+                  ))}
+                  <div className="text-[10.5px] text-kaya-sand mt-1">Kaya Writes reads the last one-liner so next year’s card is fresh, never a repeat.</div>
+                </div>
+              )}
             </div>
           ))}
         </div>
