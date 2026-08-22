@@ -276,7 +276,9 @@ export async function POST(req: NextRequest) {
     if (got.card.status === 'pending_parent' && !isParent) return NextResponse.json({ error: 'awaiting-parent' }, { status: 403 });
     if (got.card.honoree.relationship === 'family') return NextResponse.json({ error: 'in-family' }, { status: 400 });
     const fam = await loadFamily();
-    const r = await sendCardEmail({ db, familyId, familyName: fam.name || '', cardRef: got.ref, card: got.card, contacts: fam.contacts, sender: me, mode: 'manual' });
+    const { dayKeyInTZ } = await import('@/lib/dates');
+    const belated = got.card.dateKey < dayKeyInTZ(new Date(), 'Africa/Dar_es_Salaam');
+    const r = await sendCardEmail({ db, familyId, familyName: fam.name || '', cardRef: got.ref, card: got.card, contacts: fam.contacts, sender: me, mode: 'manual', belated });
     if (!r.ok) return NextResponse.json({ error: r.skipped || r.error || 'send-failed' }, { status: 400 });
     return NextResponse.json({ ok: true, to: r.to });
   }
