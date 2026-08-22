@@ -94,11 +94,23 @@ export async function POST(req: NextRequest) {
   // https URL — no signed-URL expiry to babysit, same shape as every
   // other media URL the app already stores.
   const downloadToken = randomUUID();
-  const bucket = storage.bucket();
-  await bucket.file(path).save(buf, {
-    contentType,
-    metadata: { metadata: { firebaseStorageDownloadTokens: downloadToken } },
-  });
+  // QF-1 · name the bucket explicitly (the Admin app historically had no
+  // default bucket → `bucket()` threw → 500 → "upload-failed" for kids).
+  const bucketName = process.env.FIREBASE_STORAGE_BUCKET || process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || '';
+  let bucket: ReturnType<typeof storage.bucket>;
+  try {
+    bucket = bucketName ? storage.bucket(bucketName) : storage.bucket();
+    await bucket.file(path).save(buf, {
+      contentType,
+      metadata: { metadata: { firebaseStorageDownloadTokens: downloadToken } },
+    });
+  } catch (e) {
+    console.error('[quests/proof] storage write failed:', (e as Error).message);
+    return NextResponse.json({
+      error: 'storage-write-failed',
+      hint: 'Your recording didn’t reach Kaya (storage). Your words and photos are still here — try again, or tick it off without the recording.',
+    }, { status: 500 });
+  }
 
   const publicUrl =
     `https://firebasestorage.googleapis.com/v0/b/${bucket.name}`

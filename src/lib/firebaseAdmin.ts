@@ -20,6 +20,9 @@
 // real newlines — see the `formatPrivateKey()` helper.
 
 import { initializeApp, getApps, cert, applicationDefault, type App } from 'firebase-admin/app';
+
+/** Default Storage bucket for Admin writes — same bucket the client uses. */
+const STORAGE_BUCKET = process.env.FIREBASE_STORAGE_BUCKET || process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || '';
 import { getMessaging, type Messaging } from 'firebase-admin/messaging';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { getAuth, type Auth } from 'firebase-admin/auth';
@@ -51,7 +54,7 @@ export function getAdminApp(): App | null {
   // Prefer GOOGLE_APPLICATION_CREDENTIALS (Google standard).
   if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
     try {
-      cached = initializeApp({ credential: applicationDefault() }, APP_NAME);
+      cached = initializeApp({ credential: applicationDefault(), ...(STORAGE_BUCKET ? { storageBucket: STORAGE_BUCKET } : {}) }, APP_NAME);
       return cached;
     } catch (e) {
       console.warn('[firebaseAdmin] applicationDefault() failed:', e);
@@ -72,6 +75,9 @@ export function getAdminApp(): App | null {
           clientEmail,
           privateKey: formatPrivateKey(privateKeyRaw),
         }),
+        // QF-1 (2026-07-22) · the default bucket was never set, so every
+        // `storage.bucket()` call (quest audio/video proof) threw → 500.
+        ...(STORAGE_BUCKET ? { storageBucket: STORAGE_BUCKET } : {}),
       }, APP_NAME);
       return cached;
     } catch (e) {
