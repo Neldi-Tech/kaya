@@ -76,6 +76,8 @@ interface QuestDoc {
   streak?: { current?: number; shields?: number };
   lastNudgeOn?: string; lastMissAlertOn?: string; missAlertLogId?: string;
   missResolvedOn?: string;
+  /** QF-3 · the Monday key of the last "plan next week" nudge. */
+  lastPlanNudgeFor?: string;
 }
 
 async function handle(req: NextRequest) {
@@ -150,6 +152,50 @@ async function handle(req: NextRequest) {
 
         const kidId = String(q.kidId || '');
         if (!kidId) continue;
+
+        // ── QF-3 · Sunday 18:00 — next week has nothing planned ──────
+        // bell + push + ONE email to the resolved parents, once per week.
+        if (todayDow === 'sun' && nowMin >= 18 * 60 && nowMin < 19 * 60) {
+          const nextMon = shiftDayKey(today, 1);
+          const nextSun = shiftDayKey(today, 7);
+          if (q.lastPlanNudgeFor !== nextMon) {
+            // Equality-only fetch + in-code range: no composite index needed,
+            // so this can never FAILED_PRECONDITION a family's whole sweep.
+            const allSteps = await famDoc.ref.collection('sparks_quest_steps')
+              .where('questId', '==', qDoc.id).get();
+            const nextWeekHas = allSteps.docs.some((d) => {
+              const dt = String((d.data() as { date?: string }).date || '');
+              return dt >= nextMon && dt <= nextSun;
+            });
+            if (!nextWeekHas) {
+              const title = String(q.title || 'Quest');
+              const emoji = String(q.emoji || '🚀');
+              const name = kidName.get(kidId) || 'Your child';
+              const link = `/sparks/${kidId}/quests/${qDoc.id}`;
+              for (const p of parents) {
+                await famDoc.ref.collection('notifications').add({
+                  type: 'quest-plan',
+                  title: `📅 ${name}'s ${title} — next week is empty`,
+                  message: 'Plan it in one tap: ✨ Plan next week on the quest.',
+                  read: false, forUserId: p.uid, link,
+                  createdAt: FieldValue.serverTimestamp(),
+                }).catch(() => {});
+                await push(p.uid, `📅 ${name}'s ${title} — next week is empty`,
+                  'Plan it in one tap on the quest.', link, 'quest-plan');
+              }
+              const { uids } = resolveAlertRecipients(alertCfg, 'sparks', parentUids, q.alertRecipientUids);
+              const to = parents.filter((p) => uids.includes(p.uid) && p.email).map((p) => p.email);
+              if (resend && to.length) {
+                await resend.emails.send({
+                  from: FROM, to,
+                  subject: `📅 ${name}'s ${title} — nothing planned for next week yet`,
+                  html: planEmail({ name, title, emoji, appUrl: APP_URL, link }),
+                }).catch(() => {});
+              }
+              await qDoc.ref.update({ lastPlanNudgeFor: nextMon }).catch(() => {});
+            }
+          }
+        }
 
         // Today's step. No step planned = nothing to chase.
         const stepsSnap = await famDoc.ref.collection('sparks_quest_steps')
@@ -319,6 +365,30 @@ function missEmail(a: {
     <p style="font-size:10.5px;color:#5A6488;margin-top:16px;text-align:center">
       Change the cut-off, the recipients or turn this off on the quest’s own page.
     </p>
+  </div>`;
+}
+
+function shiftDayKey(date: string, n: number): string {
+  const [y, m, d] = date.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, (m || 1) - 1, (d || 1) + n));
+  return dt.toISOString().slice(0, 10);
+}
+
+function planEmail(a: { name: string; title: string; emoji: string; appUrl: string; link: string }): string {
+  return `
+  <div style="font-family:Nunito,Arial,sans-serif;max-width:480px;margin:0 auto;padding:18px">
+    <div style="border-radius:16px;padding:26px 18px;text-align:center;color:#fff;background:linear-gradient(135deg,#3B2E86,#5AB7D6)">
+      <div style="font-size:11px;font-weight:900;letter-spacing:2px;opacity:.85">🚀 KAYA SPARKS · QUESTS</div>
+      <div style="font-size:30px;margin-top:8px">${a.emoji}</div>
+      <div style="font-size:18px;font-weight:900;margin-top:6px">${a.name}'s ${a.title} — next week is empty</div>
+      <div style="font-size:12.5px;opacity:.9;margin-top:3px">Nothing planned yet from Monday</div>
+    </div>
+    <div style="background:#fff;border:1px solid #ECE4D3;border-radius:14px;padding:18px;margin-top:14px;color:#0F1F44;font-size:14px;line-height:1.55">
+      Open the quest and tap <strong>✨ Plan next week</strong> — Kaya writes one small activity per practice day, you tick the ones you like, and they land on the days in one tap. ${a.name} only ever sees what you approve.
+    </div>
+    <div style="text-align:center;margin-top:16px">
+      <a href="${a.appUrl}${a.link}" style="display:inline-block;background:#D4A847;color:#3D2E08;font-weight:900;font-size:14px;border-radius:999px;padding:11px 28px;text-decoration:none">Plan next week →</a>
+    </div>
   </div>`;
 }
 

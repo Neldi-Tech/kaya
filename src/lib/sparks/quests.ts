@@ -640,13 +640,36 @@ export async function editActivity(
  *  last date used, so the UI can say something true. */
 export async function scheduleLibrary(
   familyId: string, kidId: string, questId: string, stepIds?: string[],
+  /** QF-3 · start laying from this LOCAL day (e.g. next Monday). */
+  from?: string,
 ): Promise<{ scheduled: number; from: string | null; to: string | null }> {
   if (isGuestActive()) return { scheduled: 0, from: null, to: null };
   const res = await questsApi<{ scheduled: number; from: string | null; to: string | null }>(
-    'library-schedule', { questId, ...(stepIds ? { stepIds } : {}) },
+    'library-schedule', { questId, ...(stepIds ? { stepIds } : {}), ...(from ? { from } : {}) },
   );
   pingQuests(familyId, kidId);
   return res;
+}
+
+/** QF-3 · 📅 pin ONE approved activity onto ONE day (or move a dated,
+ *  not-done one). Server refuses a taken day (`day-taken`) and the past. */
+export async function scheduleOnDate(
+  familyId: string, kidId: string, questId: string, stepId: string, date: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (isGuestActive()) return { ok: false, error: 'guest' };
+  try {
+    await questsApi('library-schedule', { questId, stepIds: [stepId], date });
+    pingQuests(familyId, kidId);
+    return { ok: true };
+  } catch (e) { return { ok: false, error: (e as Error).message || 'schedule-failed' }; }
+}
+
+/** Monday-based start of the week holding `date` (LOCAL). */
+export function weekStartOf(date: string): string {
+  const [y, m, d] = date.split('-').map(Number);
+  const dt = new Date(y, (m || 1) - 1, d || 1);
+  const back = (dt.getDay() + 6) % 7;
+  return addDays(date, -back);
 }
 
 /** Pull a scheduled activity back off the calendar and into the library.
