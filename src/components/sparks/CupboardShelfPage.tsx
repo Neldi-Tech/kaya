@@ -49,7 +49,7 @@ function SpineShelf({ items }: { items: CupboardItem[] }) {
           const s = state(t);
           const pct = s === 'reading' ? progress(t) : 0;
           return (
-            <Link key={t.id} href={`/sparks/treasures/cupboard/${t.id}`} title={`${t.name}${t.book?.author ? ` · ${t.book.author}` : ''}`}
+            <Link key={t.id} href={`/sparks/treasures/cupboard/${t.id}`} title={`${t.name}${t.book?.author ? ` · ${t.book.author}` : ''}${t.book?.summary && !t.book.summaryHidden ? ` — ${t.book.summary}` : ''}`}
               className="relative overflow-hidden no-underline rounded-t-[3px]"
               style={{ width: width(t), height: 120, background: colour[s], color: fg[s] }}>
               {pct > 0 && <span className="absolute left-0 right-0 bottom-0" style={{ height: `${pct}%`, background: 'rgba(255,255,255,.35)' }} aria-hidden />}

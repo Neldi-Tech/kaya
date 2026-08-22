@@ -206,6 +206,12 @@ export interface BookMeta {
   publisher?: string;
   /** Rough "good for ages N+" — Kaya's guess or a parent's edit. */
   ageMin?: number;
+  /** D43 · "What it's about" — ~2 sentences, spoiler-safe. From a
+   *  library, or Kaya's words (chip stays visible), or a parent's edit. */
+  summary?: string;
+  summarySource?: 'googlebooks' | 'openlibrary' | 'kaya' | 'parent';
+  /** D43 · a parent hid the summary on this book. */
+  summaryHidden?: boolean;
 }
 
 /** D27 · game details — the words printed on the box. */

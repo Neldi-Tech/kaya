@@ -43,6 +43,21 @@ interface BookHit {
   coverUrl?: string;
   isbn?: string;
   ageMin?: number;
+  /** D43 · "What it's about" — ~2 sentences, spoiler-safe. */
+  summary?: string;
+  summarySource?: 'googlebooks' | 'openlibrary' | 'kaya';
+}
+
+/** D43 · trim a publisher blurb to ~2 sentences, strip HTML. */
+function trimBlurb(raw: unknown, maxChars = 320): string {
+  const t = String(raw || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!t) return '';
+  const sentences = t.match(/[^.!?]+[.!?]+(\s|$)/g) || [t];
+  let out = '';
+  for (const sen of sentences) { if ((out + sen).length > maxChars && out) break; out += sen; if (out.split(/[.!?]\s/).length >= 2 && out.length > 120) break; }
+  out = out.trim();
+  if (!out) out = t.slice(0, maxChars);
+  return out.length > maxChars ? `${out.slice(0, maxChars - 1).trim()}…` : out;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -97,8 +112,20 @@ async function openLibraryByIsbn(isbn: string): Promise<BookHit | null> {
     Record<string, { title?: string; authors?: Array<{ name?: string }>; number_of_pages?: number; publish_date?: string; publishers?: Array<{ name?: string }>; cover?: { medium?: string; large?: string } }> | null;
   const b = data?.[`ISBN:${isbn}`];
   if (!b?.title) return null;
+  // D43 · the blurb lives on the WORK, one more keyless call (best-effort).
+  let summary = '';
+  try {
+    const ed = await fetchJson(`https://openlibrary.org/isbn/${isbn}.json`) as { works?: Array<{ key?: string }> } | null;
+    const wk = ed?.works?.[0]?.key;
+    if (wk) {
+      const w = await fetchJson(`https://openlibrary.org${wk}.json`) as { description?: string | { value?: string } } | null;
+      const d = typeof w?.description === 'string' ? w.description : w?.description?.value;
+      summary = trimBlurb(d);
+    }
+  } catch { summary = ''; }
   return {
     name: str(b.title, 160),
+    ...(summary ? { summary, summarySource: 'openlibrary' as const } : {}),
     author: b.authors?.map((a) => str(a?.name, 80)).filter(Boolean).slice(0, 2).join(', ') || undefined,
     pages: Number(b.number_of_pages) > 0 ? Number(b.number_of_pages) : undefined,
     year: yearOf(b.publish_date),
@@ -108,7 +135,7 @@ async function openLibraryByIsbn(isbn: string): Promise<BookHit | null> {
   };
 }
 
-type GVolume = { volumeInfo?: { title?: string; subtitle?: string; authors?: string[]; pageCount?: number; publishedDate?: string; publisher?: string; imageLinks?: { thumbnail?: string; smallThumbnail?: string }; industryIdentifiers?: Array<{ type?: string; identifier?: string }> } };
+type GVolume = { volumeInfo?: { title?: string; subtitle?: string; authors?: string[]; pageCount?: number; publishedDate?: string; publisher?: string; description?: string; imageLinks?: { thumbnail?: string; smallThumbnail?: string }; industryIdentifiers?: Array<{ type?: string; identifier?: string }> } };
 
 function fromGoogle(v: GVolume | undefined, isbn?: string): BookHit | null {
   const vi = v?.volumeInfo;
@@ -122,6 +149,7 @@ function fromGoogle(v: GVolume | undefined, isbn?: string): BookHit | null {
     publisher: str(vi.publisher, 80) || undefined,
     coverUrl: httpsify(vi.imageLinks?.thumbnail || vi.imageLinks?.smallThumbnail),
     isbn: isbn || (id13 ? normaliseCode(id13) : undefined) || undefined,
+    ...(trimBlurb(vi.description) ? { summary: trimBlurb(vi.description), summarySource: 'googlebooks' as const } : {}),
   };
 }
 
@@ -234,6 +262,30 @@ async function readFrontFace(imageBase64: string, mediaType: ImgMedia, hintKind:
   } catch { return null; }
 }
 
+// ── D43 · Kaya's words — when no library has a blurb ─────────────────
+
+async function kayaSummary(title: string, author: string, ageYears?: number): Promise<string> {
+  if (!anthropic || !title) return '';
+  try {
+    const resp = await anthropic.messages.create({
+      model: 'claude-opus-5',
+      max_tokens: 220,
+      output_config: { effort: 'low' },
+      system: [{ type: 'text', text: 'You write a 1–2 sentence, spoiler-free "what this book is about" line for a family app, pitched for a child reader. If you are not confident you know the book, describe what KIND of book it most likely is from the title/author and say "probably" — never invent plot facts. Plain sentences, no preamble, no quotes.', cache_control: { type: 'ephemeral' } }],
+      messages: [{ role: 'user', content: `Book: "${title}"${author ? ` by ${author}` : ''}.${ageYears ? ` Reader is about ${ageYears}.` : ' Reader is a child of about 8–10.'}` }],
+    });
+    const t = resp.content.find((b) => b.type === 'text');
+    return t && t.type === 'text' ? trimBlurb(t.text, 300) : '';
+  } catch { return ''; }
+}
+
+/** Fill in a summary if the libraries had none — best-effort, never blocks. */
+async function withSummary(hit: BookHit): Promise<BookHit> {
+  if (hit.summary) return hit;
+  const s = await kayaSummary(hit.name, hit.author || '');
+  return s ? { ...hit, summary: s, summarySource: 'kaya' } : hit;
+}
+
 // ── Route ───────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -260,13 +312,26 @@ export async function POST(req: NextRequest) {
     if (!code) return NextResponse.json({ found: false, reason: 'not-a-code' });
     if (isIsbnCode(code) || action === 'isbn') {
       const { hit, source } = await lookupIsbn(code);
-      if (hit) return NextResponse.json({ found: true, kind: 'book', code, source, book: hit });
+      if (hit) return NextResponse.json({ found: true, kind: 'book', code, source, book: await withSummary(hit) });
       // An ISBN-looking code with no match still identifies the item.
       return NextResponse.json({ found: false, kind: 'book', code, source: 'none' });
     }
     const g = await lookupUpc(code);
     if (g.name) return NextResponse.json({ found: true, kind: 'game', code, source: g.source, name: g.name });
     return NextResponse.json({ found: false, kind: 'game', code, source: 'none' });
+  }
+
+  // ── D43 · "What it's about" on demand (parent: rewrite for a reader's age) ──
+  if (action === 'summary') {
+    const title = str(body.title, 160); const author = str(body.author, 120);
+    const age = Number(body.ageYears); const ageYears = Number.isFinite(age) && age > 0 && age < 30 ? Math.round(age) : undefined;
+    if (!title) return NextResponse.json({ found: false, reason: 'no-title' });
+    // Libraries first (cheap), then Kaya's words.
+    const g = await googleBooks(`intitle:${title}${author ? ` inauthor:${author}` : ''}`);
+    if (g && similar(g.name, title) && g.summary && !ageYears) return NextResponse.json({ found: true, summary: g.summary, summarySource: g.summarySource });
+    const s = await kayaSummary(title, author, ageYears);
+    if (s) return NextResponse.json({ found: true, summary: s, summarySource: 'kaya' });
+    return NextResponse.json({ found: false, reason: anthropic ? 'no-summary' : 'vision-unavailable' });
   }
 
   // ── front face → words → canonical ──
@@ -289,9 +354,9 @@ export async function POST(req: NextRequest) {
       const q = `intitle:${title}${read.author ? ` inauthor:${str(read.author, 80)}` : ''}`;
       const g = await googleBooks(q);
       if (g && similar(g.name, title)) {
-        return NextResponse.json({ found: true, kind: 'book', nameSource: 'lookup', source: 'vision+googlebooks', book: g, confidence: read.confidence });
+        return NextResponse.json({ found: true, kind: 'book', nameSource: 'lookup', source: 'vision+googlebooks', book: await withSummary(g), confidence: read.confidence });
       }
-      const book: BookHit = { name: title, author: str(read.author, 120) || undefined };
+      const book: BookHit = await withSummary({ name: title, author: str(read.author, 120) || undefined });
       return NextResponse.json({ found: true, kind: 'book', nameSource: 'vision', source: 'vision', book, confidence: read.confidence });
     }
     const game = {

@@ -21,7 +21,7 @@ import {
   cupboardLend, cupboardReturn, cupboardEnd, fetchCupboard, pingCupboard,
   kindOf, gameMetaLine, bookMetaLine,
   startReading, markPage, finishReading, setReadingReminder, inviteToRead, respondToInvite,
-  READING_MODE_LABEL, logPlay, snoozeDust, lastUsedOn,
+  READING_MODE_LABEL, logPlay, snoozeDust, lastUsedOn, fetchBookSummary,
   type CupboardItem, type CupboardShelf,
 } from '@/lib/sparks/cupboard';
 import {
@@ -142,6 +142,11 @@ export default function CupboardItemPage() {
             <p className="text-[10.8px] font-bold text-[#7a6320] mt-1 m-0 leading-snug">Waiting for a parent to confirm the {kind === 'book' ? 'title' : 'name'} so it never gets written wrong.</p>
           )}
         </Card>
+      )}
+
+      {/* 📖 D43 · What it's about — books only; parents edit / rewrite / hide */}
+      {kind === 'book' && (
+        <AboutPanel item={item} kids={kids} familyId={familyId} busy={busy} isParent={perm.canManage} run={run} />
       )}
 
       {/* 📖 The reading loop (D31 · D32 · D33 · N9) — books only */}
@@ -565,6 +570,81 @@ function ReadingPanel({ item, shelf, familyId, busy, me, run }: {
         </Card>
       )}
     </>
+  );
+}
+
+// ── 📖 D43 · "What it's about" ─────────────────────────────────────
+
+function AboutPanel({ item, kids, familyId, busy, isParent, run }: {
+  item: CupboardItem; kids: Array<{ id: string; name: string; emoji: string; age?: number }>;
+  familyId: string; busy: boolean; isParent: boolean;
+  run: (fn: () => Promise<unknown>) => Promise<void>;
+}) {
+  const b = item.book || {};
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(b.summary || '');
+  const [fetching, setFetching] = useState(false);
+  const [rewriteFor, setRewriteFor] = useState<string>('');
+  useEffect(() => setDraft(b.summary || ''), [b.summary]);
+  const hidden = b.summaryHidden === true;
+  if (!isParent && (hidden || !b.summary)) return null;
+  const src = b.summarySource;
+  const chip = src === 'kaya' ? { t: '🧠 Kaya’s words', bg: '#EFE8FF', fg: '#5A3CB8' }
+    : src === 'parent' ? { t: 'edited by a parent', bg: '#E2F3EE', fg: '#0E6B5E' }
+    : src === 'openlibrary' ? { t: 'from Open Library', bg: '#EEF0F4', fg: '#5B6B8C' }
+    : src === 'googlebooks' ? { t: 'from Google Books', bg: '#EEF0F4', fg: '#5B6B8C' } : null;
+  const save = (summary: string, summarySource: 'parent' | 'kaya' | 'googlebooks' | 'openlibrary', summaryHidden?: boolean) =>
+    run(() => updateCupboardItem(familyId, item.id, { book: { summary, summarySource, ...(summaryHidden !== undefined ? { summaryHidden } : {}) } }));
+  async function fetchIt(ageYears?: number) {
+    setFetching(true);
+    try {
+      const r = await fetchBookSummary(item.name, b.author, ageYears);
+      if (r) await save(r.summary, r.summarySource);
+    } finally { setFetching(false); }
+  }
+  return (
+    <Card tone={hidden ? 'plain' : 'wood'}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="font-display font-extrabold text-[12.5px] text-[#0F1F44]">
+          📖 What it&rsquo;s about{chip && <span className="ml-1.5 inline-block text-[9.5px] font-extrabold px-2 py-0.5 rounded-full" style={{ background: chip.bg, color: chip.fg }}>{chip.t}</span>}
+          {hidden && <span className="ml-1.5 inline-block text-[9.5px] font-extrabold px-2 py-0.5 rounded-full bg-[#EEF0F4] text-[#5B6B8C]">hidden from kids</span>}
+        </div>
+        {isParent && (
+          <div className="flex gap-2">
+            {b.summary && <button type="button" disabled={busy} onClick={() => setEditing((v) => !v)} className="text-[10.5px] font-extrabold" style={{ color: WOOD_DK }}>{editing ? 'Close' : '✏️ edit'}</button>}
+            {b.summary && <button type="button" disabled={busy} onClick={() => save(b.summary || '', (src as 'parent' | 'kaya' | 'googlebooks' | 'openlibrary') || 'parent', !hidden)} className="text-[10.5px] font-extrabold text-[#5B6B8C]">{hidden ? 'show' : 'hide'}</button>}
+          </div>
+        )}
+      </div>
+      {!editing && b.summary && !hidden && <p className="text-[11.5px] leading-snug text-[#394458] mt-1.5 m-0 border-l-[3px] border-[#E4CDB2] pl-2.5">{b.summary}</p>}
+      {!editing && b.summary && hidden && isParent && <p className="text-[11px] leading-snug text-[#8A8471] italic mt-1.5 m-0">{b.summary}</p>}
+      {!b.summary && isParent && (
+        <div className="mt-1.5">
+          <p className="text-[11px] font-bold text-[#5B6B8C] m-0">No summary yet.</p>
+          <div className="mt-2"><Pill bg={WOOD} fg="#fff" disabled={busy || fetching} onClick={() => fetchIt()}>{fetching ? '🧠 Looking it up…' : '📖 Find / ask Kaya'}</Pill></div>
+        </div>
+      )}
+      {editing && isParent && (
+        <div className="mt-1.5">
+          <textarea className={`${inputCls} min-h-[72px]`} value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={600} />
+          <div className="flex flex-wrap gap-2 mt-2">
+            <Pill bg={WOOD} fg="#fff" disabled={busy || !draft.trim()} onClick={() => save(draft.trim(), 'parent').then(() => setEditing(false))}>Save</Pill>
+            <Pill bg="#EEF0F4" fg="#5B6B8C" onClick={() => { setDraft(b.summary || ''); setEditing(false); }}>Cancel</Pill>
+          </div>
+        </div>
+      )}
+      {isParent && b.summary && !editing && kids.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 mt-2">
+          <span className="text-[10px] font-extrabold text-[#8A8471]">🧠 Rewrite for</span>
+          {kids.map((k) => (
+            <button key={k.id} type="button" disabled={busy || fetching} onClick={() => { setRewriteFor(k.id); fetchIt(k.age).finally(() => setRewriteFor('')); }}
+              className="text-[10px] font-extrabold px-2 py-1 rounded-full border border-[#E8E0CF] bg-white text-[#5B6B8C] disabled:opacity-50">
+              {rewriteFor === k.id ? '…' : `${k.emoji} ${k.name}${k.age !== undefined ? ` (${k.age})` : ''}`}
+            </button>
+          ))}
+        </div>
+      )}
+    </Card>
   );
 }
 
