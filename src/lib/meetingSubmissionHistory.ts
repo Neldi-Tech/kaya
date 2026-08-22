@@ -216,6 +216,22 @@ export async function updateGoalReflections(
 export async function getAllMeetingSubmissionHistory(
   familyId: string,
 ): Promise<SubmissionHistoryDoc[]> {
+  // 🧒 Kid-led (2026-08-16): kids may read only their OWN history doc, so
+  // the family-wide read goes through the presenter-data gateway first
+  // (any verified member); direct read stays as the fallback.
+  try {
+    const { auth } = await import('./firebase');
+    const token = await auth.currentUser?.getIdToken();
+    if (token) {
+      const res = await fetch(`/api/meetings/presenter-data?familyId=${encodeURIComponent(familyId)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json() as { history?: SubmissionHistoryDoc[] };
+        if (Array.isArray(data.history)) return data.history;
+      }
+    }
+  } catch { /* fall through */ }
   const snap = await getDocs(collection(db, 'families', familyId, COL));
   return snap.docs.map((d) => d.data() as SubmissionHistoryDoc);
 }

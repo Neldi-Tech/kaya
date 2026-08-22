@@ -46,6 +46,9 @@ export async function POST(req: NextRequest) {
     meeting?: Record<string, unknown>;
     meetingId?: string;
     updates?: Record<string, unknown>;
+    weekTheme?: { text?: string; by?: string; weekOf?: string; setAt?: number };
+    awards?: Array<{ childId?: string; roleName?: string }>;
+    byName?: string;
   };
   try { body = await req.json(); } catch { return NextResponse.json({ ok: false, error: 'bad-json' }, { status: 400 }); }
 
@@ -91,6 +94,73 @@ export async function POST(req: NextRequest) {
     if (!(await ref.get()).exists) return NextResponse.json({ ok: false, error: 'not-found' }, { status: 404 });
     await ref.set(clean, { merge: true });
     return NextResponse.json({ ok: true });
+  }
+
+  // 🧒 Kid-led (2026-08-16): clearing everyone's prep after the meeting is
+  // a parents-only delete in rules — a kid leader's finish left last
+  // week's prep lying around. Admin clears it for any verified member.
+  if (body.action === 'clearSubmissions') {
+    const snap = await db.collection('families').doc(familyId).collection('upcomingMeetingSubmissions').get();
+    const batch = db.batch();
+    snap.docs.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+    return NextResponse.json({ ok: true, cleared: snap.size });
+  }
+
+  // 🧒 Kid-led (2026-08-16): the family doc is parents-only to update, so a
+  // kid leader's 📖 Theme of the Week never saved. Admin sets it for any
+  // verified member (text capped, audit-stamped).
+  if (body.action === 'weekTheme') {
+    const t = body.weekTheme;
+    const text = typeof t?.text === 'string' ? t.text.trim().slice(0, 140) : '';
+    if (!text) return NextResponse.json({ ok: false, error: 'bad-args' }, { status: 400 });
+    await db.collection('families').doc(familyId).set({
+      weekTheme: {
+        text,
+        by: typeof t?.by === 'string' ? t.by.slice(0, 60) : 'The leader',
+        weekOf: typeof t?.weekOf === 'string' ? t.weekOf : '',
+        setAt: Date.now(),
+        setByUid: callerUid,
+      },
+    }, { merge: true });
+    return NextResponse.json({ ok: true });
+  }
+
+  // 🧒 Kid-led: 🎭 role rewards (+1 HP per meeting role) are parent-only
+  // award writes — mirrored here server-side (award doc + running totals,
+  // the same math as giveAward). Capped to 8 per finish; only kids of THIS
+  // family; reason is server-composed from the role name.
+  if (body.action === 'roleAwards') {
+    const list = Array.isArray(body.awards) ? body.awards.slice(0, 8) : [];
+    const byName = typeof body.byName === 'string' ? body.byName.slice(0, 60) : 'The leader';
+    const famRef = db.collection('families').doc(familyId);
+    let granted = 0;
+    for (const a of list) {
+      const childId = typeof a.childId === 'string' ? a.childId : '';
+      const roleName = typeof a.roleName === 'string' ? a.roleName.trim().slice(0, 40) : '';
+      if (!childId || !roleName) continue;
+      const childRef = famRef.collection('children').doc(childId);
+      const ok = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(childRef);
+        if (!snap.exists) return false;
+        const c = snap.data() as { totalPoints?: number; weeklyPoints?: number; lifetimePoints?: number };
+        tx.set(famRef.collection('awards').doc(), {
+          childId, kind: 'regular', points: 1,
+          reason: `🎭 Meeting role: ${roleName}`,
+          category: 'Family Meeting',
+          awardedBy: callerUid, awardedByName: byName, senderRole: 'leader',
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        tx.update(childRef, {
+          totalPoints: (c.totalPoints || 0) + 1,
+          weeklyPoints: (c.weeklyPoints || 0) + 1,
+          lifetimePoints: Math.max(c.lifetimePoints || 0, c.totalPoints || 0) + 1,
+        });
+        return true;
+      }).catch(() => false);
+      if (ok) granted += 1;
+    }
+    return NextResponse.json({ ok: true, granted });
   }
 
   return NextResponse.json({ ok: false, error: 'bad-action' }, { status: 400 });

@@ -43,7 +43,7 @@ import { giveAward } from '@/lib/firestore';
 import { sendMessage } from '@/lib/messaging';
 import { auth as fbAuth } from '@/lib/firebase';
 import {
-  subscribeMeetingSubmissions, clearMeetingSubmissions,
+  subscribeMeetingSubmissions, clearMeetingSubmissions, fetchMeetingSubmissionsViaGateway,
   appreciationTagsForLine, appreciationTagLabelForLine, isCurrentCycle, meetingCycleKey,
   type MeetingSubmission,
 } from '@/lib/meetingSubmissions';
@@ -583,8 +583,27 @@ export default function MeetingPresenterPage() {
   const [restoredSubs, setRestoredSubs] = useState<MeetingSubmission[]>([]);
   useEffect(() => {
     if (!profile?.familyId) return;
-    const unsub = subscribeMeetingSubmissions(profile.familyId, setSubmissions);
-    return () => unsub();
+    const familyId = profile.familyId;
+    let dead = false;
+    // 🧒 Kid-led (2026-08-16): the family's prep comes through the Admin
+    // gateway so a kid leader sees EVERYONE's items (rules let kids read
+    // only their own doc, and deny the collection listen outright). The
+    // live listener stays as a change TRIGGER + parent fallback, plus a
+    // 30s poll so late prep still lands during the meeting.
+    const refresh = async () => {
+      const rows = await fetchMeetingSubmissionsViaGateway(familyId);
+      if (!dead && rows) setSubmissions(rows);
+    };
+    void refresh();
+    const unsub = subscribeMeetingSubmissions(familyId, (rows) => {
+      // Parents get the full set here; kids get [] (denied) — either way a
+      // change happened, so re-pull the truth from the gateway. Parents
+      // keep the live rows as an immediate fallback.
+      if (rows.length > 0) setSubmissions(rows);
+      void refresh();
+    });
+    const poll = setInterval(() => { void refresh(); }, 30_000);
+    return () => { dead = true; unsub(); clearInterval(poll); };
   }, [profile?.familyId]);
   // Cycle gating: only THIS meeting cycle's prep is shown/used — last
   // week's (a passed meeting) is ignored even if it wasn't cleared.
@@ -1065,27 +1084,60 @@ export default function MeetingPresenterPage() {
       }
     } catch { /* celebration is best-effort */ }
 
+    // 🧒 Kid-led (2026-08-16): the family doc + awards are parents-only
+    // writes, so a kid leader's theme + role rewards silently vanished.
+    // Kids go through the finish gateway; parents keep the direct path
+    // (giveAward carries badge tallies + reward emails).
+    const kidLed = profile.role !== 'parent';
+    const finishApi = async (payload: Record<string, unknown>) => {
+      try {
+        const token = await fbAuth.currentUser?.getIdToken();
+        if (!token) return false;
+        const res = await fetch('/api/meetings/finish', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ familyId: profile.familyId, ...payload }),
+        });
+        return res.ok;
+      } catch { return false; }
+    };
+
     // 📖 Theme of the Week → family doc (Home + My Day read it all week).
     if (weekThemeText.trim()) {
-      void updateFamily(profile.familyId, {
-        weekTheme: {
-          text: weekThemeText.trim().slice(0, 140),
-          by: family?.nextMeetingLeader?.name || profile.displayName || 'The leader',
-          weekOf: weekKeyFor(todayString()),
-          setAt: Date.now(),
-        },
-      }).catch(() => {});
+      const weekTheme = {
+        text: weekThemeText.trim().slice(0, 140),
+        by: family?.nextMeetingLeader?.name || profile.displayName || 'The leader',
+        weekOf: weekKeyFor(todayString()),
+        setAt: Date.now(),
+      };
+      if (kidLed) {
+        void finishApi({ action: 'weekTheme', weekTheme })
+          .then((ok) => { if (!ok) return updateFamily(profile.familyId!, { weekTheme }); })
+          .catch(() => {});
+      } else {
+        void updateFamily(profile.familyId, { weekTheme }).catch(() => {});
+      }
     }
 
     // 🎭 Role rewards — +1 HP per role-kid for a job well done.
-    for (const r of roleEntries) {
-      void giveAward(profile.familyId, {
-        childId: r.childId, kind: 'regular', points: 1,
-        reason: `🎭 Meeting role: ${r.name}`,
-        category: 'Family Meeting',
-        awardedBy: profile.uid, awardedByName: profile.displayName || 'Parent',
-        senderRole: 'parent',
-      }).catch(() => {});
+    if (roleEntries.length > 0) {
+      if (kidLed) {
+        void finishApi({
+          action: 'roleAwards',
+          awards: roleEntries.map((r) => ({ childId: r.childId, roleName: r.name })),
+          byName: profile.displayName || 'The leader',
+        }).catch(() => {});
+      } else {
+        for (const r of roleEntries) {
+          void giveAward(profile.familyId, {
+            childId: r.childId, kind: 'regular', points: 1,
+            reason: `🎭 Meeting role: ${r.name}`,
+            category: 'Family Meeting',
+            awardedBy: profile.uid, awardedByName: profile.displayName || 'Parent',
+            senderRole: 'parent',
+          }).catch(() => {});
+        }
+      }
     }
 
     // 🗳️ Vote follow-through — a shared Reminder next Saturday + a chat post.
