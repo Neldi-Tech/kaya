@@ -6,7 +6,7 @@
 // "About Kaya · join the waitlist" + "Stop these greetings" (R13).
 
 import {
-  cardHeadline, defaultMessage, defaultOneLiner, themePalette, typeEmoji, shortName,
+  cardHeadline, defaultMessage, defaultOneLiner, themePalette, typeEmoji, shortName, splitMessage,
   type GreetingCard,
 } from './greetingCards';
 import { toDisplayDate } from './dates';
@@ -39,6 +39,7 @@ export function renderGreetingCardEmail(a: RenderCardEmailArgs): { subject: stri
   const first = shortName(card.honoree.name) || card.honoree.name;
   const oneLiner = card.oneLiner || defaultOneLiner(card);
   const message = card.message || defaultMessage(card, card.signatureLine);
+  const { greeting, body } = splitMessage(message, card.signatureLine);
   const dateLabel = toDisplayDate(card.dateKey);
   const sig = card.signatureLine;
   const subject = a.belated
@@ -83,10 +84,12 @@ export function renderGreetingCardEmail(a: RenderCardEmailArgs): { subject: stri
   </td></tr>
   <tr><td style="padding:22px 22px 8px;">
     ${cardBlock}
-    <div style="font-size:15px;font-weight:700;line-height:1.5;color:#2b1d12;white-space:pre-wrap;">${esc(message)}</div>
+    ${greeting ? `<div style="font-size:17px;font-weight:900;color:#2b1d12;margin-bottom:6px;">${esc(greeting)}</div>` : ''}
+    <div style="font-size:15px;font-weight:600;line-height:1.6;color:#3D241A;white-space:pre-wrap;">${esc(body)}</div>
     ${linesHtml ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;border-top:1px dashed #E8DEC9;">${linesHtml}</table>` : ''}
-    <div style="text-align:right;margin-top:16px;">
-      <div style="font-size:18px;font-style:italic;font-weight:800;color:#3D241A;">${esc(sw ? 'Kwa upendo,' : 'With love,')} ${esc(sig)}</div>
+    <div style="text-align:right;margin-top:18px;padding-top:12px;border-top:2px solid ${pal.accent}55;">
+      <div style="font-size:12.5px;font-weight:700;color:#5C6975;">${esc(sw ? 'Kwa upendo,' : 'With love,')}</div>
+      <div style="font-size:19px;font-style:italic;font-weight:800;color:#3D241A;">${esc(sig)}</div>
       ${card.signatureRoster ? `<div style="font-size:11.5px;color:#5C6975;">${esc(card.signatureRoster)}</div>` : ''}
     </div>
     ${buttons}

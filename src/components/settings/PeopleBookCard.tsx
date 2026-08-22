@@ -11,7 +11,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { updateFamily } from '@/lib/firestore';
 import {
-  normalizeWhatsapp, formatWhatsapp, TIMEZONE_CHOICES, FAMILY_TZ_DEFAULT,
+  normalizeWhatsapp, formatWhatsapp, parseEmails, TIMEZONE_CHOICES, FAMILY_TZ_DEFAULT,
   type FamilyContact,
 } from '@/lib/reminders';
 import { toDisplayDate } from '@/lib/dates';
@@ -20,7 +20,6 @@ import { listCards, cardHeadline, type GreetingCard } from '@/lib/greetingCards'
 const CAL = '#5B6CC8';
 const CAL_DK = '#3E4DA0';
 const CAL_SOFT = '#E7EAFA';
-const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 export const RELATION_PRESETS = ['Grandmother', 'Grandfather', 'Aunt', 'Uncle', 'Cousin', 'Godparent', 'Family friend', 'Best friend', 'Classmate', 'Teacher'];
 
@@ -47,7 +46,7 @@ export function blankContactDraft(): ContactDraft {
 function toDraft(c: FamilyContact): ContactDraft {
   return {
     id: c.id, name: c.name, relationship: c.relationship, relation: c.relation || '',
-    email: c.email || '', whatsapp: c.whatsapp ? `+${c.whatsapp}` : '', timezone: c.timezone || FAMILY_TZ_DEFAULT,
+    email: Array.from(new Set([c.email, ...(c.emails || [])].filter(Boolean))).join(', '), whatsapp: c.whatsapp ? `+${c.whatsapp}` : '', timezone: c.timezone || FAMILY_TZ_DEFAULT,
     birthday: c.birthday || '', lang: c.lang || 'en',
   };
 }
@@ -56,17 +55,18 @@ function toDraft(c: FamilyContact): ContactDraft {
 export function contactFromDraft(d: ContactDraft, addedBy: string, prev?: FamilyContact): { error: string } | { contact: FamilyContact } {
   const name = d.name.trim();
   if (!name) return { error: 'Give them a name' };
-  const email = d.email.trim().toLowerCase();
-  if (email && !EMAIL_RX.test(email)) return { error: 'That email doesn’t look right' };
+  const emails = parseEmails(d.email);
+  if (d.email.trim() && !emails.length) return { error: 'That email doesn’t look right' };
   const wa = normalizeWhatsapp(d.whatsapp);
   if (d.whatsapp.trim() && !wa) return { error: 'WhatsApp number needs a country code, e.g. +255 712 345 678' };
-  if (!email && !wa) return { error: 'Add an email or a WhatsApp number (or both)' };
+  const email = emails[0] || '';
   const c: FamilyContact = {
     id: d.id, name, relationship: d.relationship,
     addedBy: prev?.addedBy || addedBy, addedAt: prev?.addedAt || Date.now(),
   };
   const rel = d.relation.trim(); if (rel) c.relation = rel;
   if (email) c.email = email;
+  if (emails.length > 1) c.emails = emails;
   if (wa) c.whatsapp = wa;
   if (d.timezone) c.timezone = d.timezone;
   if (/^\d{4}-\d{2}-\d{2}$/.test(d.birthday)) c.birthday = d.birthday;
@@ -105,7 +105,7 @@ export function ContactForm({ draft, setDraft, error, saving, onSave, onCancel, 
             placeholder={draft.relationship === 'adult' ? 'Relation · Grandmother, Uncle…' : 'Relation · Best friend, Classmate…'} className={input} />
           <datalist id="kaya-relation-presets">{RELATION_PRESETS.map((r) => <option key={r} value={r} />)}</datalist>
         </div>
-        <input value={draft.email} onChange={(e) => set('email', e.target.value)} placeholder={draft.relationship === 'kid-friend' ? 'Their parent’s email' : 'Email'} className={input} inputMode="email" />
+        <input value={draft.email} onChange={(e) => set('email', e.target.value)} placeholder={draft.relationship === 'kid-friend' ? 'Their parent’s email (optional)' : 'Email(s) — comma-separate a couple (optional)'} className={input} inputMode="email" />
         <input value={draft.whatsapp} onChange={(e) => set('whatsapp', e.target.value)} placeholder="WhatsApp · +255 7…" className={input} inputMode="tel" />
         {!compact && (
           <>
@@ -124,6 +124,7 @@ export function ContactForm({ draft, setDraft, error, saving, onSave, onCancel, 
           </>
         )}
       </div>
+      <div className="text-[10.5px] text-kaya-sand">Email and WhatsApp are optional — without them Kaya still makes the card and you share it yourself. A couple? Put both emails, comma-separated: every address gets the card.</div>
       {draft.relationship === 'kid-friend' && (
         <div className="text-[10.5px] text-kaya-sand">Cards to a kid’s friend always go to the friend’s parent, with you in copy.</div>
       )}
@@ -213,7 +214,7 @@ export default function PeopleBookCard() {
                   {c.optOut && <span className="text-[9px] font-extrabold rounded px-1.5 py-0.5 bg-red-50 text-red-500">OPTED OUT</span>}
                 </div>
                 <div className="text-[11px] text-kaya-sand truncate">
-                  {[c.email && `📧 ${c.email}`, c.whatsapp && `💬 ${formatWhatsapp(c.whatsapp)}`, c.birthday && `🎂 ${toDisplayDate(c.birthday)}`].filter(Boolean).join(' · ') || 'No channel yet'}
+                  {[c.email && `📧 ${[c.email, ...(c.emails || []).filter((e) => e !== c.email)].join(', ')}`, c.whatsapp && `💬 ${formatWhatsapp(c.whatsapp)}`, c.birthday && `🎂 ${toDisplayDate(c.birthday)}`].filter(Boolean).join(' · ') || 'Share-only (no email / WhatsApp yet)'}
                 </div>
               </div>
               {albumFor(c.id).length > 0 && (

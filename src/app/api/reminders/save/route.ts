@@ -116,6 +116,11 @@ function sanitizeGreetTo(raw: unknown, type: ReminderType): GreetTo | undefined 
   const ch = clampStr(g.childId, 128); if (ch) out.childId = ch;
   const email = clampStr(g.email, 160).trim().toLowerCase();
   if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) out.email = email;
+  if (Array.isArray(g.emails)) {
+    const re = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+    const list = Array.from(new Set((g.emails as unknown[]).map((e) => clampStr(e, 160).trim().toLowerCase()).filter((e) => re.test(e)))).slice(0, 6);
+    if (list.length) { out.emails = list; if (!out.email) out.email = list[0]; }
+  }
   const wa = normalizeWhatsapp(clampStr(g.whatsapp, 32)); if (wa) out.whatsapp = wa;
   const tz = clampStr(g.timezone, 64); if (tz && /^[A-Za-z_]+\/[A-Za-z_\/+-]+$/.test(tz)) out.timezone = tz;
   // autoSend needs an email and an outside honoree.

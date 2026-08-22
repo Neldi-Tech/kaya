@@ -152,7 +152,10 @@ export function cardHeadline(type: ReminderType, nth: number | null | undefined,
 const HONORIFICS = new Set(['mama','baba','bibi','babu','mzee','uncle','aunt','auntie','aunty','grandma','grandpa','granny','nana','mr','mrs','ms','dr','cousin','coach','teacher','sir','madam','pastor','rev','shangazi','mjomba','dada','kaka','mwalimu']);
 /** "Mama Rose" → "Mama Rose" (honorific kept), "Joseph Mwangi" → "Joseph". */
 export function shortName(full: string | undefined): string {
-  const parts = (full || '').trim().split(/\s+/).filter(Boolean);
+  const raw = (full || '').trim();
+  // Couples / pairs keep the whole name ("Aunt Alice and Uncle Prince").
+  if (/\s(and|&|na)\s/i.test(raw)) return raw;
+  const parts = raw.split(/\s+/).filter(Boolean);
   if (!parts.length) return '';
   if (parts.length >= 2 && HONORIFICS.has(parts[0].toLowerCase().replace(/\.$/, ''))) return `${parts[0]} ${parts[1]}`;
   return parts[0];
@@ -175,16 +178,32 @@ export function defaultOneLiner(card: Pick<GreetingCard, 'type' | 'nth' | 'lang'
   return `We're so proud of you, ${first}.`;
 }
 
-export function defaultMessage(card: Pick<GreetingCard, 'type' | 'nth' | 'lang' | 'honoree'>, signature: string): string {
+export function defaultMessage(card: Pick<GreetingCard, 'type' | 'nth' | 'lang' | 'honoree'>, _signature?: string): string {
+  void _signature; // the signature block is rendered separately (Elia, 22-Aug)
   const first = shortName(card.honoree.name);
   if (card.lang === 'sw') {
     return card.type === 'birthday'
-      ? `Mpendwa ${first}, heri ya kuzaliwa! Tunakutakia furaha, afya na baraka tele. Tunakupenda sana. — ${signature}`
-      : `Mpendwa ${first}, hongera sana! Tunakutakia kila la heri. — ${signature}`;
+      ? `Mpendwa ${first}, heri ya kuzaliwa! Tunakutakia furaha, afya na baraka tele. Tunakupenda sana.`
+      : `Mpendwa ${first}, hongera sana! Tunakutakia kila la heri na upendo usioisha.`;
   }
-  if (card.type === 'birthday') return `Dear ${first}, wishing you a day as wonderful as you are — full of laughter, cake and the people you love. With all our love, ${signature}.`;
-  if (card.type === 'anniversary') return `Dear ${first}, happy anniversary! Thank you for showing us what love that lasts looks like. With love, ${signature}.`;
-  return `Dear ${first}, congratulations! We're cheering for you today and always. With love, ${signature}.`;
+  if (card.type === 'birthday') return `Dear ${first}, wishing you a day as wonderful as you are — full of laughter, cake and the people you love.`;
+  if (card.type === 'anniversary') return `Dear ${first}, happy anniversary! Thank you for showing us what love that lasts looks like.`;
+  return `Dear ${first}, congratulations! We're cheering for you today and always.`;
+}
+
+function escRe(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+/** Splits "Dear X, rest…" into a greeting line + body, and strips a trailing
+ *  "With love, {signature}." the author may have typed (the card signs itself). */
+export function splitMessage(message: string, signatureLine: string): { greeting: string; body: string } {
+  let m = (message || '').trim();
+  if (signatureLine) {
+    const sigRe = new RegExp(`\\s*(with love|kwa upendo|love|warmly|yours)[,\\s]*${escRe(signatureLine)}\\.?\\s*$`, 'i');
+    m = m.replace(sigRe, '').trim();
+  }
+  const g = /^((?:Dear|Dearest|Mpendwa|Hi|Hello)\s[^,!\n]{0,60}[,!])\s*/i.exec(m);
+  if (g) return { greeting: g[1].trim(), body: m.slice(g[0].length).trim() };
+  return { greeting: '', body: m };
 }
 
 // ── Theme palettes (the 8 approved fronts) ────────────────────────────────
@@ -303,32 +322,40 @@ export function cardSvg(card: GreetingCard, opts: CardSvgOptions = {}): string {
   const topLabel = `${typeEmoji(card.type)} ${card.type === 'birthday' ? (lang === 'sw' ? 'SIKU YA KUZALIWA' : 'BIRTHDAY') : card.type === 'anniversary' ? 'ANNIVERSARY' : 'CELEBRATION'}${opts.dateLabel ? ' · ' + opts.dateLabel.toUpperCase() : ''}`;
   const nameLines = wrap(name, 26, 2);
 
-  // Inside block (full)
+  // Inside block (full) — greeting line · left-aligned body · co-sign lines ·
+  // separated signature block · Kaya band (Elia, 22-Aug: "organised, separate from signature").
   let insideH = 0;
   let inside = '';
   if (opts.full) {
-    const msgLines = wrap(card.message || defaultMessage(card, sigLine), 48, 9);
-    const lineBlocks = (card.lines || []).slice(0, 6).map((l) => ({ who: l.name, kid: !!l.kid, lines: wrap(l.text, 44, 2) }));
-    const linesH = lineBlocks.reduce((a, b) => a + 26 + b.lines.length * 24, 0);
-    insideH = 60 + msgLines.length * 30 + (lineBlocks.length ? 24 + linesH : 0) + 110 + 64;
-    let y = FRONT_H + 50;
+    const { greeting, body } = splitMessage(card.message || defaultMessage(card, sigLine), sigLine);
+    const bodyLines = wrap(body, 50, 10);
+    const lineBlocks = (card.lines || []).slice(0, 6).map((l) => ({ who: l.name, kid: !!l.kid, lines: wrap(l.text, 46, 2) }));
+    const linesH = lineBlocks.reduce((a, b) => a + 28 + b.lines.length * 26, 0);
+    const closing = lang === 'sw' ? 'Kwa upendo,' : 'With love,';
+    insideH = 56 + (greeting ? 44 : 0) + bodyLines.length * 32 + (lineBlocks.length ? 34 + linesH : 0) + 40 + 56 + (card.signatureRoster ? 24 : 0) + 40 + 64;
+    let y = FRONT_H + 56;
     inside += `<rect x="0" y="${FRONT_H}" width="${W}" height="${insideH}" fill="#FFFDF8"/>`;
-    for (const ml of msgLines) { inside += `<text x="${W / 2}" y="${y}" text-anchor="middle" font-family="Nunito, Lato, Helvetica, Arial, sans-serif" font-size="22" font-weight="700" fill="#2b1d12">${esc(ml)}</text>`; y += 30; }
+    if (greeting) { inside += `<text x="64" y="${y}" font-family="Nunito, Lato, Helvetica, Arial, sans-serif" font-size="26" font-weight="900" fill="#2b1d12">${esc(greeting)}</text>`; y += 44; }
+    for (const ml of bodyLines) { inside += `<text x="64" y="${y}" font-family="Nunito, Lato, Helvetica, Arial, sans-serif" font-size="21" font-weight="600" fill="#3D241A">${esc(ml)}</text>`; y += 32; }
     if (lineBlocks.length) {
-      y += 10;
-      inside += `<line x1="60" y1="${y}" x2="${W - 60}" y2="${y}" stroke="#E8DEC9" stroke-dasharray="6 6"/>`;
+      y += 6;
+      inside += `<line x1="64" y1="${y}" x2="${W - 64}" y2="${y}" stroke="#E8DEC9" stroke-dasharray="6 6"/>`;
       y += 30;
       for (const b of lineBlocks) {
-        inside += `<text x="60" y="${y}" font-family="Nunito, Lato, Helvetica, Arial, sans-serif" font-size="15" font-weight="800" fill="#5C6975">${esc(b.who)}</text>`; y += 24;
+        inside += `<text x="64" y="${y}" font-family="Nunito, Lato, Helvetica, Arial, sans-serif" font-size="14" font-weight="800" letter-spacing="1" fill="#5C6975">${esc(b.who.toUpperCase())}</text>`; y += 26;
         for (const t of b.lines) {
-          inside += `<text x="60" y="${y}" font-family="Nunito, Lato, Helvetica, Arial, sans-serif" font-size="19" font-weight="${b.kid ? '700' : '500'}" font-style="${b.kid ? 'italic' : 'normal'}" fill="${b.kid ? '#6b4a1a' : '#3D241A'}">${esc(t)}</text>`; y += 24;
+          inside += `<text x="64" y="${y}" font-family="Nunito, Lato, Helvetica, Arial, sans-serif" font-size="19" font-weight="${b.kid ? '700' : '500'}" font-style="${b.kid ? 'italic' : 'normal'}" fill="${b.kid ? '#6b4a1a' : '#3D241A'}">${esc(t)}</text>`; y += 26;
         }
         y += 2;
       }
     }
-    y += 30;
-    inside += `<text x="${W - 60}" y="${y}" text-anchor="end" font-family="Nunito, Lato, Helvetica, Arial, sans-serif" font-size="26" font-style="italic" font-weight="800" fill="#3D241A">${esc(sigLine)}</text>`;
-    if (card.signatureRoster) { y += 26; inside += `<text x="${W - 60}" y="${y}" text-anchor="end" font-family="Nunito, Lato, Helvetica, Arial, sans-serif" font-size="15" fill="#5C6975">${esc(card.signatureRoster)}</text>`; }
+    y += 14;
+    inside += `<line x1="${W - 300}" y1="${y}" x2="${W - 64}" y2="${y}" stroke="${accent}" stroke-opacity=".5" stroke-width="2"/>`;
+    y += 34;
+    inside += `<text x="${W - 64}" y="${y}" text-anchor="end" font-family="Nunito, Lato, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#5C6975">${esc(closing)}</text>`;
+    y += 34;
+    inside += `<text x="${W - 64}" y="${y}" text-anchor="end" font-family="Nunito, Lato, Helvetica, Arial, sans-serif" font-size="27" font-style="italic" font-weight="800" fill="#3D241A">${esc(sigLine)}</text>`;
+    if (card.signatureRoster) { y += 24; inside += `<text x="${W - 64}" y="${y}" text-anchor="end" font-family="Nunito, Lato, Helvetica, Arial, sans-serif" font-size="14" fill="#5C6975">${esc(card.signatureRoster)}</text>`; }
     const bandY = FRONT_H + insideH - 64;
     inside += `<rect x="0" y="${bandY}" width="${W}" height="64" fill="#1F2D3D"/>`;
     inside += `<text x="40" y="${bandY + 39}" font-family="Nunito, Lato, Helvetica, Arial, sans-serif" font-size="16" fill="#FFF8EC">${esc(lang === 'sw' ? 'Imetumwa kwa ❤️ kupitia' : 'Sent with ❤️ via')} <tspan font-weight="900">KAYA</tspan> <tspan fill="#F39C2F">— ${esc(lang === 'sw' ? 'mtandao wa familia' : 'the family network')}</tspan></text>`;
