@@ -349,10 +349,13 @@ export async function POST(req: NextRequest) {
     // Album — previous cards to the same person.
     let lastYear = '';
     try {
-      const prev = await cardsCol.where('honoree.name', '==', honoree.name).orderBy('dateKey', 'desc').limit(3).get();
-      const older = prev.docs.map((d) => d.data() as GreetingCard).filter((c) => c.dateKey < dateKey && c.oneLiner);
+      // Equality-only query (no composite index needed) — sort in code.
+      const prev = await cardsCol.where('honoree.name', '==', honoree.name).limit(40).get();
+      const older = prev.docs.map((d) => d.data() as GreetingCard)
+        .filter((c) => c.dateKey < dateKey && c.oneLiner)
+        .sort((a, b) => (a.dateKey < b.dateKey ? 1 : -1));
       if (older[0]) lastYear = older[0].oneLiner;
-    } catch { /* index-less fallback: skip */ }
+    } catch { /* best-effort context */ }
     const parents = await familyParents(db, familyId);
     const kidsSnap = await famRef.collection('children').get();
     const kidNames = kidsSnap.docs.map((d) => (d.data() as { name?: string }).name || '').filter(Boolean);
