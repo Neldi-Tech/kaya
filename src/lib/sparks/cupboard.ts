@@ -157,6 +157,49 @@ export async function cupboardApi<T>(
   return res.json() as Promise<T>;
 }
 
+// ── Lookups (C2 · D28 · D30) — barcode → words, front face → words ──
+
+export interface LookupBook {
+  name: string; author?: string; pages?: number; year?: number;
+  publisher?: string; coverUrl?: string; isbn?: string; ageMin?: number;
+}
+export interface LookupGame {
+  name: string; ageMin?: number; playersMin?: number; playersMax?: number;
+  minutes?: number; gameKind?: GameKind;
+}
+export interface LookupResult {
+  found: boolean;
+  kind?: CupboardKind;
+  /** The normalised barcode (ISBN-13 / UPC) when one was involved. */
+  code?: string;
+  /** 'lookup' (a database answered) · 'vision' (Kaya read it, no DB match). */
+  nameSource?: NameSource;
+  source?: string;
+  book?: LookupBook;
+  game?: LookupGame;
+  /** UPC DB name for a game (identity from the code, words from the box). */
+  name?: string;
+  confidence?: number;
+  reason?: string;
+}
+
+/** Server-side lookups — Open Library / Google Books / UPC DB / Kaya
+ *  vision. Never throws into the UI: a failed lookup is `{found:false}`. */
+export async function cupboardLookup(
+  action: 'code' | 'vision',
+  payload: Record<string, unknown>,
+): Promise<LookupResult> {
+  const token = await idToken();
+  if (!token) throw new Error('not-signed-in');
+  const res = await fetch('/api/sparks/treasures/cupboard/lookup', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({ action, ...payload }),
+  });
+  if (!res.ok) return { found: false, reason: `lookup-${res.status}` };
+  return res.json() as Promise<LookupResult>;
+}
+
 // Refresh bus — one channel per family (the Cupboard is family-wide).
 const listeners = new Map<string, Set<() => void>>();
 

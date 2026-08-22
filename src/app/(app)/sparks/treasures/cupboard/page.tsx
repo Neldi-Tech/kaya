@@ -16,6 +16,7 @@ import {
 } from '@/lib/sparks/cupboard';
 import { CupboardFrame, Card, Pill, ShelfCard, WOOD, WOOD_DK, WOOD_BG, JADE, JADE_BG } from '@/components/sparks/CupboardShell';
 import CupboardAddSheet from '@/components/sparks/CupboardAddSheet';
+import CupboardScanSheet from '@/components/sparks/CupboardScanSheet';
 
 export default function CupboardHomePage() {
   const { profile } = useAuth();
@@ -24,6 +25,8 @@ export default function CupboardHomePage() {
   const [shelf, setShelf] = useState<CupboardShelf | null>(null);
   const [err, setErr] = useState('');
   const [adding, setAdding] = useState<CupboardKind | null>(null);
+  /** C2 · 📷 Scan to add is the primary door; ⌨ typing is tier 4. */
+  const [scanning, setScanning] = useState<CupboardKind | null>(null);
 
   useEffect(() => {
     if (!familyId) return;
@@ -71,7 +74,7 @@ export default function CupboardHomePage() {
         {shelf && (
           <>
             <div className="flex flex-wrap gap-2 mb-3">
-              <Pill bg={WOOD} fg="#fff" onClick={() => setAdding('book')}>➕ Add to the shelf</Pill>
+              <Pill bg={WOOD} fg="#fff" onClick={() => setScanning('book')}>📷 Scan to add</Pill>
               <Pill bg="#fff" fg={WOOD_DK} href="/sparks/treasures/cupboard/books">📚 Books</Pill>
               <Pill bg="#fff" fg={WOOD_DK} href="/sparks/treasures/cupboard/games">🎲 Games</Pill>
             </div>
@@ -83,9 +86,10 @@ export default function CupboardHomePage() {
                 <p className="text-[11.5px] text-[#5A6488] mt-1.5 leading-snug text-center">
                   Add the books and games the family shares. Anyone can add — a name is enough.
                 </p>
-                <div className="flex justify-center gap-2 mt-3">
-                  <Pill bg={WOOD} fg="#fff" onClick={() => setAdding('book')}>📚 Add a book</Pill>
-                  <Pill bg={WOOD_BG} fg={WOOD_DK} onClick={() => setAdding('game')}>🎲 Add a game</Pill>
+                <div className="flex justify-center gap-2 mt-3 flex-wrap">
+                  <Pill bg={WOOD} fg="#fff" onClick={() => setScanning('book')}>📷 Scan a book</Pill>
+                  <Pill bg={WOOD} fg="#fff" onClick={() => setScanning('game')}>📷 Scan a game</Pill>
+                  <Pill bg={WOOD_BG} fg={WOOD_DK} onClick={() => setAdding('book')}>⌨ Type it</Pill>
                 </div>
               </Card>
             )}
@@ -152,6 +156,7 @@ export default function CupboardHomePage() {
             )}
 
             <div className="flex flex-wrap gap-2 mt-4">
+              {live.length > 0 && <Pill bg={WOOD_BG} fg={WOOD_DK} onClick={() => setAdding('book')}>⌨ Type one in</Pill>}
               <Pill bg={JADE_BG} fg={JADE} href="/sparks/treasures/lost-found">🔍 Lost &amp; Found{missing.length ? ` · ${missing.length}` : ''}</Pill>
               {shelf.me.canManage && <Pill bg="#EEF0F4" fg="#5B6B8C" href="/sparks/treasures/cupboard/settings">⚙️ Cupboard settings</Pill>}
             </div>
@@ -171,6 +176,16 @@ export default function CupboardHomePage() {
         )}
       </CupboardFrame>
 
+      {scanning && familyId && shelf && (
+        <CupboardScanSheet
+          familyId={familyId}
+          shelf={shelf}
+          defaultKind={scanning}
+          onClose={() => setScanning(null)}
+          onAdded={(ids) => { setScanning(null); if (ids.length === 1) router.push(`/sparks/treasures/cupboard/${ids[0]}`); }}
+          onTypeInstead={() => { const k = scanning; setScanning(null); setAdding(k); }}
+        />
+      )}
       {adding && familyId && shelf && (
         <CupboardAddSheet
           familyId={familyId}

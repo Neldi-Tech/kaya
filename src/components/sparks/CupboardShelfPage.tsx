@@ -14,8 +14,9 @@ import {
   type CupboardShelf, type CupboardKind, type CupboardItem,
 } from '@/lib/sparks/cupboard';
 import { GAME_KINDS, isFamilyOwned } from '@/lib/sparks/treasures';
-import { CupboardFrame, Card, Pill, ShelfCard, WOOD, WOOD_DK } from './CupboardShell';
+import { CupboardFrame, Card, Pill, ShelfCard, WOOD, WOOD_DK, WOOD_BG } from './CupboardShell';
 import CupboardAddSheet from './CupboardAddSheet';
+import CupboardScanSheet from './CupboardScanSheet';
 
 type Who = 'all' | 'family' | 'kids';
 
@@ -29,6 +30,7 @@ export default function CupboardShelfPage({ kind }: { kind: CupboardKind }) {
   const [gameKind, setGameKind] = useState<string>('all');
   const [showEnded, setShowEnded] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [scanning, setScanning] = useState(false);
 
   useEffect(() => {
     if (!familyId) return;
@@ -101,7 +103,10 @@ export default function CupboardShelfPage({ kind }: { kind: CupboardKind }) {
                 <p className="text-[11.5px] text-[#5A6488] mt-1.5 leading-snug text-center">
                   {kind === 'book' ? 'Add the books the family shares — a title is enough.' : 'Add the games you play together — the box has everything Kaya needs.'}
                 </p>
-                <div className="flex justify-center mt-3"><Pill bg={WOOD} fg="#fff" onClick={() => setAdding(true)}>➕ Add a {noun}</Pill></div>
+                <div className="flex justify-center gap-2 mt-3 flex-wrap">
+                  <Pill bg={WOOD} fg="#fff" onClick={() => setScanning(true)}>📷 Scan a {noun}</Pill>
+                  <Pill bg={WOOD_BG} fg={WOOD_DK} onClick={() => setAdding(true)}>⌨ Type it</Pill>
+                </div>
               </Card>
             ) : visible.length === 0 ? (
               <p className="text-[12px] font-bold text-[#5A6488] text-center py-6">Nothing matches those filters.</p>
@@ -112,7 +117,8 @@ export default function CupboardShelfPage({ kind }: { kind: CupboardKind }) {
             )}
 
             <div className="flex flex-wrap gap-2 mt-4">
-              <Pill bg={WOOD} fg="#fff" onClick={() => setAdding(true)}>➕ Add a {noun}</Pill>
+              <Pill bg={WOOD} fg="#fff" onClick={() => setScanning(true)}>📷 Scan a {noun}</Pill>
+              <Pill bg={WOOD_BG} fg={WOOD_DK} onClick={() => setAdding(true)}>⌨ Type it</Pill>
               <Pill bg="#fff" fg={WOOD_DK} href={kind === 'book' ? '/sparks/treasures/cupboard/games' : '/sparks/treasures/cupboard/books'}>
                 {kind === 'book' ? '🎲 Game Shelf' : '📚 Book Shelf'}
               </Pill>
@@ -136,6 +142,16 @@ export default function CupboardShelfPage({ kind }: { kind: CupboardKind }) {
         )}
       </CupboardFrame>
 
+      {scanning && familyId && shelf && (
+        <CupboardScanSheet
+          familyId={familyId}
+          shelf={shelf}
+          defaultKind={kind}
+          onClose={() => setScanning(false)}
+          onAdded={(ids) => { setScanning(false); if (ids.length === 1) router.push(`/sparks/treasures/cupboard/${ids[0]}`); }}
+          onTypeInstead={() => { setScanning(false); setAdding(true); }}
+        />
+      )}
       {adding && familyId && shelf && (
         <CupboardAddSheet
           familyId={familyId}
