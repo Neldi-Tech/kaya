@@ -28,31 +28,50 @@ export const HERO_BG = {
   navy: 'linear-gradient(135deg,#1F2A44 0%,#5B6B8C 100%)',
 } as const;
 
+/** The Cupboard frame. Phone-first (the approved design), and on a
+ *  laptop it opens up: a wide banner hero, the same column widths as the
+ *  Sparks hub, and — when a page passes `aside` — a two-column layout
+ *  with a sticky right rail. On phones the aside simply follows the main
+ *  column, so the mobile order is exactly the design's. */
 export function CupboardFrame({
-  back, hero, children,
+  back, hero, children, aside, actions,
 }: {
   back: { href: string; label: string };
   hero: { tone: keyof typeof HERO_BG; eyebrow: string; title: string; sub: ReactNode };
   children: ReactNode;
+  /** Desktop right rail (lg+). Renders after the main column on phones. */
+  aside?: ReactNode;
+  /** Buttons that sit inside the hero on desktop (right side). */
+  actions?: ReactNode;
 }) {
   return (
     <div className="min-h-screen bg-[#FFFBF5] pb-24">
-      <div className="mx-auto max-w-md sm:max-w-2xl">
-        <div className="px-4 pt-4">
+      <div className="mx-auto max-w-md sm:max-w-2xl lg:max-w-5xl xl:max-w-6xl lg:px-6">
+        <div className="px-4 pt-4 lg:pt-6">
           <Link
             href={back.href}
-            className="inline-flex items-center gap-1.5 pl-2.5 pr-3.5 py-1.5 rounded-full bg-white border border-[#ECE4D3] text-[#0F1F44] font-display font-extrabold text-[12px] no-underline"
+            className="inline-flex items-center gap-1.5 pl-2.5 pr-3.5 py-1.5 rounded-full bg-white border border-[#ECE4D3] text-[#0F1F44] font-display font-extrabold text-[12px] no-underline hover:border-[#8B5E34] transition-colors"
           >
             <span className="text-[13px] leading-none opacity-60" aria-hidden>‹</span>
             <span>{back.label}</span>
           </Link>
         </div>
-        <div className="mx-4 mt-3 rounded-[18px] p-4 text-white" style={{ background: HERO_BG[hero.tone] }}>
-          <div className="text-[10.5px] font-extrabold opacity-85">{hero.eyebrow}</div>
-          <div className="font-display text-[19px] font-extrabold mt-0.5">{hero.title}</div>
-          <div className="text-[11px] opacity-90 mt-1 leading-snug">{hero.sub}</div>
+        <div
+          className="mx-4 mt-3 rounded-[18px] lg:rounded-[24px] p-4 lg:px-8 lg:py-7 text-white lg:flex lg:items-end lg:justify-between lg:gap-6 relative overflow-hidden"
+          style={{ background: HERO_BG[hero.tone] }}
+        >
+          <div className="relative min-w-0">
+            <div className="text-[10.5px] lg:text-[12px] font-extrabold opacity-85 tracking-[.4px]">{hero.eyebrow}</div>
+            <div className="font-display text-[19px] lg:text-[30px] font-extrabold mt-0.5 leading-tight">{hero.title}</div>
+            <div className="text-[11px] lg:text-[13.5px] opacity-90 mt-1 leading-snug">{hero.sub}</div>
+          </div>
+          {actions && <div className="hidden lg:flex flex-wrap gap-2 shrink-0 relative">{actions}</div>}
+          <span aria-hidden className="hidden lg:block absolute -right-8 -bottom-10 text-[150px] leading-none opacity-[.08] select-none">🗄</span>
         </div>
-        <div className="px-4 mt-3">{children}</div>
+        <div className={`px-4 mt-3 lg:mt-5 ${aside ? 'lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-6 lg:items-start' : ''}`}>
+          <div className="min-w-0">{children}</div>
+          {aside && <div className="min-w-0 lg:sticky lg:top-4">{aside}</div>}
+        </div>
       </div>
     </div>
   );

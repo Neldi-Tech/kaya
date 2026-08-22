@@ -103,7 +103,7 @@ export default function CupboardAddSheet({ familyId, shelf, defaultKind = 'book'
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center" onClick={onClose}>
       <div
-        className="w-full sm:max-w-md bg-[#FFFBF5] rounded-t-[22px] sm:rounded-[22px] max-h-[92vh] overflow-y-auto"
+        className="w-full sm:max-w-md lg:max-w-lg bg-[#FFFBF5] rounded-t-[22px] sm:rounded-[22px] max-h-[92vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="p-4 text-white rounded-t-[22px]" style={{ background: 'linear-gradient(135deg,#6E4624 0%,#8B5E34 100%)' }}>
