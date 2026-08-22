@@ -76,7 +76,7 @@ export default function GreetingCardStudio({ target, initial, onClose, onChanged
   // Kaya Writes
   const kwOn = family?.greetingConfig?.kayaWrites !== false;
   const [voice, setVoice] = useState<'warm' | 'funny' | 'formal'>('warm');
-  const [kwLang, setKwLang] = useState<'en' | 'sw' | 'mix'>('en');
+  const [kwLang, setKwLang] = useState<'en' | 'sw' | 'mix'>(initial?.lang === 'sw' ? 'sw' : 'en');
   const [kwLen, setKwLen] = useState<'one' | 'short' | 'long'>('short');
   const [seed, setSeed] = useState('');
   const [sugs, setSugs] = useState<KayaWritesSuggestion[]>([]);
@@ -90,6 +90,18 @@ export default function GreetingCardStudio({ target, initial, onClose, onChanged
   }, [familyId]);
 
   useEffect(() => { if (theme && profile?.uid) remember(`kayaCardTheme:${profile.uid}`, theme); }, [theme, profile?.uid]);
+
+  // ✨ Kaya Writes — smoother (Elia, 22-Aug): when a fresh card opens blank,
+  // Kaya starts writing immediately; first draft can be applied in one tap.
+  const autoRan = useRef(false);
+  useEffect(() => {
+    if (autoRan.current) return;
+    if (!kwOn || !honoree || initial?.oneLiner || oneLiner) return;
+    if (!(role === 'parent' || role === 'helper' || role === 'kid')) return;
+    autoRan.current = true;
+    void write();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kwOn, honoree?.name]);
 
   // Client-side signature preview (server recomputes on save — R9).
   const sigPreview = useMemo(() => {
@@ -218,6 +230,15 @@ export default function GreetingCardStudio({ target, initial, onClose, onChanged
     finally { setKwBusy(false); }
   }
 
+  async function writeAndApply() {
+    await write();
+  }
+  useEffect(() => {
+    // One-tap: if the user hasn't typed anything yet, the first suggestion lands in the fields automatically.
+    if (sugs.length && !oneLiner && !message && !dirty) useSuggestion(sugs[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sugs]);
+
   function useSuggestion(s: KayaWritesSuggestion) {
     setOneLiner(s.oneLiner.slice(0, ONE_LINER_MAX));
     if (kwLen !== 'one') setMessage(s.message.slice(0, MESSAGE_MAX));
@@ -342,18 +363,29 @@ export default function GreetingCardStudio({ target, initial, onClose, onChanged
           </div>
           <div className="flex gap-2">
             <input value={seed} onChange={(e) => setSeed(e.target.value)} placeholder={isKid ? 'What do you want to say? Kaya shapes YOUR words' : 'Optional: a memory or a thing to mention'} maxLength={300}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void writeAndApply(); } }}
               className="flex-1 rounded-kaya-sm border border-kaya-warm-dark bg-white px-2.5 py-1.5 text-xs font-medium text-kaya-chocolate" />
-            <button type="button" onClick={() => write()} disabled={kwBusy} className="rounded-kaya-sm px-3 py-1.5 text-xs font-extrabold text-white disabled:opacity-60" style={{ background: CAL }}>{kwBusy ? '✨ Writing…' : '✨ Write 3'}</button>
+            <button type="button" onClick={() => writeAndApply()} disabled={kwBusy} className="rounded-kaya-sm px-3 py-1.5 text-xs font-extrabold text-white disabled:opacity-60" style={{ background: CAL }}>{kwBusy ? '✨ Writing…' : sugs.length ? '🔄 Write again' : '✨ Write for me'}</button>
           </div>
-          {kwNote && <div className="text-[11px] text-kaya-sand mt-1.5">{kwNote}</div>}
-          {sugs.length > 0 && (
+          {kwBusy && (
+            <div className="space-y-2 mt-2" aria-live="polite">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="rounded-kaya border border-kaya-warm-dark bg-white px-3 py-2.5 animate-pulse">
+                  <div className="h-2.5 w-20 rounded bg-kaya-warm mb-2" /><div className="h-3.5 w-3/4 rounded bg-kaya-warm mb-1.5" /><div className="h-3 w-full rounded bg-kaya-warm" />
+                </div>
+              ))}
+              <div className="text-[11px] text-kaya-sand">Kaya is writing three {voice} drafts{seed.trim() ? ' around your words' : ''}…</div>
+            </div>
+          )}
+          {kwNote && <div className="text-[11px] text-red-600 font-bold mt-1.5">{kwNote} <button type="button" onClick={() => write()} className="underline">Try again</button></div>}
+          {sugs.length > 0 && !kwBusy && (
             <div className="space-y-2 mt-2">
               {sugs.map((s, i) => (
                 <div key={i} className="rounded-kaya border border-kaya-warm-dark bg-white px-3 py-2.5 relative">
                   <div className="text-[10px] font-extrabold uppercase tracking-wide" style={{ color: CAL_DK }}>{s.voice} · {i + 1}</div>
                   <div className="font-display italic font-extrabold text-[14px] text-kaya-chocolate pr-14">“{s.oneLiner}”</div>
                   {kwLen !== 'one' && <div className="text-[12.5px] text-kaya-chocolate mt-1 pr-14">{s.message}</div>}
-                  <button type="button" onClick={() => useSuggestion(s)} className="absolute top-2 right-2 rounded-kaya-sm px-2.5 py-1 text-[11px] font-extrabold text-white" style={{ background: CAL }}>Use</button>
+                  <button type="button" onClick={() => useSuggestion(s)} className="absolute top-2 right-2 rounded-kaya-sm px-2.5 py-1 text-[11px] font-extrabold" style={oneLiner === s.oneLiner ? { background: '#2E7D34', color: '#fff' } : { background: CAL, color: '#fff' }}>{oneLiner === s.oneLiner ? '✓ Using' : 'Use'}</button>
                 </div>
               ))}
               <div className="flex flex-wrap gap-1.5">
@@ -515,7 +547,7 @@ function Block({ label, children }: { label: string; children: React.ReactNode }
 function Sheet({ title, sub, onClose, children }: { title: string; sub?: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-[90] flex items-end sm:items-center justify-center bg-black/45 p-0 sm:p-4" onClick={onClose}>
-      <div className="bg-kaya-cream w-full sm:max-w-lg rounded-t-kaya-lg sm:rounded-kaya-lg max-h-[94vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()} role="dialog">
+      <div className="bg-kaya-cream w-full sm:max-w-xl lg:max-w-2xl rounded-t-kaya-lg sm:rounded-kaya-lg max-h-[94vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()} role="dialog">
         <div className="sticky top-0 bg-kaya-cream border-b border-kaya-warm-dark px-4 py-3 flex items-center justify-between z-10">
           <div className="min-w-0">
             <div className="font-display font-extrabold text-kaya-chocolate truncate">{title}</div>

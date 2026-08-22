@@ -24,19 +24,25 @@ export async function familyParents(db: Firestore, familyId: string): Promise<Pa
   });
 }
 
-/** Live honoree email: contact snapshot → People Book (live) → member login email. */
+/** Live honoree emails: contact (People Book, live: email + emails[]) →
+ *  member login email → snapshot on the event. Couples get every address. */
 export async function resolveHonoreeEmail(
   db: Firestore, familyId: string, honoree: GreetTo, contacts: FamilyContact[] | undefined,
-): Promise<{ email: string; optOut: boolean } | null> {
+): Promise<{ email: string; emails: string[]; optOut: boolean } | null> {
+  const uniq = (arr: Array<string | undefined>) => Array.from(new Set(arr.map((e) => (e || '').trim().toLowerCase()).filter(Boolean)));
   if (honoree.contactId) {
     const c = (contacts || []).find((x) => x.id === honoree.contactId);
-    if (c) return c.email ? { email: c.email.toLowerCase(), optOut: !!c.optOut } : null;
+    if (c) {
+      const emails = uniq([c.email, ...(c.emails || [])]);
+      return emails.length ? { email: emails[0], emails, optOut: !!c.optOut } : null;
+    }
   }
   if (honoree.memberUid) {
     const u = (await db.collection('users').doc(honoree.memberUid).get()).data() as { email?: string; familyId?: string } | undefined;
-    if (u?.email && u.familyId === familyId) return { email: u.email.toLowerCase(), optOut: false };
+    if (u?.email && u.familyId === familyId) return { email: u.email.toLowerCase(), emails: [u.email.toLowerCase()], optOut: false };
   }
-  if (honoree.email) return { email: honoree.email.toLowerCase(), optOut: false };
+  const snap = uniq([honoree.email, ...(honoree.emails || [])]);
+  if (snap.length) return { email: snap[0], emails: snap, optOut: false };
   return null;
 }
 
@@ -98,7 +104,7 @@ export async function sendCardEmail(a: SendCardEmailArgs): Promise<{ ok: boolean
   if (target.optOut) return { ok: false, to: [], skipped: 'opted-out' };
   const parents = await familyParents(db, a.familyId);
   const cc = card.honoree.ccParents !== false
-    ? Array.from(new Set(parents.map((p) => p.email).filter((e) => e && e !== target.email)))
+    ? Array.from(new Set(parents.map((p) => p.email).filter((e) => e && !target.emails.includes(e))))
     : [];
   const { url } = await ensureCardToken(db, a.cardRef, card);
   const stopUrl = card.honoree.relationship === 'family' ? null : stopUrlFor(a.familyId, card.honoree.contactId, url.split('/c/')[1] || '');
@@ -114,7 +120,7 @@ export async function sendCardEmail(a: SendCardEmailArgs): Promise<{ ok: boolean
   let ok = false; let error = '';
   try {
     await resend.emails.send({
-      from, to: [target.email],
+      from, to: target.emails,
       ...(cc.length ? { cc } : {}),
       ...(replyTo ? { replyTo } : {}),
       subject, html, text,
@@ -124,7 +130,7 @@ export async function sendCardEmail(a: SendCardEmailArgs): Promise<{ ok: boolean
     error = e instanceof Error ? e.message : 'send failed';
   }
   const at = Date.now();
-  await appendDelivery(a.cardRef, { channel: 'email', at, ok, to: target.email, ...(a.sender?.name ? { by: a.sender.name } : {}), ...(error ? { error } : {}), mode: a.mode },
+  await appendDelivery(a.cardRef, { channel: 'email', at, ok, to: target.emails.join(', '), ...(a.sender?.name ? { by: a.sender.name } : {}), ...(error ? { error } : {}), mode: a.mode },
     ok ? { status: a.belated ? 'belated' : 'sent', sentAt: at } : {});
   // 📜 alertLog trace (as-sent, template version — never snapshot HTML).
   await db.collection('families').doc(a.familyId).collection('alertLog').add({
@@ -132,9 +138,9 @@ export async function sendCardEmail(a: SendCardEmailArgs): Promise<{ ok: boolean
     trigger: a.mode === 'auto' ? 'sweep' : 'manual',
     sourceLabel: `✉️ ${card.eventTitle}`,
     cardId: card.id, honoree: card.honoree.name,
-    channels: { email: { on: true, sent: ok, ...(error ? { error } : {}), to: [{ name: card.honoree.name, email: target.email }], cc, subject, templateVersion: 1 } },
+    channels: { email: { on: true, sent: ok, ...(error ? { error } : {}), to: target.emails.map((email) => ({ name: card.honoree.name, email })), cc, subject, templateVersion: 1 } },
   }).catch(() => {});
-  return ok ? { ok, to: [target.email, ...cc] } : { ok, to: [target.email], error };
+  return ok ? { ok, to: [...target.emails, ...cc] } : { ok, to: target.emails, error };
 }
 
 /** Drop a card into the family group chat (text + optional PNG attachment). */

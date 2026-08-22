@@ -135,6 +135,8 @@ export interface GreetTo {
   name: string;
   /** Snapshot for contacts; members resolve live at send time. */
   email?: string;
+  /** Couples / shared inboxes — every address gets the card (To). */
+  emails?: string[];
   /** WhatsApp number — digits only, country code first (E.164 without +). */
   whatsapp?: string;
   relationship: GreetRelationship;
@@ -157,6 +159,8 @@ export interface FamilyContact {
   /** Free label shown on cards/context: Grandmother · Uncle · Best friend. */
   relation?: string;
   email?: string;
+  /** Extra addresses (a couple, a shared inbox). `email` stays the primary. */
+  emails?: string[];
   whatsapp?: string;
   timezone?: string;
   /** YYYY-MM-DD — lets Kaya offer a birthday reminder for them. */
@@ -293,6 +297,54 @@ export function buildSignature(ctx: SignatureContext): { line: string; roster?: 
   if (!line) line = sw ? `Familia ya ${fam}` : `The ${fam} Family`;
   const roster = sig.includeKids && (parents.length || kids.length) ? [...parents, ...kids].join(' · ') : undefined;
   return roster ? { line, roster } : { line };
+}
+
+/** ✉️ 2.0 — built-in one-tap recipient groups for the EMAIL TO panel (Elia,
+ *  22-Aug): Parents · Parents + Kids · Parents + Kids + Helpers (parents only).
+ *  Resolved against the live member list; parents can untick individuals
+ *  afterwards ("selected helpers"). */
+export interface BuiltInGroup { id: 'parents' | 'parents-kids' | 'parents-kids-helpers'; label: string; emoji: string; recipients: ReminderRecipient[] }
+export function builtInGroups(
+  members: Array<{ uid: string; email?: string; displayName?: string; role?: string }>,
+  viewerRole: string | undefined,
+): BuiltInGroup[] {
+  const rec = (m: { uid: string; email?: string; displayName?: string }): ReminderRecipient | null => {
+    const email = (m.email || '').trim().toLowerCase();
+    if (!email) return null;
+    const r: ReminderRecipient = { kind: 'member', email, uid: m.uid };
+    if (m.displayName) r.name = m.displayName;
+    return r;
+  };
+  const parents = members.filter((m) => m.role === 'parent').map(rec).filter((x): x is ReminderRecipient => !!x);
+  const kids = members.filter((m) => m.role === 'kid').map(rec).filter((x): x is ReminderRecipient => !!x);
+  const helpers = members.filter((m) => m.role === 'helper').map(rec).filter((x): x is ReminderRecipient => !!x);
+  const out: BuiltInGroup[] = [
+    { id: 'parents', label: 'Parents', emoji: '👨‍👩‍👧', recipients: parents },
+    { id: 'parents-kids', label: 'Parents + Kids', emoji: '🧒', recipients: [...parents, ...kids] },
+  ];
+  if (viewerRole === 'parent') out.push({ id: 'parents-kids-helpers', label: 'Parents + Kids + Helpers', emoji: '🤝', recipients: [...parents, ...kids, ...helpers] });
+  return out.filter((g) => g.recipients.length > 0);
+}
+
+/** Split a typed "a@x.com, b@y.com" into clean unique addresses. */
+export function parseEmails(raw: string): string[] {
+  const re = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+  const out: string[] = [];
+  for (const part of (raw || '').split(/[\s,;]+/)) {
+    const e = part.trim().toLowerCase();
+    if (e && re.test(e) && !out.includes(e)) out.push(e);
+  }
+  return out;
+}
+
+/** Snap a yearly event's anchor to the next occurrence of origin's month/day. */
+export function nextAnniversaryOf(originDate: string, fromKey: string = todayKey()): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(originDate);
+  if (!m) return originDate;
+  const yr = parseInt(fromKey.slice(0, 4), 10);
+  const md = `${m[2]}-${m[3]}`;
+  const thisYear = `${yr}-${md}`;
+  return thisYear >= fromKey ? thisYear : `${yr + 1}-${md}`;
 }
 
 /** Kid-created shared events need a parent nod before they go family-wide.

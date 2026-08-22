@@ -21,7 +21,7 @@ import {
   REMINDER_TYPES, WEEKDAY_LABELS, LEAD_PRESETS, todayKey, resolveGroupRecipients,
   type ReminderEvent, type ReminderType, type ReminderVisibility,
   type RepeatRule, type RepeatFreq, type MonthDay, type ReminderRecipient,
-  type EmailGroup, type GreetTo, type FamilyContact, cardEligible,
+  type EmailGroup, type GreetTo, type FamilyContact, cardEligible, builtInGroups, nextAnniversaryOf,
 } from '@/lib/reminders';
 import HonoreePicker from '@/components/reminders/HonoreePicker';
 import GreetingCardStudio, { type StudioTarget } from '@/components/reminders/GreetingCardStudio';
@@ -510,6 +510,7 @@ export default function RemindersPage() {
           kids={children}
           contacts={family?.contacts || []}
           familyId={profile?.familyId || ''}
+          viewerRole={role}
         />
       )}
     </div>
@@ -599,7 +600,7 @@ function EmptyState({ onNew }: { onNew: () => void }) {
 // ── Editor ───────────────────────────────────────────────────────────────
 
 function Editor({
-  form, setForm, members, groups, ownUid, saving, error, onClose, onSave, onDelete, kids, contacts, familyId,
+  form, setForm, members, groups, ownUid, saving, error, onClose, onSave, onDelete, kids, contacts, familyId, viewerRole,
 }: {
   form: FormState;
   setForm: React.Dispatch<React.SetStateAction<FormState>>;
@@ -608,6 +609,7 @@ function Editor({
   kids: Child[];
   contacts: FamilyContact[];
   familyId: string;
+  viewerRole?: string;
   ownUid: string;
   saving: boolean;
   error: string;
@@ -704,7 +706,7 @@ function Editor({
   return (
     <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4" onClick={onClose}>
       <div
-        className="bg-kaya-cream w-full sm:max-w-lg rounded-t-kaya-lg sm:rounded-kaya-lg max-h-[92vh] overflow-y-auto shadow-2xl"
+        className="bg-kaya-cream w-full sm:max-w-xl lg:max-w-2xl rounded-t-kaya-lg sm:rounded-kaya-lg max-h-[92vh] overflow-y-auto shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 bg-kaya-cream border-b border-kaya-warm-dark px-4 py-3 flex items-center justify-between z-10">
@@ -717,7 +719,7 @@ function Editor({
           <Field label="Type">
             <div className="flex flex-wrap gap-2">
               {REMINDER_TYPES.map((t) => (
-                <Chip key={t.id} on={form.type === t.id} onClick={() => set('type', t.id)}>
+                <Chip key={t.id} on={form.type === t.id} onClick={() => setForm((f) => ({ ...f, type: t.id, ...((t.id === 'birthday' || t.id === 'anniversary') && f.freq === 'none' ? { freq: 'yearly' as RepeatFreq } : {}) }))}>
                   {t.icon} {t.label}
                 </Chip>
               ))}
@@ -750,7 +752,11 @@ function Editor({
           {/* v4 — actual event date (only 🎂/💍): powers "Nth Birthday". */}
           {showOrigin && (
             <Field label="Actual date of the event (optional)">
-              <input type="date" value={form.originDate} onChange={(e) => set('originDate', e.target.value)}
+              <input type="date" value={form.originDate} onChange={(e) => {
+                const v = e.target.value;
+                // Correcting the origin moves the reminder to that month/day (next occurrence) + keeps it yearly.
+                setForm((f) => ({ ...f, originDate: v, ...(/^\d{4}-\d{2}-\d{2}$/.test(v) ? { date: nextAnniversaryOf(v), freq: f.freq === 'none' ? 'yearly' : f.freq } : {}) }));
+              }}
                 className="w-full rounded-kaya border border-kaya-warm-dark bg-white px-3 py-2.5 text-sm font-medium text-kaya-chocolate" />
               <div className="text-[11px] text-kaya-sand mt-1">
                 {form.type === 'birthday' ? 'The day they were born.' : 'The wedding day (or when it all began).'} Kaya uses the year to count.
@@ -929,6 +935,26 @@ function Editor({
           {/* Email recipients */}
           {form.channelEmail && (
             <Field label="Email to — pick + add">
+              {/* ✉️ 2.0 — built-in one-tap groups (Parents · +Kids · +Helpers, parents only). */}
+              <div className="flex flex-wrap gap-2 mb-1.5">
+                {builtInGroups(members, viewerRole).map((g) => {
+                  const emails = g.recipients.map((r) => r.email.toLowerCase());
+                  const selected = emails.filter((e) => form.recipients.some((r) => r.email.toLowerCase() === e)).length;
+                  const state = selected === 0 ? 'empty' : selected === emails.length ? 'full' : 'partial';
+                  return (
+                    <button key={g.id} type="button"
+                      onClick={() => setForm((f) => {
+                        if (state === 'full') return { ...f, recipients: f.recipients.filter((r) => !emails.includes(r.email.toLowerCase())) };
+                        const have = new Set(f.recipients.map((r) => r.email.toLowerCase()));
+                        return { ...f, recipients: [...f.recipients, ...g.recipients.filter((r) => !have.has(r.email.toLowerCase()))] };
+                      })}
+                      className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[12.5px] font-extrabold border transition"
+                      style={state === 'full' ? { background: CAL, borderColor: CAL, color: '#fff' } : state === 'partial' ? { background: CAL_SOFT, borderColor: CAL, color: CAL_DK } : { background: '#fff', borderColor: '#E8DEC9', color: '#5C6975' }}>
+                      {g.emoji} {g.label} <span className="font-bold opacity-75">({state === 'partial' ? `${selected}/${emails.length}` : emails.length})</span>
+                    </button>
+                  );
+                })}
+              </div>
               {groupInfos.length > 0 && (
                 <>
                   <div className="flex flex-wrap gap-2 mb-1.5">
@@ -993,7 +1019,7 @@ function Editor({
                   </div>
                 )}
               </div>
-              <div className="text-[11px] text-kaya-sand mt-1.5">Tick family members (their Kaya email is pre-filled) and add any outside address. Saved on this reminder for re-use. Parents can build one-tap groups in Settings → 📮 Email groups.</div>
+              <div className="text-[11px] text-kaya-sand mt-1.5">One-tap groups above, or tick people (their Kaya email is pre-filled) and add any outside address. Saved on this reminder for re-use. Parents can build one-tap groups in Settings → 📮 Email groups.</div>
             </Field>
           )}
 
