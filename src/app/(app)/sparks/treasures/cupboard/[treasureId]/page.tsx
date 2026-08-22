@@ -33,6 +33,8 @@ import {
   CupboardFrame, Card, Pill, OwnerChip, Field, ChoiceChips, inputCls,
   WOOD, WOOD_DK, WOOD_BG, JADE, JADE_BG,
 } from '@/components/sparks/CupboardShell';
+import ReadingNoteComposer from '@/components/sparks/ReadingNoteComposer';
+import FinishQuizSheet from '@/components/sparks/FinishQuizSheet';
 
 const EVENT_EMOJI: Record<string, string> = {
   registered: '🗄', check: '🔑', broken: '🔧', repaired: '🔧', lost: '❓', found: '✅',
@@ -320,6 +322,9 @@ function ReadingPanel({ item, shelf, familyId, busy, me, run }: {
   const [inviteNote, setInviteNote] = useState('');
   const [showInvite, setShowInvite] = useState(false);
   const [together, setTogether] = useState(false);
+  /** C4 · which finished reading's Finish Quiz sheet is open. */
+  const [quizFor, setQuizFor] = useState<string | null>(null);
+  const pointsOn = !!shelf?.settings?.quiz?.points;
   const openInvites = (item.invites ?? []).filter((i) => i.status === 'open');
   const myInvite = isKid ? openInvites.find((i) => i.toKidId === me.childId) : undefined;
   const canAct = (r: Reading) => isParent || (isKid && r.readerKidId === me.childId) || (me.role === 'helper' && (!!r.readerKidId || !!r.readerUid));
@@ -367,7 +372,7 @@ function ReadingPanel({ item, shelf, familyId, busy, me, run }: {
                   <input className={`${inputCls} w-[110px]`} inputMode="numeric" value={pageIn[r.id] ?? ''} onChange={(e) => setPageIn((p) => ({ ...p, [r.id]: e.target.value.replace(/\D/g, '') }))} placeholder={String(r.currentPage)} />
                 </label>
                 <Pill bg={JADE} fg="#fff" disabled={busy || !(pageIn[r.id] ?? '')} onClick={() => run(() => markPage(familyId, item.id, r.id, Number(pageIn[r.id]), together && !isKid ? me.name : undefined).then(() => setPageIn((p) => ({ ...p, [r.id]: '' }))))}>📖 Mark my page</Pill>
-                <Pill bg="#D4A847" fg="#3D2E08" disabled={busy} onClick={() => run(() => finishReading(familyId, item.id, r.id))}>🏁 Finished!</Pill>
+                <Pill bg="#D4A847" fg="#3D2E08" disabled={busy} onClick={() => run(() => finishReading(familyId, item.id, r.id).then((res) => { if (res.quizEligible) setQuizFor(r.id); }))}>🏁 Finished!</Pill>
               </div>
               {!isKid && r.readerKidId && (
                 <label className="flex items-center gap-2 mt-2 text-[11px] font-bold text-[#2C4A44]">
@@ -393,8 +398,64 @@ function ReadingPanel({ item, shelf, familyId, busy, me, run }: {
               <p className="text-[10px] text-[#8A8471] italic mt-1.5 mb-0">A kid nudge only — never email. Shows on My Day and the Workplan on reading days.</p>
             </>
           )}
+          {/* ✍️ C4 · the note goes through the reflection engine (D34) */}
+          {r.readerKidId && (canAct(r) || isParent) && (
+            <ReadingNoteComposer
+              familyId={familyId} treasureId={item.id} bookName={item.name} reading={r}
+              kidFirstName={(kids.find((k) => k.id === r.readerKidId)?.name || r.readerName || '').split(' ')[0]}
+              kidAge={kids.find((k) => k.id === r.readerKidId)?.age}
+              canWrite={canAct(r)} isParent={isParent}
+              onChanged={() => run(async () => {})}
+            />
+          )}
         </Card>
       ))}
+
+      {/* 🏁 C4 · Finish Quiz — waiting, answered, or rated (D36) */}
+      {done.filter((r) => !!r.readerKidId && r.quiz && !r.quiz.skippedAt).map((r) => {
+        const q = r.quiz!;
+        const waiting = !q.answeredAt;
+        return (
+          <Card key={`quiz-${r.id}`} tone={waiting ? 'warn' : 'good'}>
+            <div className="font-display font-extrabold text-[12.5px] text-[#0F1F44]">
+              🏁 {r.readerName}&rsquo;s Finish Quiz{waiting ? ' — waiting' : typeof q.understanding === 'number' ? ` · understanding ${q.understanding}%` : ' · answered'}
+            </div>
+            {!waiting && q.rationale && <p className="text-[11px] font-bold text-[#2C4A44] mt-1 m-0">Kaya: {q.rationale}</p>}
+            {!waiting && q.parentRating && (
+              <p className="text-[11px] font-bold text-[#2C4A44] mt-1 m-0">
+                <span style={{ color: '#D4A847' }}>{'★'.repeat(q.parentRating.stars || 0)}{'☆'.repeat(5 - (q.parentRating.stars || 0))}</span>
+                {q.parentRating.note ? ` ${q.parentRating.byName}: “${q.parentRating.note}”` : ` rated by ${q.parentRating.byName}`}
+                {q.parentRating.pointsAwarded ? ` · +${q.parentRating.pointsAwarded} points` : ''}
+              </p>
+            )}
+            <div className="flex flex-wrap gap-2 mt-2">
+              {waiting && canAct(r) && <Pill bg="#D4A847" fg="#3D2E08" onClick={() => setQuizFor(r.id)}>Answer Kaya&rsquo;s questions</Pill>}
+              {!waiting && isParent && !q.parentRating && <Pill bg={JADE} fg="#fff" onClick={() => setQuizFor(r.id)}>⭐ Rate as usual</Pill>}
+              {!waiting && (q.parentRating || !isParent) && <Pill bg="#EEF0F4" fg="#5B6B8C" onClick={() => setQuizFor(r.id)}>See the answers</Pill>}
+            </div>
+          </Card>
+        );
+      })}
+      {done.filter((r) => !!r.readerKidId && !r.quiz && (shelf?.settings?.quiz?.enabled ?? true) && canAct(r)).slice(0, 1).map((r) => (
+        <Card key={`quiz-start-${r.id}`}>
+          <div className="font-display font-extrabold text-[12.5px] text-[#0F1F44]">🏁 {r.readerName} finished it — Kaya has a few questions</div>
+          <p className="text-[10.5px] font-bold text-[#8A8471] mt-0.5 m-0 leading-snug">3–5 quick ones, always skippable. Kaya rates understanding; a parent rates as usual.</p>
+          <div className="mt-2"><Pill bg="#D4A847" fg="#3D2E08" onClick={() => setQuizFor(r.id)}>Start the Finish Quiz</Pill></div>
+        </Card>
+      ))}
+      {quizFor && (() => {
+        const r = (item.readings ?? []).find((x) => x.id === quizFor);
+        if (!r) return null;
+        return (
+          <FinishQuizSheet
+            familyId={familyId} treasureId={item.id} bookName={item.name} reading={r}
+            kidName={isKid && r.readerKidId === me.childId ? 'You' : (r.readerName || 'They').split(' ')[0]}
+            isParent={isParent} canAnswer={canAct(r)} pointsOn={pointsOn}
+            onClose={() => setQuizFor(null)}
+            onChanged={() => run(async () => {})}
+          />
+        );
+      })()}
 
       {/* start a reading */}
       {!mine && !(isKid && myInvite) && (

@@ -31,7 +31,37 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFirestore, getAdminAuth } from '@/lib/firebaseAdmin';
 import { FieldValue } from 'firebase-admin/firestore';
+import Anthropic from '@anthropic-ai/sdk';
 import { bumpBadgeCountersAdmin } from '@/lib/badgeCountersAdmin';
+
+// C4 · D36 — the Finish Quiz is generated + scored by Claude. Absent key
+// → honest generic questions and no score (never an error).
+const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
+
+function ageFromBirthday(birthday: unknown, today: string): number | undefined {
+  if (typeof birthday !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(birthday)) return undefined;
+  const [by, bm, bd] = birthday.split('-').map(Number);
+  const [ty, tm, td] = today.split('-').map(Number);
+  let age = ty - by;
+  if (tm < bm || (tm === bm && td < bd)) age--;
+  return age >= 0 && age < 30 ? age : undefined;
+}
+
+const QUIZ_FALLBACK = [
+  'What happened in the story, in your own words?',
+  'Who surprised you most, and why?',
+  'What would you have done differently from the main character?',
+];
+
+const QUIZ_Q_SCHEMA = {
+  type: 'object', additionalProperties: false, required: ['questions'],
+  properties: { questions: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 5 } },
+} as const;
+
+const QUIZ_SCORE_SCHEMA = {
+  type: 'object', additionalProperties: false, required: ['understanding', 'rationale'],
+  properties: { understanding: { type: 'number' }, rationale: { type: 'string' } },
+} as const;
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -53,7 +83,9 @@ type Action =
   | 'condition' | 'found' | 'sighting' | 'lend' | 'return' | 'end'
   | 'settings-get' | 'settings-set' | 'helpers'
   | 'my-reading' | 'reading-start' | 'reading-mark' | 'reading-finish'
-  | 'reading-reminder' | 'reading-invite' | 'reading-invite-respond';
+  | 'reading-reminder' | 'reading-invite' | 'reading-invite-respond'
+  | 'reading-note' | 'reading-note-ai' | 'reading-note-rate' | 'reading-notes'
+  | 'quiz-start' | 'quiz-answer' | 'quiz-skip' | 'quiz-rate';
 
 const ALL_ACTIONS: Action[] = [
   'shelf', 'item', 'add', 'update',
@@ -61,6 +93,8 @@ const ALL_ACTIONS: Action[] = [
   'settings-get', 'settings-set', 'helpers',
   'my-reading', 'reading-start', 'reading-mark', 'reading-finish',
   'reading-reminder', 'reading-invite', 'reading-invite-respond',
+  'reading-note', 'reading-note-ai', 'reading-note-rate', 'reading-notes',
+  'quiz-start', 'quiz-answer', 'quiz-skip', 'quiz-rate',
 ];
 
 const READING_MARKS_KEPT = 60;
@@ -257,10 +291,14 @@ export async function POST(req: NextRequest) {
   if (!member) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
 
   const kidsSnap = await famRef.collection('children').get();
-  const kidName = new Map<string, { name: string; emoji: string }>();
+  const kidName = new Map<string, { name: string; emoji: string; age?: number; uid?: string }>();
   for (const d of kidsSnap.docs) {
-    const c = d.data() as { name?: string; avatarEmoji?: string };
-    kidName.set(d.id, { name: str(c.name, 60) || 'Child', emoji: str(c.avatarEmoji, 8) || '🧒' });
+    const c = d.data() as { name?: string; avatarEmoji?: string; birthday?: string; uid?: string };
+    const age = ageFromBirthday(c.birthday, today);
+    kidName.set(d.id, {
+      name: str(c.name, 60) || 'Child', emoji: str(c.avatarEmoji, 8) || '🧒',
+      ...(age !== undefined ? { age } : {}), ...(c.uid ? { uid: String(c.uid) } : {}),
+    });
   }
 
   const decorate = (id: string, t: Record<string, unknown>) => {
@@ -297,7 +335,10 @@ export async function POST(req: NextRequest) {
         - Number((a as { createdAt?: number }).createdAt || 0));
     return NextResponse.json({
       items,
-      kids: kidsSnap.docs.map((d) => ({ id: d.id, ...kidName.get(d.id)! })),
+      kids: kidsSnap.docs.map((d) => {
+        const k = kidName.get(d.id)!;
+        return { id: d.id, name: k.name, emoji: k.emoji, ...(k.age !== undefined ? { age: k.age } : {}) };
+      }),
       settings,
       me: {
         role: isParent ? 'parent' : isHelper ? 'helper' : 'kid',
@@ -547,7 +588,7 @@ export async function POST(req: NextRequest) {
   // Readings are per reader, on the book doc. Reading is not "editing":
   // any member may start a reading on any shelf book (their own, or —
   // parents/helpers — on a kid's behalf). A kid touches only their own.
-  if (action.startsWith('reading-')) {
+  if (action.startsWith('reading-') || action.startsWith('quiz-')) {
     if (t.categoryId !== 'book') return NextResponse.json({ error: 'not-a-book' }, { status: 409 });
     if (ENDED.includes(String(t.status))) return NextResponse.json({ error: 'already-ended' }, { status: 409 });
     const readings = (Array.isArray(t.readings) ? t.readings : []) as Array<Record<string, unknown>>;
@@ -654,7 +695,11 @@ export async function POST(req: NextRequest) {
         if (pages > Number(r.currentPage || 0)) deltas.pagesRead = pages - Number(r.currentPage || 0);
         await bumpBadgeCountersAdmin(db, familyId, String(r.readerKidId), deltas);
       }
-      return NextResponse.json({ ok: true, readNo });
+      // D36 · the Finish Quiz is for kid readers, on from the parent-set
+      // age (a kid with no birthday on file is not gated out).
+      const kidAge = r.readerKidId ? kidName.get(String(r.readerKidId))?.age : undefined;
+      const quizEligible = settings.quiz.enabled && !!r.readerKidId && (kidAge === undefined || kidAge >= settings.quiz.minAge);
+      return NextResponse.json({ ok: true, readNo, quizEligible });
     }
 
     if (action === 'reading-reminder') {
@@ -716,6 +761,214 @@ export async function POST(req: NextRequest) {
       if (!who) return NextResponse.json({ ok: true });
       const r = await startFor(who, bookMetaPages, '');
       return NextResponse.json({ ok: true, readingId: r.readingId });
+    }
+
+    // ── ✍️ Book notes = reflections (D34 · D35) ────────────────────
+    //
+    // A kid's note about the book is a real ReflectionEntry with
+    // origin { kind: 'book' } — its own doc per book per day, so the
+    // daily reflection doc is never touched, and the streak counts it
+    // like any reflection (it has the kid's own words). Kids only: a
+    // grown-up's reading has no reflection loop.
+    const reflCol = famRef.collection('sparks_reflections');
+    const noteDocId = (readerKidId: string, date: string) => `${readerKidId}_${date}_book_${treasureId}`;
+    const serializeNote = (id: string, d: Record<string, unknown>) => {
+      const ms = (v: unknown) => (v && typeof (v as { toMillis?: () => number }).toMillis === 'function' ? (v as { toMillis: () => number }).toMillis() : undefined);
+      const pr = d.parent_rating as Record<string, unknown> | undefined;
+      return {
+        id, ...d,
+        createdAt: ms(d.createdAt), updatedAt: ms(d.updatedAt),
+        ...(pr ? { parent_rating: { ...pr, ratedAt: ms(pr.ratedAt) } } : {}),
+      };
+    };
+
+    if (action === 'reading-note') {
+      if (idx < 0) return NextResponse.json({ error: 'no-such-reading' }, { status: 404 });
+      const r = readings[idx];
+      if (!mayTouch(r)) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+      const readerKidId = String(r.readerKidId || '');
+      if (!readerKidId) return NextResponse.json({ error: 'kids-only' }, { status: 409 });
+      const text = str(body.text, 2000);
+      const scanUrl = str(body.scanUrl, 600);
+      const source = str(body.source, 10) === 'scan' ? 'scan' : 'typed';
+      if (!text && !scanUrl) return NextResponse.json({ error: 'empty' }, { status: 400 });
+      const page = optInt(body.page, 0, 20000);
+      const entryId = noteDocId(readerKidId, today);
+      const eRef = reflCol.doc(entryId);
+      const eSnap = await eRef.get();
+      const prevText = eSnap.exists ? String((eSnap.data() as { text?: string }).text || '') : '';
+      const fullText = prevText && text ? `${prevText}\n\n${text}` : (text || prevText);
+      const origin: Record<string, unknown> = { kind: 'book', refId: treasureId, label: bookName, readingId };
+      if (page !== undefined) origin.page = page;
+      const doc: Record<string, unknown> = {
+        kidId: readerKidId, date: today, text: fullText, source, origin,
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      if (scanUrl) doc.scanUrl = scanUrl;
+      if (!eSnap.exists) { doc.createdAt = FieldValue.serverTimestamp(); doc.createdBy = uid; }
+      await eRef.set(doc, { merge: true });
+      // The note also marks the page if one was given (one tap, two things).
+      const list = readings.slice();
+      const next: Record<string, unknown> = { ...r, notes: Number(r.notes || 0) + (eSnap.exists ? 0 : 1) };
+      if (page !== undefined) {
+        const prev = Number(r.currentPage || 0);
+        const marks = (Array.isArray(r.marks) ? r.marks : []) as Array<Record<string, unknown>>;
+        next.currentPage = page; next.lastMarkOn = today;
+        next.marks = [...marks, { on: today, page, at: now }].slice(-READING_MARKS_KEPT);
+        if (page > prev) await bumpBadgeCountersAdmin(db, familyId, readerKidId, { pagesRead: page - prev });
+      } else {
+        next.lastMarkOn = today; // writing about it counts as reading today
+      }
+      list[idx] = next;
+      await ref.update({ readings: list, lastReadOn: today, updatedAt: now, updatedByName: actorName });
+      return NextResponse.json({ entryId, date: today, text: fullText });
+    }
+
+    if (action === 'reading-note-ai') {
+      const entryId = str(body.entryId, 200);
+      if (!entryId.includes(`_book_${treasureId}`)) return NextResponse.json({ error: 'bad-entry' }, { status: 400 });
+      const readerKidId = entryId.split('_')[0];
+      if (!isParent && !isHelper && viewerChildId !== readerKidId) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+      const patch: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
+      const fb = body.feedback && typeof body.feedback === 'object' ? body.feedback as Record<string, unknown> : null;
+      if (fb && typeof fb.wentWell === 'string') patch.feedback = { wentWell: str(fb.wentWell, 600), ...(fb.tip ? { tip: str(fb.tip, 400) } : {}), cheer: str(fb.cheer, 200) };
+      const air = body.ai_read && typeof body.ai_read === 'object' ? body.ai_read as Record<string, unknown> : null;
+      if (air && typeof air.mood_emoji === 'string') patch.ai_read = { mood_emoji: str(air.mood_emoji, 8), mood_word: str(air.mood_word, 40), theme_emoji: str(air.theme_emoji, 8), theme_label: str(air.theme_label, 60), kaya_response: str(air.kaya_response, 400) };
+      const sc = body.ai_score && typeof body.ai_score === 'object' ? body.ai_score as { soundness?: unknown; rationale?: unknown } : null;
+      if (sc && typeof sc.soundness === 'number' && Number.isFinite(sc.soundness)) patch.ai_score = { soundness: Math.max(0, Math.min(100, Math.round(sc.soundness))), rationale: str(sc.rationale, 400) };
+      if (Object.keys(patch).length === 1) return NextResponse.json({ error: 'nothing-to-attach' }, { status: 400 });
+      await reflCol.doc(entryId).set(patch, { merge: true });
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === 'reading-note-rate') {
+      if (!isParent) return NextResponse.json({ error: 'parents-only' }, { status: 403 });
+      const entryId = str(body.entryId, 200);
+      if (!entryId.includes(`_book_${treasureId}`)) return NextResponse.json({ error: 'bad-entry' }, { status: 400 });
+      const rating: Record<string, unknown> = { ratedBy: uid, ratedByName: actorName, ratedAt: FieldValue.serverTimestamp() };
+      const stars = optInt(body.stars, 1, 5); if (stars) rating.stars = stars;
+      const pct = optInt(body.percent, 0, 100); if (pct !== undefined) rating.soundness_percent = pct;
+      const notes = str(body.notes, 600); if (notes) rating.notes = notes;
+      await reflCol.doc(entryId).set({ parent_rating: rating, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === 'reading-notes') {
+      const readerKidId = str(body.readerKidId, 80) || viewerChildId;
+      if (!readerKidId) return NextResponse.json({ entries: [] });
+      if (!isParent && !isHelper && viewerChildId !== readerKidId) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+      const snap = await reflCol.where('kidId', '==', readerKidId).get();
+      const entries = snap.docs
+        .filter((d) => String(((d.data() as { origin?: { refId?: string } }).origin)?.refId || '') === treasureId)
+        .map((d) => serializeNote(d.id, d.data() as Record<string, unknown>))
+        .sort((a, b) => String((b as { date?: string }).date || '').localeCompare(String((a as { date?: string }).date || '')));
+      return NextResponse.json({ entries });
+    }
+
+    // ── 🏁 The Finish Quiz (D36) ───────────────────────────────────
+    if (action.startsWith('quiz-')) {
+      if (idx < 0) return NextResponse.json({ error: 'no-such-reading' }, { status: 404 });
+      const r = readings[idx];
+      const readerKidId = String(r.readerKidId || '');
+      if (!readerKidId) return NextResponse.json({ error: 'kids-only' }, { status: 409 });
+      const quiz = (r.quiz ?? {}) as Record<string, unknown>;
+      const kidAge = kidName.get(readerKidId)?.age;
+      const kidFirst = (kidName.get(readerKidId)?.name || 'the reader').split(' ')[0];
+      const bookAuthor = String((t.book as { author?: string } | undefined)?.author || '');
+      const saveQuiz = async (q: Record<string, unknown>) => {
+        const list = readings.slice(); list[idx] = { ...r, quiz: q };
+        await ref.update({ readings: list, updatedAt: now, updatedByName: actorName });
+      };
+
+      if (action === 'quiz-rate') {
+        if (!isParent) return NextResponse.json({ error: 'parents-only' }, { status: 403 });
+        const pr: Record<string, unknown> = { byName: actorName, at: now };
+        const stars = optInt(body.stars, 1, 5); if (stars) pr.stars = stars;
+        const pct = optInt(body.percent, 0, 100); if (pct !== undefined) pr.percent = pct;
+        const note = str(body.note, 400); if (note) pr.note = note;
+        const pts = optInt(body.pointsAwarded, 0, 1000); if (pts) pr.pointsAwarded = pts;
+        await saveQuiz({ ...quiz, parentRating: pr });
+        return NextResponse.json({ ok: true });
+      }
+
+      if (!mayTouch(r)) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+      if (!r.finishedOn) return NextResponse.json({ error: 'not-finished' }, { status: 409 });
+
+      if (action === 'quiz-skip') {
+        await saveQuiz({ ...quiz, skippedAt: now });
+        return NextResponse.json({ ok: true });
+      }
+
+      if (action === 'quiz-start') {
+        const existing = Array.isArray(quiz.questions) ? (quiz.questions as string[]) : [];
+        if (existing.length) return NextResponse.json({ questions: existing, generated: true });
+        // Kaya writes the questions from the book + the kid's own notes.
+        let questions: string[] = [];
+        if (anthropic) {
+          try {
+            const notesSnap = await reflCol.where('kidId', '==', readerKidId).get();
+            const notes = notesSnap.docs
+              .map((d) => d.data() as { origin?: { refId?: string }; text?: string; date?: string })
+              .filter((d) => d.origin?.refId === treasureId && d.text)
+              .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')))
+              .slice(-4)
+              .map((d) => `(${d.date}) ${String(d.text).slice(0, 500)}`);
+            const resp = await anthropic.messages.create({
+              model: 'claude-opus-5',
+              max_tokens: 700,
+              output_config: { effort: 'low', format: { type: 'json_schema', schema: QUIZ_Q_SCHEMA } },
+              system: [{ type: 'text', text: 'You write a warm, short end-of-book quiz for a child in a family app. 3 to 5 open questions, age-appropriate, about the story, the characters, and what the child thinks — never trick questions, never yes/no. One sentence each. Use the child\'s own notes when given so the questions feel personal. Return JSON {"questions": [...]}.', cache_control: { type: 'ephemeral' } }],
+              messages: [{ role: 'user', content:
+                `Book: "${bookName}"${bookAuthor ? ` by ${bookAuthor}` : ''}.\nReader: ${kidFirst}${kidAge !== undefined ? `, about ${kidAge} years old` : ''}.\n${notes.length ? `Their notes while reading:\n${notes.join('\n')}` : 'No notes were written while reading.'}\nWrite the questions.` }],
+            });
+            const textBlock = resp.content.find((b) => b.type === 'text');
+            if (textBlock && textBlock.type === 'text') {
+              const j = JSON.parse(textBlock.text) as { questions?: unknown };
+              if (Array.isArray(j.questions)) questions = j.questions.map((q) => str(q, 240)).filter(Boolean).slice(0, 5);
+            }
+          } catch { questions = []; }
+        }
+        const generated = questions.length >= 3;
+        if (!generated) questions = QUIZ_FALLBACK;
+        await saveQuiz({ ...quiz, questions, askedAt: now, generated });
+        return NextResponse.json({ questions, generated });
+      }
+
+      if (action === 'quiz-answer') {
+        const qs = Array.isArray(quiz.questions) ? (quiz.questions as string[]) : [];
+        if (!qs.length) return NextResponse.json({ error: 'no-quiz' }, { status: 409 });
+        const answers = (Array.isArray(body.answers) ? body.answers : []).map((a) => str(a, 800)).slice(0, qs.length);
+        if (!answers.some(Boolean)) return NextResponse.json({ error: 'empty' }, { status: 400 });
+        let understanding: number | undefined;
+        let rationale = '';
+        if (anthropic) {
+          try {
+            const resp = await anthropic.messages.create({
+              model: 'claude-opus-5',
+              max_tokens: 400,
+              output_config: { effort: 'low', format: { type: 'json_schema', schema: QUIZ_SCORE_SCHEMA } },
+              system: [{ type: 'text', text: 'You read a child\'s answers to an end-of-book quiz and rate their UNDERSTANDING of the book from 0 to 100 — generously, for effort and real engagement, never for spelling or grammar. Then write ONE short, kind sentence a child can read that names something they got right. Return JSON {"understanding": number, "rationale": string}.', cache_control: { type: 'ephemeral' } }],
+              messages: [{ role: 'user', content:
+                `Book: "${bookName}"${bookAuthor ? ` by ${bookAuthor}` : ''}. Reader: ${kidFirst}${kidAge !== undefined ? `, about ${kidAge}` : ''}.\n${qs.map((q, i) => `Q${i + 1}: ${q}\nA${i + 1}: ${answers[i] || '(no answer)'}`).join('\n')}` }],
+            });
+            const textBlock = resp.content.find((b) => b.type === 'text');
+            if (textBlock && textBlock.type === 'text') {
+              const j = JSON.parse(textBlock.text) as { understanding?: unknown; rationale?: unknown };
+              if (typeof j.understanding === 'number' && Number.isFinite(j.understanding)) understanding = Math.max(0, Math.min(100, Math.round(j.understanding)));
+              rationale = str(j.rationale, 300);
+            }
+          } catch { understanding = undefined; }
+        }
+        const q: Record<string, unknown> = { ...quiz, answers, answeredAt: now };
+        if (understanding !== undefined) { q.understanding = understanding; q.rationale = rationale; }
+        await saveQuiz(q);
+        await bumpBadgeCountersAdmin(db, familyId, readerKidId, { quizzesDone: 1 });
+        await logEvent(eventsCol, {
+          treasureId, kidId, kind: 'read_finish', on: today, at: now, byName: actorName,
+          note: `${kidFirst} answered Kaya’s Finish Quiz${understanding !== undefined ? ` — understanding ${understanding}%` : ''}`,
+        });
+        return NextResponse.json({ ok: true, understanding, rationale });
+      }
     }
 
     return NextResponse.json({ error: 'unknown-action' }, { status: 400 });
