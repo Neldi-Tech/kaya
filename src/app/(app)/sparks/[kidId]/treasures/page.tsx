@@ -267,6 +267,15 @@ export default function TreasuresAreaPage() {
               >
                 ✨ Wish Shelf
               </Link>
+              {/* 🗄 Treasures 2.0 — the family's shared books + games. */}
+              {(isParent || isOwner) && (
+                <Link
+                  href="/sparks/treasures/cupboard"
+                  className="px-3.5 py-2 rounded-full font-extrabold text-[12px] no-underline bg-[#F6ECDF] text-[#6E4624]"
+                >
+                  🗄 Family Cupboard
+                </Link>
+              )}
               {isParent && (
                 <Link
                   href={`/sparks/${kidId}/treasures/setup`}

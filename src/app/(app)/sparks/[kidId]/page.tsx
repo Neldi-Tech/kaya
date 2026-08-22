@@ -376,6 +376,25 @@ export default function KidSparksHomePage() {
             );
           })}
 
+          {/* 🗄 Treasures 2.0 — the Family Cupboard door. Family-wide
+              (books + games we share), so it sits beside the kid's own
+              areas rather than inside them. Siblings viewing each other
+              don't get it — the shelf is reached from your OWN page. */}
+          {(isParent || isSelf) && (
+            <Link
+              href="/sparks/treasures/cupboard"
+              className="mt-3 lg:mt-5 rounded-[18px] p-[14px] lg:p-[18px] flex items-center gap-3 border border-[#E4CDB2] hover:border-[#8B5E34] transition-colors no-underline"
+              style={{ background: '#F6ECDF' }}
+            >
+              <div className="w-11 h-11 rounded-[14px] grid place-items-center text-xl shrink-0 text-white" style={{ background: 'linear-gradient(135deg,#6E4624,#8B5E34)' }} aria-hidden>🗄</div>
+              <div className="flex-1 min-w-0">
+                <div className="font-display font-extrabold text-[14px] text-[#0F1F44] leading-tight">Family Cupboard</div>
+                <div className="text-[11px] text-[#5A6488] mt-0.5 leading-tight">📚 Books · 🎲 Games — ours, together</div>
+              </div>
+              <span className="text-[11px] font-extrabold px-2 py-1 rounded-full whitespace-nowrap" style={{ background: '#fff', color: '#6E4624' }}>Open</span>
+            </Link>
+          )}
+
           {/* AI strip — purple → mint gradient per mockup. Full-width
               under the area grid so it reads as the persistent companion. */}
           <div
