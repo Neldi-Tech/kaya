@@ -9,6 +9,7 @@
 import Link from 'next/link';
 import { useReminders } from './useReminders';
 import { typeMeta, formatTime, relativeDays, displayTitle, type ReminderOccurrence } from '@/lib/reminders';
+import { cardIdFor } from '@/lib/greetingCards';
 
 const CAL = '#5B6CC8';
 const CAL_DK = '#3E4DA0';
@@ -53,25 +54,33 @@ function TodayRow({ o }: { o: ReminderOccurrence }) {
   const ev = o.event;
   const meta = typeMeta(ev.type);
   const sub = [ev.withWho && `with ${ev.withWho}`, ev.location].filter(Boolean).join(' · ');
+  // ✉️ 2.0 — 🎂/💍 (+ 🎉 with an honoree) get a card affordance → Studio deep link.
+  const cardable = ev.type === 'birthday' || ev.type === 'anniversary' || (ev.type === 'event' && !!ev.greetTo);
   return (
-    <Link
-      href="/reminders"
-      className="flex items-center gap-3 rounded-kaya border px-3 py-2.5"
+    <div
+      className="flex items-center gap-2 rounded-kaya border px-3 py-2.5"
       style={{ borderColor: CAL, background: `linear-gradient(0deg,#fff,${CAL_SOFT} 280%)` }}
     >
-      <span className="w-9 h-9 rounded-kaya-sm flex items-center justify-center text-lg shrink-0" style={{ background: CAL_SOFT }}>{meta.icon}</span>
-      <div className="flex-1 min-w-0">
-        <div className="text-[13px] font-extrabold text-kaya-chocolate truncate flex items-center gap-1.5">
-          {displayTitle(ev, o.dateKey)}
-          <span className="text-[8.5px] font-extrabold rounded px-1 py-0.5" style={{ background: '#fff', border: `1px solid ${CAL}`, color: CAL_DK }}>REMINDER</span>
-          <VisBadge shared={ev.visibility === 'shared'} />
+      <Link href="/reminders" className="flex-1 min-w-0 flex items-center gap-3">
+        <span className="w-9 h-9 rounded-kaya-sm flex items-center justify-center text-lg shrink-0" style={{ background: CAL_SOFT }}>{meta.icon}</span>
+        <div className="flex-1 min-w-0">
+          <div className="text-[13px] font-extrabold text-kaya-chocolate truncate flex items-center gap-1.5">
+            {displayTitle(ev, o.dateKey)}
+            <span className="text-[8.5px] font-extrabold rounded px-1 py-0.5" style={{ background: '#fff', border: `1px solid ${CAL}`, color: CAL_DK }}>REMINDER</span>
+            <VisBadge shared={ev.visibility === 'shared'} />
+          </div>
+          {sub && <div className="text-[10.5px] text-kaya-sand truncate">{sub}</div>}
         </div>
-        {sub && <div className="text-[10.5px] text-kaya-sand truncate">{sub}</div>}
-      </div>
-      <div className="text-right shrink-0">
-        <div className="text-[11.5px] font-extrabold" style={{ color: CAL_DK }}>{ev.time ? formatTime(ev.time) : 'Today'}</div>
-      </div>
-    </Link>
+        <div className="text-right shrink-0">
+          <div className="text-[11.5px] font-extrabold" style={{ color: CAL_DK }}>{ev.time ? formatTime(ev.time) : 'Today'}</div>
+        </div>
+      </Link>
+      {cardable && (
+        <Link href={`/reminders?card=${encodeURIComponent(cardIdFor(ev.id, o.dateKey))}`} title="Greeting card" aria-label="Greeting card"
+          className="shrink-0 w-9 h-9 rounded-kaya-sm border flex items-center justify-center text-[14px]"
+          style={{ borderColor: CAL, background: '#fff' }}>✉️</Link>
+      )}
+    </div>
   );
 }
 

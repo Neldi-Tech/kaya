@@ -21,9 +21,11 @@ import {
   REMINDER_TYPES, WEEKDAY_LABELS, LEAD_PRESETS, todayKey, resolveGroupRecipients,
   type ReminderEvent, type ReminderType, type ReminderVisibility,
   type RepeatRule, type RepeatFreq, type MonthDay, type ReminderRecipient,
-  type EmailGroup, type GreetTo, type FamilyContact,
+  type EmailGroup, type GreetTo, type FamilyContact, cardEligible,
 } from '@/lib/reminders';
 import HonoreePicker from '@/components/reminders/HonoreePicker';
+import GreetingCardStudio, { type StudioTarget } from '@/components/reminders/GreetingCardStudio';
+import { listCards, cardIdFor, type GreetingCard } from '@/lib/greetingCards';
 import GiftBrain from '@/components/reminders/GiftBrain';
 import CatchUpBoard from '@/components/catchup/CatchUpBoard';
 import TimeCapsule from '@/components/reminders/TimeCapsule';
@@ -144,6 +146,10 @@ export default function RemindersPage() {
   const [tab, setTab] = useState<'reminders' | 'catchup'>('reminders');
   const [openMonths, setOpenMonths] = useState<Set<string>>(new Set());
   const [monthsSeeded, setMonthsSeeded] = useState(false);
+  // ✉️ 2.0 — greeting cards by id (`${eventId}_${dateKey}`) + the open Studio.
+  const [cards, setCards] = useState<Record<string, GreetingCard>>({});
+  const [studio, setStudio] = useState<StudioTarget | null>(null);
+  const [deepLinkDone, setDeepLinkDone] = useState(false);
 
   const load = useCallback(async () => {
     if (!user || !profile?.familyId) return;
@@ -156,6 +162,7 @@ export default function RemindersPage() {
       ]);
       setEvents(evs);
       setMembers(mems.filter((m) => !!m.email));
+      listCards().then((cs) => setCards(Object.fromEntries(cs.map((c) => [c.id, c])))).catch(() => {});
     } catch {
       setEvents([]);
     } finally {
@@ -187,6 +194,35 @@ export default function RemindersPage() {
     () => (role === 'parent' ? events.filter((e) => e.status === 'pending_parent') : []),
     [events, role],
   );
+
+  // ✉️ 2.0 — who's celebrated on an auto-imported mirror (kid birthday /
+  // family anniversary): in-family honoree, never emailed.
+  const honoreeForAuto = useCallback((ev: ReminderEvent): GreetTo | undefined => {
+    if (ev.greetTo) return ev.greetTo;
+    if (ev.id.startsWith('auto:bday:')) {
+      const cid = ev.id.slice('auto:bday:'.length);
+      const kid = (children || []).find((c) => c.id === cid);
+      return kid ? { childId: kid.id, name: kid.name, relationship: 'family', autoSend: false, ccParents: false } : undefined;
+    }
+    if (ev.id === 'auto:anniversary') return { name: family?.anniversaryName?.trim() || 'Mum & Dad', relationship: 'family', autoSend: false, ccParents: false };
+    return undefined;
+  }, [children, family?.anniversaryName]);
+  const openStudio = useCallback((ev: ReminderEvent, dateKey: string) => {
+    setStudio({ event: ev, dateKey, honoree: honoreeForAuto(ev) });
+  }, [honoreeForAuto]);
+  const pendingCards = useMemo(
+    () => (role === 'parent' ? Object.values(cards).filter((c) => c.status === 'pending_parent') : []),
+    [cards, role],
+  );
+  // Deep link: /reminders?card={eventId}_{dateKey} (nudges, My Day ✉️).
+  useEffect(() => {
+    if (deepLinkDone || loading || occurrences.length === 0) return;
+    const want = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('card') : null;
+    if (!want) { setDeepLinkDone(true); return; }
+    const occ = occurrences.find((o) => cardIdFor(o.event.id, o.dateKey) === want);
+    if (occ) openStudio(occ.event, occ.dateKey);
+    setDeepLinkDone(true);
+  }, [deepLinkDone, loading, occurrences, openStudio]);
 
   // "All reminders" — every event (manual + Auto birthdays) filed by the
   // month of its NEXT occurrence, so a saved reminder is always findable.
@@ -340,6 +376,26 @@ export default function RemindersPage() {
         </div>
       )}
 
+      {/* ✉️ 2.0 — kid/helper cards to outside people waiting for a parent nod. */}
+      {pendingCards.length > 0 && (
+        <div className="rounded-kaya border border-dashed p-4 mb-5" style={{ borderColor: CAL, background: CAL_SOFT }}>
+          <div className="text-xs font-extrabold uppercase tracking-wide mb-2" style={{ color: CAL_DK }}>✉️ Card requests</div>
+          {pendingCards.map((c) => {
+            const ev = allEvents.find((e) => e.id === c.eventId);
+            return (
+              <div key={c.id} className="flex items-center gap-2 py-1.5">
+                <span className="text-lg">{typeMeta(c.type).icon}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-bold text-kaya-chocolate truncate">Card for {c.honoree.name}</div>
+                  <div className="text-[11px] text-kaya-sand truncate">{c.authorName} · “{c.oneLiner || '…'}” · {toDisplayDate(c.dateKey)}</div>
+                </div>
+                <button onClick={() => ev && openStudio(ev, c.dateKey)} disabled={!ev} className="rounded-kaya-sm px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50" style={{ background: CAL }}>Review</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* 🎁 Gift Brain — parents only (never spoil the surprise). */}
       {role === 'parent' && <GiftBrain occurrences={occurrences} children={children} />}
 
@@ -351,7 +407,7 @@ export default function RemindersPage() {
           {/* Today */}
           {todays.length > 0 && (
             <Section label="Today">
-              {todays.map((o) => <Row key={`${o.event.id}-${o.dateKey}`} o={o} onTap={() => openEdit(o.event)} />)}
+              {todays.map((o) => <Row key={`${o.event.id}-${o.dateKey}`} o={o} onTap={() => openEdit(o.event)} card={cards[cardIdFor(o.event.id, o.dateKey)] || null} onCard={cardEligible({ type: o.event.type, greetTo: honoreeForAuto(o.event) }) ? () => openStudio(o.event, o.dateKey) : undefined} />)}
             </Section>
           )}
 
@@ -362,7 +418,7 @@ export default function RemindersPage() {
             ) : upcoming.length === 0 ? (
               <div className="text-sm text-kaya-sand px-1 py-2">Nothing else on the horizon. 🌤️</div>
             ) : (
-              upcoming.map((o) => <Row key={`${o.event.id}-${o.dateKey}`} o={o} onTap={() => openEdit(o.event)} />)
+              upcoming.map((o) => <Row key={`${o.event.id}-${o.dateKey}`} o={o} onTap={() => openEdit(o.event)} card={cards[cardIdFor(o.event.id, o.dateKey)] || null} onCard={cardEligible({ type: o.event.type, greetTo: honoreeForAuto(o.event) }) ? () => openStudio(o.event, o.dateKey) : undefined} />)
             )}
           </Section>
 
@@ -430,6 +486,15 @@ export default function RemindersPage() {
       </>
       )}
 
+      {studio && (
+        <GreetingCardStudio
+          target={studio}
+          initial={cards[cardIdFor(studio.event.id, studio.dateKey)] || null}
+          onClose={() => setStudio(null)}
+          onChanged={(c) => { if (c) setCards((m) => ({ ...m, [c.id]: c })); }}
+        />
+      )}
+
       {editorOpen && (
         <Editor
           form={form}
@@ -462,7 +527,13 @@ function Section({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-function Row({ o, onTap }: { o: ReturnType<typeof occurrencesInRange>[number]; onTap: () => void }) {
+function Row({ o, onTap, card, onCard }: {
+  o: ReturnType<typeof occurrencesInRange>[number];
+  onTap: () => void;
+  /** ✉️ 2.0 — the greeting card for this occurrence (if any) + opener. */
+  card?: GreetingCard | null;
+  onCard?: () => void;
+}) {
   const ev = o.event;
   const meta = typeMeta(ev.type);
   // Milestone years swap the sub-flourish for the approved "a milestone
@@ -474,34 +545,43 @@ function Row({ o, onTap }: { o: ReturnType<typeof occurrencesInRange>[number]; o
     nth,
   ].filter(Boolean).join(' · ');
   const auto = isAutoImported(ev);
+  const cardState = card?.status === 'sent' || card?.status === 'belated' ? 'sent' : card?.status === 'ready' ? 'ready' : card?.status === 'pending_parent' ? 'pending' : card ? 'draft' : 'none';
+  const cardLabel = cardState === 'sent' ? '✅' : cardState === 'ready' ? '✉️✓' : cardState === 'pending' ? '⏳' : cardState === 'draft' ? '✏️' : '✉️';
+  const cardTitle = cardState === 'sent' ? 'Card sent' : cardState === 'ready' ? 'Card ready' : cardState === 'pending' ? 'Card awaiting a parent' : cardState === 'draft' ? 'Card drafted' : 'Make a greeting card';
   return (
-    <button
-      onClick={onTap}
-      className="w-full text-left flex items-center gap-3 bg-white rounded-kaya border border-kaya-warm-dark px-3 py-2.5 hover:border-[#5B6CC8]"
-    >
-      <span className="w-9 h-9 rounded-kaya-sm flex items-center justify-center text-lg shrink-0" style={{ background: CAL_SOFT }}>{meta.icon}</span>
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-bold text-kaya-chocolate truncate flex items-center gap-1.5">
-          {displayTitle(ev, o.dateKey)}
-          {milestone && (
-            <span className="text-[8.5px] font-extrabold rounded px-1.5 py-0.5" style={milestoneStyle(milestone.label)}>
-              {milestone.emoji} {milestone.label.toUpperCase()}
-            </span>
-          )}
-          {ev.visibility === 'shared'
-            ? <span className="text-[8.5px] font-extrabold rounded px-1.5 py-0.5" style={{ background: '#E1F3E8', color: '#3FAF6C' }}>FAMILY</span>
-            : <span className="text-[8.5px] font-extrabold rounded px-1.5 py-0.5" style={{ background: '#EFEAFB', color: '#6B4FC0' }}>PRIVATE</span>}
-          {auto && <span className="text-[8.5px] font-extrabold rounded px-1.5 py-0.5 text-kaya-sand bg-kaya-warm">AUTO</span>}
+    <div className="w-full flex items-center gap-2 bg-white rounded-kaya border border-kaya-warm-dark px-3 py-2.5 hover:border-[#5B6CC8]">
+      <button onClick={onTap} className="flex-1 min-w-0 text-left flex items-center gap-3">
+        <span className="w-9 h-9 rounded-kaya-sm flex items-center justify-center text-lg shrink-0" style={{ background: CAL_SOFT }}>{meta.icon}</span>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-bold text-kaya-chocolate truncate flex items-center gap-1.5">
+            {displayTitle(ev, o.dateKey)}
+            {milestone && (
+              <span className="text-[8.5px] font-extrabold rounded px-1.5 py-0.5" style={milestoneStyle(milestone.label)}>
+                {milestone.emoji} {milestone.label.toUpperCase()}
+              </span>
+            )}
+            {ev.visibility === 'shared'
+              ? <span className="text-[8.5px] font-extrabold rounded px-1.5 py-0.5" style={{ background: '#E1F3E8', color: '#3FAF6C' }}>FAMILY</span>
+              : <span className="text-[8.5px] font-extrabold rounded px-1.5 py-0.5" style={{ background: '#EFEAFB', color: '#6B4FC0' }}>PRIVATE</span>}
+            {auto && <span className="text-[8.5px] font-extrabold rounded px-1.5 py-0.5 text-kaya-sand bg-kaya-warm">AUTO</span>}
+          </div>
+          <div className="text-[11px] text-kaya-sand truncate">
+            {sub}
+          </div>
         </div>
-        <div className="text-[11px] text-kaya-sand truncate">
-          {sub}
+        <div className="text-right shrink-0">
+          <div className="text-xs font-extrabold" style={{ color: CAL_DK }}>{relativeDays(o.daysAway, o.dateKey)}</div>
+          {ev.time && <div className="text-[11px] text-kaya-sand">{formatTime(ev.time)}</div>}
         </div>
-      </div>
-      <div className="text-right shrink-0">
-        <div className="text-xs font-extrabold" style={{ color: CAL_DK }}>{relativeDays(o.daysAway, o.dateKey)}</div>
-        {ev.time && <div className="text-[11px] text-kaya-sand">{formatTime(ev.time)}</div>}
-      </div>
-    </button>
+      </button>
+      {onCard && (
+        <button onClick={onCard} title={cardTitle} aria-label={cardTitle}
+          className="shrink-0 w-9 h-9 rounded-kaya-sm border text-[13px] font-black flex items-center justify-center"
+          style={cardState === 'none' ? { borderColor: '#E8DEC9', background: '#fff', color: CAL_DK } : { borderColor: CAL, background: CAL_SOFT, color: CAL_DK }}>
+          {cardLabel}
+        </button>
+      )}
+    </div>
   );
 }
 
