@@ -344,7 +344,7 @@ export default function CupboardScanSheet({ familyId, shelf, defaultKind = 'book
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center" onClick={close}>
-      <div className="w-full sm:max-w-md bg-[#FFFBF5] rounded-t-[22px] sm:rounded-[22px] max-h-[94vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full sm:max-w-md lg:max-w-lg bg-[#FFFBF5] rounded-t-[22px] sm:rounded-[22px] max-h-[94vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="p-4 text-white rounded-t-[22px]" style={{ background: 'linear-gradient(135deg,#6E4624 0%,#8B5E34 100%)' }}>
           <div className="text-[10.5px] font-extrabold opacity-85">🗄 The Family Cupboard</div>
           <div className="font-display text-[18px] font-extrabold mt-0.5">📷 Scan to add</div>

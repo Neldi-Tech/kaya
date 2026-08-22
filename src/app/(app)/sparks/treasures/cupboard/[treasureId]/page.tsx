@@ -114,6 +114,8 @@ export default function CupboardItemPage() {
         ),
       }}
     >
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-6 lg:items-start">
+      <div className="min-w-0">{/* left column: identity · reading · play */}
       <div className="flex flex-wrap items-center gap-1.5 mb-2.5">
         <OwnerChip item={item} />
         <span className="inline-block text-[10px] font-extrabold px-2 py-1 rounded-full" style={{ background: chip.bg, color: chip.fg }}>
@@ -184,6 +186,9 @@ export default function CupboardItemPage() {
           </div>
         </Card>
       )}
+
+      </div>{/* /left column */}
+      <div className="min-w-0 lg:sticky lg:top-4">{/* right rail on desktop */}
 
       {/* 📍 Where it lives (N10) */}
       <Card>
@@ -322,6 +327,8 @@ export default function CupboardItemPage() {
         <Pill bg={WOOD_BG} fg={WOOD_DK} href="/sparks/treasures/cupboard">🗄 Cupboard</Pill>
         <Pill bg={JADE_BG} fg={JADE} href="/sparks/treasures/lost-found">🔍 Lost &amp; Found</Pill>
       </div>
+      </div>{/* /right rail */}
+      </div>{/* /two-column */}
     </CupboardFrame>
   );
 }

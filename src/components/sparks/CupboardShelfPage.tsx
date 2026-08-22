@@ -44,14 +44,14 @@ function SpineShelf({ items }: { items: CupboardItem[] }) {
   };
   return (
     <div>
-      <div className="flex flex-wrap items-end gap-1 px-2 pb-1.5 rounded-b-[4px]" style={{ minHeight: 128, borderBottom: '8px solid #8B5E34', background: 'linear-gradient(#fff,#F6ECDF)' }}>
+      <div className="flex flex-wrap items-end gap-1 px-2 pb-1.5 rounded-b-[4px]" style={{ minHeight: 140, borderBottom: '8px solid #8B5E34', background: 'linear-gradient(#fff,#F6ECDF)' }}>
         {items.map((t) => {
           const s = state(t);
           const pct = s === 'reading' ? progress(t) : 0;
           return (
             <Link key={t.id} href={`/sparks/treasures/cupboard/${t.id}`} title={`${t.name}${t.book?.author ? ` · ${t.book.author}` : ''}`}
               className="relative overflow-hidden no-underline rounded-t-[3px]"
-              style={{ width: width(t), height: 110, background: colour[s], color: fg[s] }}>
+              style={{ width: width(t), height: 120, background: colour[s], color: fg[s] }}>
               {pct > 0 && <span className="absolute left-0 right-0 bottom-0" style={{ height: `${pct}%`, background: 'rgba(255,255,255,.35)' }} aria-hidden />}
               <span className="absolute inset-0 grid place-items-center text-[8.5px] font-extrabold leading-none px-0.5 text-center" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
                 {t.nameConfirmed === false ? '⚠ ' : ''}{t.name.slice(0, 26)}
@@ -125,7 +125,18 @@ export default function CupboardShelfPage({ kind }: { kind: CupboardKind }) {
 
   return (
     <>
-      <CupboardFrame back={{ href: '/sparks/treasures/cupboard', label: 'Cupboard' }} hero={{ tone: 'wood', eyebrow: '🗄 The Family Cupboard', title, sub }}>
+      <CupboardFrame
+        back={{ href: '/sparks/treasures/cupboard', label: 'Cupboard' }}
+        hero={{ tone: 'wood', eyebrow: '🗄 The Family Cupboard', title, sub }}
+        actions={shelf ? (
+          <>
+            <Pill bg="#fff" fg={WOOD_DK} onClick={() => setScanning(true)}>📷 Scan a {noun}</Pill>
+            <Pill bg="rgba(255,255,255,.18)" fg="#fff" onClick={() => setAdding(true)}>⌨ Type it</Pill>
+            {kind === 'game' && live.length > 0 && <Pill bg="#D4A847" fg="#3D2E08" onClick={() => setPicker(true)}>🎡 Pick tonight&rsquo;s game</Pill>}
+            <Pill bg="rgba(255,255,255,.18)" fg="#fff" href={kind === 'book' ? '/sparks/treasures/cupboard/games' : '/sparks/treasures/cupboard/books'}>{kind === 'book' ? '🎲 Game Shelf' : '📚 Book Shelf'}</Pill>
+          </>
+        ) : undefined}
+      >
         {err === 'forbidden' && <Card tone="warn"><div className="text-[12px] font-extrabold text-[#8A6800]">The Cupboard is for the family — a parent can open it to a helper.</div></Card>}
         {shelf === null && !err && <p className="text-[13px] text-[#5A6488] text-center py-6">Loading the shelf…</p>}
 
@@ -176,7 +187,7 @@ export default function CupboardShelfPage({ kind }: { kind: CupboardKind }) {
               view === 'spines' && kind === 'book' ? (
                 <SpineShelf items={visible} />
               ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 lg:gap-3">
                   {visible.map((t: CupboardItem) => <ShelfCard key={t.id} item={t} />)}
                 </div>
               )
@@ -206,7 +217,7 @@ export default function CupboardShelfPage({ kind }: { kind: CupboardKind }) {
                 </button>
                 <p className="text-[11px] text-[#8A8471] leading-snug mt-1 mb-2.5">Handed on, donated or retired. Nothing is ever deleted.</p>
                 {showEnded && (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 opacity-70">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 lg:gap-3 opacity-70">
                     {ended.map((t) => <ShelfCard key={t.id} item={t} />)}
                   </div>
                 )}
