@@ -223,6 +223,13 @@ export interface Family {
   //   Settings, surfaced as one-tap chips in the reminder "EMAIL TO" panel.
   //   Rides the family doc like gamesConfig — no extra rule.
   emailGroups?: import('./reminders').EmailGroup[];
+  /** ✉️ Reminders 2.0 (approved 2026-08-22) — 📒 People Book: parent-managed
+   *  contacts (honorees for greeting cards; kids pick, never type). */
+  contacts?: import('./reminders').FamilyContact[];
+  /** ✉️ Reminders 2.0 — how cards to adults are signed (R9). */
+  greetingSignature?: import('./reminders').GreetingSignature;
+  /** ✉️ Reminders 2.0 — family switches for the Card Studio (Kaya Writes). */
+  greetingConfig?: import('./reminders').GreetingConfig;
   /** 📮 Points Email Audience (approved 2026-08-09): EXTRA recipients for
    *  the rating / award emails, saved once for the family (parent-edited).
    *  Personal member toggles + Family contacts stay exactly as they are —

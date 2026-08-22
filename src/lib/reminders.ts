@@ -116,6 +116,185 @@ export function resolveGroupRecipients(
   return out;
 }
 
+
+// ── ✉️ Reminders 2.0 — honoree (greetTo) · People Book · Signature ─────────
+// Approved 2026-08-22 (Logic Test R1/R9/R11 + Card Designs v2). The honoree
+// is the person being CELEBRATED — distinct from `emailRecipients`, who are
+// the people being REMINDED. The honoree is auto-excluded from reminder
+// mails and is the target of the greeting card / auto-greeting.
+
+export type GreetRelationship = 'family' | 'adult' | 'kid-friend';
+
+export interface GreetTo {
+  /** People-Book contact (outside the family). */
+  contactId?: string;
+  /** A family member with a Kaya login (parent · helper · kid). */
+  memberUid?: string;
+  /** A kid profile without a login (families/{id}/children). */
+  childId?: string;
+  name: string;
+  /** Snapshot for contacts; members resolve live at send time. */
+  email?: string;
+  /** WhatsApp number — digits only, country code first (E.164 without +). */
+  whatsapp?: string;
+  relationship: GreetRelationship;
+  /** "Let Kaya send it" — auto-greeting at 07:00 on the day (needs email). */
+  autoSend: boolean;
+  /** Both parents in copy on every external send (default on). */
+  ccParents: boolean;
+  /** IANA zone for the 07:00 send window; absent = family default. */
+  timezone?: string;
+}
+
+/** 📒 People Book — parent-managed contacts (`family.contacts[]`). Kids
+ *  PICK from it, never type addresses (COPPA). Single source for honorees,
+ *  email-group externals and statement CCs going forward. */
+export interface FamilyContact {
+  id: string;
+  name: string;
+  /** Adult (grandparent, uncle…) or a kid's friend (email = the friend's parent). */
+  relationship: 'adult' | 'kid-friend';
+  /** Free label shown on cards/context: Grandmother · Uncle · Best friend. */
+  relation?: string;
+  email?: string;
+  whatsapp?: string;
+  timezone?: string;
+  /** YYYY-MM-DD — lets Kaya offer a birthday reminder for them. */
+  birthday?: string;
+  /** Card language preference. */
+  lang?: 'en' | 'sw';
+  /** "Stop these greetings" tapped → Kaya never auto-sends to them again. */
+  optOut?: boolean;
+  optOutAt?: number;
+  addedBy: string;
+  addedAt: number;
+}
+
+export type SignaturePreset = 'parents' | 'family' | 'everyone' | 'custom';
+
+/** `family.greetingSignature` — how cards to ADULTS are signed (R9). */
+export interface GreetingSignature {
+  preset: SignaturePreset;
+  custom?: string;
+  /** Print the roster line ("Elia · Diana · Zawadi · Imani") under it. */
+  includeKids?: boolean;
+}
+
+/** `family.greetingConfig` — family-level switches for the card studio. */
+export interface GreetingConfig {
+  /** Kaya Writes (AI drafting). Absent = on. */
+  kayaWrites?: boolean;
+}
+
+export const FAMILY_TZ_DEFAULT = 'Africa/Dar_es_Salaam';
+
+export const TIMEZONE_CHOICES: Array<{ id: string; label: string }> = [
+  { id: 'Africa/Dar_es_Salaam', label: 'Dar es Salaam · Nairobi (EAT)' },
+  { id: 'Africa/Johannesburg', label: 'Johannesburg (SAST)' },
+  { id: 'Africa/Lagos', label: 'Lagos (WAT)' },
+  { id: 'Africa/Cairo', label: 'Cairo' },
+  { id: 'Europe/London', label: 'London' },
+  { id: 'Europe/Paris', label: 'Paris · Berlin · Rome' },
+  { id: 'Asia/Dubai', label: 'Dubai' },
+  { id: 'Asia/Kolkata', label: 'India' },
+  { id: 'Asia/Singapore', label: 'Singapore' },
+  { id: 'Australia/Sydney', label: 'Sydney' },
+  { id: 'America/New_York', label: 'New York (ET)' },
+  { id: 'America/Chicago', label: 'Chicago (CT)' },
+  { id: 'America/Denver', label: 'Denver (MT)' },
+  { id: 'America/Los_Angeles', label: 'Los Angeles (PT)' },
+  { id: 'America/Toronto', label: 'Toronto' },
+  { id: 'America/Sao_Paulo', label: 'São Paulo' },
+];
+
+/** Normalise a typed phone to wa.me digits. Handles "+255 7…", "0712…"
+ *  (local → default country code), "00 44…". Returns '' when unusable. */
+export function normalizeWhatsapp(raw: string | undefined, defaultCountryCode = '255'): string {
+  let d = (raw || '').replace(/[^0-9]/g, '');
+  if (!d) return '';
+  if (d.startsWith('00')) d = d.slice(2);
+  else if (d.startsWith('0') && d.length >= 9 && d.length <= 10) d = defaultCountryCode + d.slice(1);
+  if (d.length < 8 || d.length > 15) return '';
+  return d;
+}
+
+/** Pretty "+255 712 …" for display. */
+export function formatWhatsapp(digits: string | undefined): string {
+  if (!digits) return '';
+  return `+${digits}`;
+}
+
+/** Greeting cards make sense for 🎂 birthday · 💍 anniversary always, and
+ *  for a 🎉 event once it names an honoree. Never for 🩺/📌. */
+export function cardEligible(ev: Pick<ReminderEvent, 'type' | 'greetTo'>): boolean {
+  if (ev.type === 'birthday' || ev.type === 'anniversary') return true;
+  if (ev.type === 'event') return !!ev.greetTo;
+  return false;
+}
+
+function firstName(n: string | undefined): string {
+  return (n || '').trim().split(/\s+/)[0] || '';
+}
+
+export interface SignatureContext {
+  /** Parents' display names (first names are extracted). */
+  parentNames: string[];
+  familyName: string;
+  kidNames: string[];
+  /** Who is authoring the card (display name). */
+  authorName: string;
+  authorRole?: 'parent' | 'helper' | 'kid';
+  relationship: GreetRelationship;
+  lang?: 'en' | 'sw';
+  signature?: GreetingSignature;
+}
+
+/** R9 — the signature by relationship. Returns the main line + optional
+ *  roster line. Adult → family preset · kid-friend → "From {Kid} & the
+ *  {Family} family" · in-family → the author(s). */
+export function buildSignature(ctx: SignatureContext): { line: string; roster?: string } {
+  const sw = ctx.lang === 'sw';
+  const parents = ctx.parentNames.map(firstName).filter(Boolean).slice(0, 2);
+  const fam = (ctx.familyName || '').trim() || (parents[0] ? `${parents[0]}'s` : 'our');
+  const kids = ctx.kidNames.map(firstName).filter(Boolean);
+  const author = firstName(ctx.authorName) || (sw ? 'Familia' : 'Family');
+
+  if (ctx.relationship === 'family') {
+    return { line: `— ${author}` };
+  }
+  if (ctx.relationship === 'kid-friend') {
+    const who = ctx.authorRole === 'kid' ? author : (sw ? 'familia' : 'the family');
+    return ctx.authorRole === 'kid'
+      ? { line: sw ? `Kutoka kwa ${who} na familia ya ${fam}` : `From ${who} & the ${fam} family` }
+      : { line: sw ? `Kutoka kwa familia ya ${fam}` : `From the ${fam} family` };
+  }
+  // adult → preset
+  const sig = ctx.signature || { preset: 'parents' as SignaturePreset };
+  let line = '';
+  switch (sig.preset) {
+    case 'custom':
+      line = (sig.custom || '').trim();
+      break;
+    case 'family':
+      line = sw ? `Familia ya ${fam}` : `The ${fam} Family`;
+      break;
+    case 'everyone': {
+      const all = [...parents, ...kids];
+      line = all.length ? all.join(sw ? ' na ' : ', ').replace(/, ([^,]*)$/, ' & $1') : (sw ? `Familia ya ${fam}` : `The ${fam} Family`);
+      break;
+    }
+    case 'parents':
+    default: {
+      if (parents.length >= 2) line = sw ? `Familia ya ${parents[0]} na ${parents[1]}` : `${parents[0]} & ${parents[1]}'s Family`;
+      else if (parents.length === 1) line = sw ? `Familia ya ${parents[0]}` : `${parents[0]}'s Family`;
+      else line = sw ? `Familia ya ${fam}` : `The ${fam} Family`;
+    }
+  }
+  if (!line) line = sw ? `Familia ya ${fam}` : `The ${fam} Family`;
+  const roster = sig.includeKids && (parents.length || kids.length) ? [...parents, ...kids].join(' · ') : undefined;
+  return roster ? { line, roster } : { line };
+}
+
 /** Kid-created shared events need a parent nod before they go family-wide.
  *  Private kid events (and anything an adult creates) are 'active'. */
 export type ReminderStatus = 'active' | 'pending_parent';
@@ -147,6 +326,8 @@ export interface ReminderEvent {
   leadDays: number[];
   channels: ReminderChannels;
   emailRecipients: ReminderRecipient[];
+  /** ✉️ 2.0 — the honoree (who gets the greeting card / auto-greeting). */
+  greetTo?: GreetTo;
   status?: ReminderStatus;
   createdAt?: number;
   updatedAt?: number;

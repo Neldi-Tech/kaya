@@ -58,6 +58,8 @@ import SecurityPrivacyCard from '@/components/settings/SecurityPrivacyCard';
 import KidPrivacyCard from '@/components/settings/KidPrivacyCard';
 import { localeLabel, localeForCountry, asLocale } from '@/lib/i18n';
 import EmailGroupsCard from '@/components/settings/EmailGroupsCard';
+import PeopleBookCard from '@/components/settings/PeopleBookCard';
+import GreetingSignatureCard from '@/components/settings/GreetingSignatureCard';
 import PointsAudienceRow from '@/components/settings/PointsAudienceRow';
 import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
 import RoutinesEditor from '@/components/settings/RoutinesEditor';
@@ -1124,6 +1126,7 @@ export default function SettingsPage() {
           { id: 'alerts', icon: '🔔', label: 'Alerts', keywords: 'notifications push devices digest' },
           ...(isParent ? [
             { id: 'participation', icon: '🌟', label: 'Ages', keywords: 'participation little stars sparks meetings' },
+            { id: 'greetings', icon: '✉️', label: 'Cards', keywords: 'greeting cards people book contacts signature whatsapp honoree kaya writes' },
             { id: 'kids', icon: '👀', label: 'Kids', keywords: 'modules visibility what kids see household' },
             { id: 'security', icon: '🔐', label: 'Security', keywords: 'password login reset code privacy sign out' },
           ] : [
@@ -3066,6 +3069,18 @@ export default function SettingsPage() {
                   once, pick them as one-tap chips in every reminder. Lives
                   here with the rest of the email settings (Elia, 04-Jul). */}
               {isParent && <div className="mt-3"><EmailGroupsCard /></div>}
+            </CollapsibleSection>
+          )}
+
+          {/* ✉️ Greeting cards (Reminders 2.0, approved 22-Aug-2026) — People
+              Book (honorees outside Kaya) + family signature + Kaya Writes. */}
+          {!isGuest && isParent && (
+            <CollapsibleSection id="greetings" remember icon="✉️" title="Greeting cards"
+              summary={(family?.contacts?.length || 0) > 0 ? `${family?.contacts?.length} people` : undefined}>
+              <div className="space-y-3">
+                <PeopleBookCard />
+                <GreetingSignatureCard />
+              </div>
             </CollapsibleSection>
           )}
 
