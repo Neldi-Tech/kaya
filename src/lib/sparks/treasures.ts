@@ -100,6 +100,9 @@ export const TREASURE_CATEGORIES: TreasureCategory[] = [
   { id: 'tech',     label: 'Tech',            emoji: '🎮', lifeYears: 4 },
   { id: 'toy',      label: 'Toy',             emoji: '🧸', lifeYears: 5 },
   { id: 'book',     label: 'Book',            emoji: '📚', lifeYears: 10 },
+  // 🗄 Treasures 2.0 (D27) — a physical family game lives on the Game
+  // Shelf. Distinct from 🎮 tech (consoles) on purpose.
+  { id: 'game',     label: 'Board & card game', emoji: '🎲', lifeYears: 6 },
   { id: 'music',    label: 'Music',           emoji: '🎸', lifeYears: 10 },
   { id: 'clothes',  label: 'Clothes & shoes', emoji: '👟', lifeYears: 2 },
   { id: 'keepsake', label: 'Keepsake',        emoji: '💛', lifeYears: 0 },
@@ -162,7 +165,62 @@ export const DEFAULT_KEEPER_SETTINGS: KeeperCheckSettings = {
   escalateEmailAfterDays: 3,
 };
 
-// ── The shapes ──────────────────────────────────────────────────────
+// ── 🗄 The Family Cupboard (Treasures 2.0 · D24–D27) ───────────────
+//
+// Family-owned books + games live in the SAME collection, through the
+// same lifecycle, but with `kidId === FAMILY_OWNER_ID` so no kid's
+// register, Keeper Check or Care Score ever counts them. A kid's OWN
+// book/game with `visibility: 'family'` also appears on the shelf — one
+// doc, two surfaces (D25). The Cupboard has its own gateway at
+// /api/sparks/treasures/cupboard (lib/sparks/cupboard.ts).
+
+/** D25 · sentinel `kidId` for family-owned things. Never a real child id. */
+export const FAMILY_OWNER_ID = 'family';
+
+export type OwnerScope = 'kid' | 'family';
+
+/** D27 · how a physical game is classified (D39). */
+export type GameKind = 'party' | 'strategy' | 'cards' | 'puzzle' | 'outdoor' | 'other';
+
+export const GAME_KINDS: Array<{ id: GameKind; label: string; emoji: string }> = [
+  { id: 'party',    label: 'Party',    emoji: '🎉' },
+  { id: 'strategy', label: 'Strategy', emoji: '🧠' },
+  { id: 'cards',    label: 'Cards',    emoji: '🃏' },
+  { id: 'puzzle',   label: 'Puzzle',   emoji: '🧩' },
+  { id: 'outdoor',  label: 'Outdoor',  emoji: '⚽' },
+  { id: 'other',    label: 'Other',    emoji: '🎲' },
+];
+
+export function gameKindDef(id: string | undefined) {
+  return GAME_KINDS.find((k) => k.id === id) ?? GAME_KINDS[GAME_KINDS.length - 1];
+}
+
+/** D27 · book details. `coverUrl` is the lookup's cover (not a family
+ *  photo) — it is fine to show anywhere. */
+export interface BookMeta {
+  author?: string;
+  isbn?: string;
+  pages?: number;
+  coverUrl?: string;
+  year?: number;
+  publisher?: string;
+  /** Rough "good for ages N+" — Kaya's guess or a parent's edit. */
+  ageMin?: number;
+}
+
+/** D27 · game details — the words printed on the box. */
+export interface GameMeta {
+  ageMin?: number;
+  playersMin?: number;
+  playersMax?: number;
+  minutes?: number;
+  gameKind?: GameKind;
+  piecesNote?: string;
+}
+
+/** D28 · where the canonical name came from. `manual` is the LAST
+ *  resort and stays flagged until a parent confirms it. */
+export type NameSource = 'lookup' | 'vision' | 'manual';
 
 export interface TreasureBorrow {
   /** Who has it. A family child, or a free-typed name (a cousin, a
@@ -233,6 +291,22 @@ export interface Treasure {
   tags?: string[];
   /** F2 · links the trophy row rather than duplicating it. */
   achievementItemId?: string;
+
+  // ── 🗄 The Family Cupboard (D25–D28) ──
+  /** Absent = 'kid'. `family` items carry `kidId === FAMILY_OWNER_ID`. */
+  ownerScope?: OwnerScope;
+  /** The child responsible for a family thing right now (current
+   *  reader / game keeper). Optional. */
+  keeperKidId?: string;
+  /** N10 · "living-room cupboard, top shelf". Feeds Lost & Found. */
+  whereKept?: string;
+  /** D29 · ISBN-13 / UPC — the dedupe identity. */
+  barcode?: string;
+  nameSource?: NameSource;
+  /** D28 · false while a hand-typed title waits for a parent. */
+  nameConfirmed?: boolean;
+  book?: BookMeta;
+  game?: GameMeta;
 
   // ── Condition + check state ──
   lastCheckedOn?: string;      // YYYY-MM-DD
@@ -765,3 +839,13 @@ export const watchList     = (list: Treasure[]) =>
  *  something it will lose. */
 export const visibleToSibling = (list: Treasure[]) =>
   list.filter((t) => t.visibility === 'siblings' || t.visibility === 'family');
+
+/** D25 · a family-owned thing (the Cupboard's own items). */
+export const isFamilyOwned = (t: Pick<Treasure, 'ownerScope' | 'kidId'>) =>
+  t.ownerScope === 'family' || t.kidId === FAMILY_OWNER_ID;
+
+/** D25 · what the 🗄 Cupboard shelves show: family-owned books/games
+ *  plus a kid's own book/game they chose to share with the family. */
+export const onCupboardShelf = (t: Pick<Treasure, 'ownerScope' | 'kidId' | 'categoryId' | 'visibility'>) =>
+  (t.categoryId === 'book' || t.categoryId === 'game')
+  && (isFamilyOwned(t) || t.visibility === 'family');

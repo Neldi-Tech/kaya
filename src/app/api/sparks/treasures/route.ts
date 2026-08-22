@@ -176,8 +176,14 @@ function nextCheckDue(
 // hears "your bike is getting worse" (R5).
 const LIFE_YEARS: Record<string, number> = {
   wearable: 5, school: 3, outdoor: 6, tech: 4, toy: 5,
-  book: 10, music: 10, clothes: 2, keepsake: 0, other: 5,
+  book: 10, game: 6, music: 10, clothes: 2, keepsake: 0, other: 5,
 };
+
+/** 🗄 Treasures 2.0 · family-owned Cupboard items carry this sentinel
+ *  kidId (lib/sparks/treasures.ts FAMILY_OWNER_ID). They are served by
+ *  /api/sparks/treasures/cupboard; here they only surface on the
+ *  family-wide Lost & Found board. */
+const FAMILY_OWNER_ID = 'family';
 
 function residual(categoryId: string, yearsOld: number): number {
   const life = LIFE_YEARS[categoryId] ?? 5;
@@ -281,6 +287,7 @@ export async function POST(req: NextRequest) {
     const snap = await col.where('status', '==', 'lost').get();
     const kids = await famRef.collection('children').get();
     const nameOf = new Map(kids.docs.map((d) => [d.id, String((d.data() as { name?: string }).name || 'Someone')]));
+    nameOf.set(FAMILY_OWNER_ID, 'The family');
     const missing = snap.docs.map((d) => {
       const t = d.data() as Record<string, unknown>;
       return {

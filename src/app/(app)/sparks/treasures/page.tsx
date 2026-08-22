@@ -250,6 +250,13 @@ export default function ParentTreasuresPage() {
             >
               🔍 Lost &amp; Found{totalMissing ? ` · ${totalMissing}` : ''}
             </Link>
+            {/* 🗄 Treasures 2.0 — the family's shared books + games. */}
+            <Link
+              href="/sparks/treasures/cupboard"
+              className="px-3.5 py-2 rounded-full font-extrabold text-[12px] no-underline bg-[#F6ECDF] text-[#6E4624]"
+            >
+              🗄 Family Cupboard
+            </Link>
           </div>
 
           {err && <p className="text-[11.5px] text-[#C0392B] font-bold mt-3">{err}</p>}

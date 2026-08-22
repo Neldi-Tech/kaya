@@ -301,7 +301,7 @@ export default function SparksLandingPage() {
 
         {/* 1b · YOUR CORNER (Slice 8e) — the parent's own surfaces. */}
         <section className="mt-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Link href="/sparks/my-diary"
               className="rounded-2xl p-4 no-underline text-white flex items-center gap-3 hover:opacity-95 transition-opacity"
               style={{ background: 'linear-gradient(135deg, #2a1f3d 0%, #7A2E5C 100%)' }}>
@@ -318,6 +318,17 @@ export default function SparksLandingPage() {
               <span>
                 <span className="block font-display font-extrabold text-[14px]">My Reflection</span>
                 <span className="block text-[11px] opacity-85">Model the habit — kids copy what they see</span>
+              </span>
+            </Link>
+            {/* 🗄 Treasures 2.0 — the Family Cupboard is a first-class door
+                (Elia, 22-Aug-2026: "a strong module — don't hide it"). */}
+            <Link href="/sparks/treasures/cupboard"
+              className="rounded-2xl p-4 no-underline text-white flex items-center gap-3 hover:opacity-95 transition-opacity"
+              style={{ background: 'linear-gradient(135deg, #6E4624 0%, #8B5E34 100%)' }}>
+              <span className="text-2xl" aria-hidden>🗄</span>
+              <span>
+                <span className="block font-display font-extrabold text-[14px]">Family Cupboard</span>
+                <span className="block text-[11px] opacity-85">📚 Books · 🎲 Games — ours, together</span>
               </span>
             </Link>
           </div>
