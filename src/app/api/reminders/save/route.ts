@@ -14,8 +14,9 @@ import { getAdminFirestore, getAdminAuth } from '@/lib/firebaseAdmin';
 import { FieldValue } from 'firebase-admin/firestore';
 import type {
   ReminderEvent, ReminderType, ReminderVisibility, RepeatRule,
-  ReminderRecipient, ReminderChannels, ReminderStatus, MonthDay,
+  ReminderRecipient, ReminderChannels, ReminderStatus, MonthDay, GreetTo,
 } from '@/lib/reminders';
+import { normalizeWhatsapp } from '@/lib/reminders';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -99,6 +100,27 @@ function sanitizeChannels(raw: unknown): ReminderChannels {
     email: !!c.email,
     whatsapp: false, // designed-in, not yet live
   };
+}
+
+/** ✉️ 2.0 — the honoree. Only for 🎂/💍/🎉; built with NO undefined keys. */
+function sanitizeGreetTo(raw: unknown, type: ReminderType): GreetTo | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  if (type !== 'birthday' && type !== 'anniversary' && type !== 'event') return undefined;
+  const g = raw as Record<string, unknown>;
+  const name = clampStr(g.name, 80).trim();
+  if (!name) return undefined;
+  const rel = g.relationship === 'adult' || g.relationship === 'kid-friend' ? g.relationship : 'family';
+  const out: GreetTo = { name, relationship: rel, autoSend: false, ccParents: rel !== 'family' && g.ccParents !== false };
+  const cid = clampStr(g.contactId, 80); if (cid) out.contactId = cid;
+  const mu = clampStr(g.memberUid, 128); if (mu) out.memberUid = mu;
+  const ch = clampStr(g.childId, 128); if (ch) out.childId = ch;
+  const email = clampStr(g.email, 160).trim().toLowerCase();
+  if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) out.email = email;
+  const wa = normalizeWhatsapp(clampStr(g.whatsapp, 32)); if (wa) out.whatsapp = wa;
+  const tz = clampStr(g.timezone, 64); if (tz && /^[A-Za-z_]+\/[A-Za-z_\/+-]+$/.test(tz)) out.timezone = tz;
+  // autoSend needs an email and an outside honoree.
+  out.autoSend = rel !== 'family' && !!out.email && g.autoSend !== false;
+  return out;
 }
 
 function sanitizeLeadDays(raw: unknown): number[] {
@@ -205,6 +227,7 @@ export async function POST(req: NextRequest) {
   const originDate = (type === 'birthday' || type === 'anniversary') && /^\d{4}-\d{2}-\d{2}$/.test(originRaw)
     ? originRaw
     : undefined;
+  const greetTo = sanitizeGreetTo(ev.greetTo, type);
 
   const base = {
     type, title, date,
@@ -216,6 +239,8 @@ export async function POST(req: NextRequest) {
     // Same create-vs-edit contract as `time`: only set when present here;
     // clearing on edit is a FieldValue.delete() in the update branch.
     ...(originDate ? { originDate } : {}),
+    // ✉️ 2.0 honoree — same create-vs-edit contract.
+    ...(greetTo ? { greetTo } : {}),
     withWho: clampStr(ev.withWho, 120),
     location: clampStr(ev.location, 160),
     note: clampStr(ev.note, 500),
@@ -242,7 +267,7 @@ export async function POST(req: NextRequest) {
     // Clear a previously-set time when the editor removed it (legal on a
     // merge:true set, unlike create).
     await ref.set(
-      pruneUndefined({ ...base, ...(time ? {} : { time: FieldValue.delete() }), ...(originDate ? {} : { originDate: FieldValue.delete() }), status: nextStatus, firedKeys: cur.firedKeys || [] }),
+      pruneUndefined({ ...base, ...(time ? {} : { time: FieldValue.delete() }), ...(originDate ? {} : { originDate: FieldValue.delete() }), ...(greetTo ? {} : { greetTo: FieldValue.delete() }), status: nextStatus, firedKeys: cur.firedKeys || [] }),
       { merge: true },
     );
     if (nextStatus === 'pending_parent') {

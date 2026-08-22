@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
-import { getFamilyMembers, type UserProfile } from '@/lib/firestore';
+import { getFamilyMembers, type UserProfile, type Child } from '@/lib/firestore';
 import { toDisplayDate, dayOfWeek } from '@/lib/dates';
 import {
   fetchReminders, saveReminder, deleteReminder, decideReminder,
@@ -21,8 +21,9 @@ import {
   REMINDER_TYPES, WEEKDAY_LABELS, LEAD_PRESETS, todayKey, resolveGroupRecipients,
   type ReminderEvent, type ReminderType, type ReminderVisibility,
   type RepeatRule, type RepeatFreq, type MonthDay, type ReminderRecipient,
-  type EmailGroup,
+  type EmailGroup, type GreetTo, type FamilyContact,
 } from '@/lib/reminders';
+import HonoreePicker from '@/components/reminders/HonoreePicker';
 import GiftBrain from '@/components/reminders/GiftBrain';
 import CatchUpBoard from '@/components/catchup/CatchUpBoard';
 import TimeCapsule from '@/components/reminders/TimeCapsule';
@@ -66,6 +67,8 @@ interface FormState {
   channelInApp: boolean;
   channelEmail: boolean;
   recipients: ReminderRecipient[];
+  /** ✉️ 2.0 — the honoree (greeting card target). */
+  greetTo: GreetTo | null;
 }
 
 function blankForm(): FormState {
@@ -74,6 +77,7 @@ function blankForm(): FormState {
     visibility: 'shared', freq: 'none', weekdays: [], monthDays: [], customCount: 3, customPer: 'week',
     endMode: 'never', endOn: '', endAfter: 10, leadDays: [1, 0], channelInApp: true, channelEmail: false,
     recipients: [],
+    greetTo: null,
   };
 }
 
@@ -102,6 +106,7 @@ function formFromEvent(ev: ReminderEvent): FormState {
     channelInApp: ev.channels?.inApp !== false,
     channelEmail: !!ev.channels?.email,
     recipients: ev.emailRecipients || [],
+    greetTo: ev.greetTo || null,
   };
 }
 
@@ -244,6 +249,7 @@ export default function RemindersPage() {
         leadDays: form.leadDays.length ? form.leadDays : [0],
         channels: { inApp: form.channelInApp, email: form.channelEmail },
         emailRecipients: form.channelEmail ? form.recipients : [],
+        greetTo: form.greetTo || undefined,
       });
       setEditorOpen(false);
       await load();
@@ -436,6 +442,9 @@ export default function RemindersPage() {
           onClose={() => setEditorOpen(false)}
           onSave={handleSave}
           onDelete={form.id ? handleDelete : undefined}
+          kids={children}
+          contacts={family?.contacts || []}
+          familyId={profile?.familyId || ''}
         />
       )}
     </div>
@@ -510,12 +519,15 @@ function EmptyState({ onNew }: { onNew: () => void }) {
 // ── Editor ───────────────────────────────────────────────────────────────
 
 function Editor({
-  form, setForm, members, groups, ownUid, saving, error, onClose, onSave, onDelete,
+  form, setForm, members, groups, ownUid, saving, error, onClose, onSave, onDelete, kids, contacts, familyId,
 }: {
   form: FormState;
   setForm: React.Dispatch<React.SetStateAction<FormState>>;
   members: UserProfile[];
   groups: EmailGroup[];
+  kids: Child[];
+  contacts: FamilyContact[];
+  familyId: string;
   ownUid: string;
   saving: boolean;
   error: string;
@@ -669,6 +681,15 @@ function Editor({
                   ✨ Will read: {previewTitle} {form.type === 'birthday' ? '🎂' : '💍'}
                 </div>
               )}
+            </Field>
+          )}
+
+          {/* ✉️ 2.0 — honoree (greeting card target). 🎂/💍 always; 🎉 opt-in. */}
+          {(form.type === 'birthday' || form.type === 'anniversary' || form.type === 'event') && (
+            <Field label={form.type === 'event' ? 'Celebrating someone? (greeting card)' : 'Who’s being celebrated? (greeting card)'}>
+              <HonoreePicker value={form.greetTo} onChange={(g) => set('greetTo', g)} type={form.type}
+                members={members} kids={kids} contacts={contacts} familyId={familyId} ownUid={ownUid} />
+              <div className="text-[11px] text-kaya-sand mt-1.5">Kaya drafts a card 3 days before; the honoree never gets a plain “reminder” email. Outside people come from the 📒 People Book (Settings → ✉️ Greeting cards).</div>
             </Field>
           )}
 

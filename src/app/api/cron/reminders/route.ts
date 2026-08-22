@@ -91,7 +91,10 @@ async function handle(req: NextRequest) {
 
           // 📧 email — to the recipient list.
           if (ev.channels?.email && resend) {
-            const to = Array.from(new Set((ev.emailRecipients || []).map((r) => r.email).filter(Boolean))).slice(0, 15);
+            // ✉️ 2.0 — the honoree is CELEBRATED, never reminded (R1).
+            const honoreeEmail = (ev.greetTo?.email || '').toLowerCase();
+            const to = Array.from(new Set((ev.emailRecipients || []).map((r) => r.email).filter(Boolean)))
+              .filter((e) => e.toLowerCase() !== honoreeEmail).slice(0, 15);
             if (to.length) {
               const { subject, html } = renderReminderEmail({ event: ev, occurrenceKey: f.occurrenceKey, lead: f.lead, appUrl: APP_URL });
               await resend.emails.send({ from: FROM, to, subject, html }).catch(() => {});
