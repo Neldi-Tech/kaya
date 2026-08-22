@@ -222,6 +222,63 @@ export interface GameMeta {
  *  resort and stays flagged until a parent confirms it. */
 export type NameSource = 'lookup' | 'vision' | 'manual';
 
+// ── 📖 The reading loop (D31 · D32 · D33 · N9) ─────────────────────
+
+export type ReadingReminderMode = 'off' | 'daily' | 'weekdays' | 'weekly';
+
+export interface ReadingMark {
+  on: string;     // YYYY-MM-DD local
+  page: number;
+  at: number;
+}
+
+/** D31 · one reader's journey through one book. Many readers over time;
+ *  the same reader again bumps `readNo` (🔁 "read 3× — a favourite"). */
+export interface Reading {
+  id: string;
+  /** A child's id — or '' when a grown-up (parent/helper) is the reader,
+   *  in which case `readerUid` is set. */
+  readerKidId: string;
+  readerUid?: string;
+  readerName: string;
+  readNo: number;
+  startedOn: string;
+  /** Total pages — from the book meta or typed at start. */
+  pages?: number;
+  currentPage: number;
+  lastMarkOn?: string;
+  finishedOn?: string;
+  /** N9 · "read together" — the grown-up who read WITH a little one. */
+  togetherWith?: string;
+  /** D32 · per-reading reminder (defaults from Cupboard settings). */
+  reminder: { mode: ReadingReminderMode; hour: number };
+  /** The last ~60 page marks — the progress line on the spine. */
+  marks?: ReadingMark[];
+  /** Cron bookkeeping — never shown. */
+  lastNudgeOn?: string;
+  quietLineOn?: string;
+}
+
+/** D33 · "I think you'd love this" — lands on the invitee's My Day. */
+export interface ReadingInvite {
+  id: string;
+  toKidId: string;
+  fromName: string;
+  fromUid: string;
+  note?: string;
+  on: string;
+  at: number;
+  status: 'open' | 'accepted' | 'dismissed';
+}
+
+export const liveReadings = (t: Pick<Treasure, 'readings'>) =>
+  (t.readings ?? []).filter((r) => !r.finishedOn);
+export const finishedReadings = (t: Pick<Treasure, 'readings'>) =>
+  (t.readings ?? []).filter((r) => !!r.finishedOn);
+/** 🔁 a favourite = somebody read it twice or more. */
+export const isFavouriteBook = (t: Pick<Treasure, 'readings'>) =>
+  (t.readings ?? []).some((r) => r.readNo >= 2);
+
 export interface TreasureBorrow {
   /** Who has it. A family child, or a free-typed name (a cousin, a
    *  friend) — both are legitimate and both get chased. */
@@ -307,6 +364,17 @@ export interface Treasure {
   nameConfirmed?: boolean;
   book?: BookMeta;
   game?: GameMeta;
+  // 📖 the reading loop (D31 · D33)
+  readings?: Reading[];
+  invites?: ReadingInvite[];
+  /** How many readings have been finished (any reader). */
+  readingsDone?: number;
+  /** YYYY-MM-DD of the last page mark / finish — the 🕸 dust clock (D40). */
+  lastReadOn?: string;
+  // 🎲 the play log (D38 · D40)
+  playedCount?: number;
+  lastPlayedOn?: string;
+  plays?: Array<{ on: string; at: number; who: string[]; byName: string }>;
 
   // ── Condition + check state ──
   lastCheckedOn?: string;      // YYYY-MM-DD
@@ -356,7 +424,9 @@ export type TreasureEventKind =
   | 'check' | 'broken' | 'repaired' | 'lost' | 'found' | 'sighting'
   | 'lent' | 'returned' | 'shared'
   | 'handed_on' | 'donated' | 'sold' | 'outgrown' | 'retired'
-  | 'value_set' | 'vault_promoted';
+  | 'value_set' | 'vault_promoted'
+  // 🗄 Treasures 2.0 · the reading loop (D31 · D33) + the play log (D38)
+  | 'read_start' | 'read_finish' | 'read_invite' | 'played';
 
 export interface TreasureEvent {
   id: string;

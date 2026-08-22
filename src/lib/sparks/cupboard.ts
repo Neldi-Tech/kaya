@@ -349,6 +349,75 @@ export async function setCupboardSettings(
   pingCupboard(familyId);
 }
 
+// ── 📖 The reading loop (C3 · D31 · D32 · D33 · N9) ────────────────
+
+export async function startReading(
+  familyId: string, treasureId: string,
+  opts: { readerKidId?: string; pages?: number; togetherWith?: string } = {},
+): Promise<{ readingId: string; readNo: number }> {
+  const r = await cupboardApi<{ readingId: string; readNo: number }>('reading-start', { treasureId, ...opts });
+  pingCupboard(familyId);
+  return r;
+}
+
+export async function markPage(
+  familyId: string, treasureId: string, readingId: string, page: number, togetherWith?: string,
+): Promise<{ ok: true; currentPage: number }> {
+  const r = await cupboardApi<{ ok: true; currentPage: number }>('reading-mark', { treasureId, readingId, page, togetherWith });
+  pingCupboard(familyId);
+  return r;
+}
+
+export async function finishReading(
+  familyId: string, treasureId: string, readingId: string,
+): Promise<{ ok: true; readNo: number }> {
+  const r = await cupboardApi<{ ok: true; readNo: number }>('reading-finish', { treasureId, readingId });
+  pingCupboard(familyId);
+  return r;
+}
+
+export async function setReadingReminder(
+  familyId: string, treasureId: string, readingId: string,
+  reminder: { mode: ReadingReminderMode; hour: number },
+): Promise<void> {
+  await cupboardApi('reading-reminder', { treasureId, readingId, ...reminder });
+  pingCupboard(familyId);
+}
+
+export async function inviteToRead(
+  familyId: string, treasureId: string, toKidId: string, note?: string,
+): Promise<void> {
+  await cupboardApi('reading-invite', { treasureId, toKidId, note });
+  pingCupboard(familyId);
+}
+
+export async function respondToInvite(
+  familyId: string, treasureId: string, inviteId: string, accept: boolean,
+): Promise<{ ok: true; readingId?: string }> {
+  const r = await cupboardApi<{ ok: true; readingId?: string }>('reading-invite-respond', { treasureId, inviteId, accept });
+  pingCupboard(familyId);
+  return r;
+}
+
+/** What a kid's My Day / Workplan / Sparks Today strip needs — one call. */
+export interface MyReading {
+  date: string;
+  readings: Array<{
+    treasureId: string; readingId: string; name: string; emoji: string; coverUrl?: string;
+    currentPage: number; pages?: number; lastMarkOn?: string; readNo: number;
+    /** The reminder says today is a reading day. */
+    dueToday: boolean;
+    /** No mark today yet. */
+    openToday: boolean;
+  }>;
+  invites: Array<{ treasureId: string; inviteId: string; name: string; emoji: string; fromName: string; note?: string }>;
+  openCount: number;
+}
+
+export async function fetchMyReading(kidId: string): Promise<MyReading> {
+  return cupboardApi<MyReading>('my-reading', { kidId });
+}
+
 // ── Selectors ───────────────────────────────────────────────────────
 
 const ENDED: TreasureStatus[] = ['handed_on', 'donated', 'sold', 'outgrown', 'retired'];
