@@ -32,6 +32,7 @@ import RateClosingSongCard from '@/components/meetings/RateClosingSongCard';
 import MeetingMeterCard from '@/components/meetings/MeetingMeterCard';
 import SparksTodayCard from '@/components/sparks/SparksTodayCard';
 import KeeperCheckTodo from '@/components/sparks/KeeperCheckTodo';
+import ReadingTodo from '@/components/sparks/ReadingTodo';
 import CatchUpStrip from '@/components/catchup/CatchUpStrip';
 import type { WorkplanPeriod } from '@/lib/firestore';
 import { ChevronRight, Plus, Check, X } from 'lucide-react';
@@ -294,6 +295,9 @@ function MyDayKid({ familyId, childId, userUid, name, avatarEmoji }: {
         {/* D23 · the Keeper Check is a real to-do here, not a tile to
             remember. Renders nothing when nothing is due. */}
         <KeeperCheckTodo kidId={childId} kidName={name} />
+        {/* 📖 Treasures 2.0 · tonight's reading + invites — same rail,
+            renders nothing when nothing is due. */}
+        <div className="mt-3"><ReadingTodo kidId={childId} kidName={name} /></div>
       </div>
 
       {/* ⏰ Catch-Up strip (2026-08-10) — the kid's own open catch-ups,

@@ -13,12 +13,13 @@ import {
   subscribeToCupboard, liveItems, endedItems, books, games,
   type CupboardShelf, type CupboardKind, type CupboardItem,
 } from '@/lib/sparks/cupboard';
-import { GAME_KINDS, isFamilyOwned } from '@/lib/sparks/treasures';
+import { GAME_KINDS, isFamilyOwned, liveReadings, finishedReadings, isFavouriteBook } from '@/lib/sparks/treasures';
 import { CupboardFrame, Card, Pill, ShelfCard, WOOD, WOOD_DK, WOOD_BG } from './CupboardShell';
 import CupboardAddSheet from './CupboardAddSheet';
 import CupboardScanSheet from './CupboardScanSheet';
 
-type Who = 'all' | 'family' | 'kids';
+/** Books add the reading-state filters (D31 · design screen 3). */
+type Who = 'all' | 'family' | 'kids' | 'reading' | 'unread' | 'finished' | 'fav';
 
 export default function CupboardShelfPage({ kind }: { kind: CupboardKind }) {
   const { profile } = useAuth();
@@ -54,6 +55,10 @@ export default function CupboardShelfPage({ kind }: { kind: CupboardKind }) {
   const visible = live.filter((t) => {
     if (who === 'family' && !isFamilyOwned(t)) return false;
     if (who === 'kids' && isFamilyOwned(t)) return false;
+    if (who === 'reading' && liveReadings(t).length === 0) return false;
+    if (who === 'unread' && (t.readings ?? []).length > 0) return false;
+    if (who === 'finished' && finishedReadings(t).length === 0) return false;
+    if (who === 'fav' && !isFavouriteBook(t)) return false;
     if (kind === 'game' && gameKind !== 'all' && t.game?.gameKind !== gameKind) return false;
     return true;
   });
@@ -72,7 +77,9 @@ export default function CupboardShelfPage({ kind }: { kind: CupboardKind }) {
         {shelf && (
           <>
             <div className="flex flex-wrap gap-1.5 mb-2.5">
-              {([['all', 'All'], ['family', '🗄 Family'], ['kids', '💎 Kids’']] as Array<[Who, string]>).map(([id, label]) => (
+              {(([['all', 'All'], ['family', '🗄 Family'], ['kids', '💎 Kids’']] as Array<[Who, string]>)
+                .concat(kind === 'book' ? [['reading', '📖 Reading'], ['unread', 'Unread'], ['finished', '🏁 Finished'], ['fav', '🔁 Favourites']] as Array<[Who, string]> : [])
+              ).map(([id, label]) => (
                 <button key={id} type="button" onClick={() => setWho(id)}
                   className="text-[10.5px] font-extrabold px-2.5 py-1 rounded-full border border-[#E8E0CF]"
                   style={who === id ? { background: WOOD, color: '#fff', borderColor: WOOD } : { background: '#fff', color: '#5B6B8C' }}>

@@ -28,6 +28,7 @@ import { useLocale } from '@/lib/useLocale';
 import PauseSheet from '@/components/workplan/PauseSheet';
 import MeetingPrepCard from '@/components/meetings/MeetingPrepCard';
 import KeeperCheckTodo from '@/components/sparks/KeeperCheckTodo';
+import ReadingTodo from '@/components/sparks/ReadingTodo';
 import SubmissionHistoryView from '@/components/meetings/SubmissionHistoryView';
 import GoalsReviewView from '@/components/meetings/GoalsReviewView';
 import TodaysSongCard from '@/components/meetings/TodaysSongCard';
@@ -131,6 +132,8 @@ function KidWorkplanView({ familyId, childId, name, userUid, avatarEmoji }: {
           Renders nothing when nothing is due. */}
       <div className="mb-3">
         <KeeperCheckTodo kidId={childId} kidName={name.split(' ')[0]} />
+        {/* 📖 Treasures 2.0 · tonight's reading + invites (renders nothing when none). */}
+        <div className="mt-3"><ReadingTodo kidId={childId} kidName={name.split(' ')[0]} /></div>
       </div>
 
       {/* Tabs — Workplan vs My Submissions (PR F). Keeps the meeting

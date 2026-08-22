@@ -31,6 +31,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFirestore, getAdminAuth } from '@/lib/firebaseAdmin';
 import { FieldValue } from 'firebase-admin/firestore';
+import { bumpBadgeCountersAdmin } from '@/lib/badgeCountersAdmin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -50,13 +51,33 @@ const READING_MODES = ['off', 'daily', 'weekdays', 'weekly'];
 type Action =
   | 'shelf' | 'item' | 'add' | 'update'
   | 'condition' | 'found' | 'sighting' | 'lend' | 'return' | 'end'
-  | 'settings-get' | 'settings-set' | 'helpers';
+  | 'settings-get' | 'settings-set' | 'helpers'
+  | 'my-reading' | 'reading-start' | 'reading-mark' | 'reading-finish'
+  | 'reading-reminder' | 'reading-invite' | 'reading-invite-respond';
 
 const ALL_ACTIONS: Action[] = [
   'shelf', 'item', 'add', 'update',
   'condition', 'found', 'sighting', 'lend', 'return', 'end',
   'settings-get', 'settings-set', 'helpers',
+  'my-reading', 'reading-start', 'reading-mark', 'reading-finish',
+  'reading-reminder', 'reading-invite', 'reading-invite-respond',
 ];
+
+const READING_MARKS_KEPT = 60;
+
+/** D32 · is today a reading day for this reminder? `weekly` rides the
+ *  weekday the reading started on, so it has a fixed place in the week. */
+function isReadingDay(mode: string, startedOn: string, today: string): boolean {
+  if (mode === 'off') return false;
+  if (mode === 'daily') return true;
+  const dow = (iso: string) => {
+    const [y, m, d] = iso.split('-').map(Number);
+    return new Date(Date.UTC(y, (m || 1) - 1, d || 1)).getUTCDay();
+  };
+  if (mode === 'weekdays') { const w = dow(today); return w >= 1 && w <= 5; }
+  if (mode === 'weekly') return dow(today) === dow(startedOn || today);
+  return false;
+}
 
 // ── Small validators ────────────────────────────────────────────────
 
@@ -290,6 +311,43 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ settings });
   }
 
+  // ── 📖 my-reading — the one call My Day / Workplan / Sparks Today need ──
+  if (action === 'my-reading') {
+    const kidId = str(body.kidId, 80);
+    if (!kidId || !kidName.has(kidId)) return NextResponse.json({ error: 'bad-kid' }, { status: 400 });
+    // A kid sees only their own; parents + allow-listed helpers any kid.
+    if (!isParent && !isHelper && viewerChildId !== kidId) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    const bSnap = await col.where('categoryId', '==', 'book').get();
+    const readings: Array<Record<string, unknown>> = [];
+    const invites: Array<Record<string, unknown>> = [];
+    for (const d of bSnap.docs) {
+      const t = d.data() as Record<string, unknown>;
+      if (ENDED.includes(String(t.status))) continue;
+      const rs = Array.isArray(t.readings) ? (t.readings as Array<Record<string, unknown>>) : [];
+      for (const r of rs) {
+        if (String(r.readerKidId) !== kidId || r.finishedOn) continue;
+        const rem = (r.reminder ?? {}) as { mode?: string; hour?: number };
+        const dueToday = isReadingDay(String(rem.mode || 'off'), String(r.startedOn || today), today);
+        const book = (t.book ?? {}) as { coverUrl?: string };
+        readings.push({
+          treasureId: d.id, readingId: String(r.id), name: String(t.name || ''), emoji: String(t.emoji || '📚'),
+          ...(book.coverUrl ? { coverUrl: book.coverUrl } : {}),
+          currentPage: Number(r.currentPage || 0), ...(r.pages ? { pages: Number(r.pages) } : {}),
+          ...(r.lastMarkOn ? { lastMarkOn: String(r.lastMarkOn) } : {}),
+          readNo: Number(r.readNo || 1),
+          dueToday, openToday: String(r.lastMarkOn || '') !== today,
+        });
+      }
+      const inv = Array.isArray(t.invites) ? (t.invites as Array<Record<string, unknown>>) : [];
+      for (const i of inv) {
+        if (String(i.toKidId) !== kidId || String(i.status) !== 'open') continue;
+        invites.push({ treasureId: d.id, inviteId: String(i.id), name: String(t.name || ''), emoji: String(t.emoji || '📚'), fromName: String(i.fromName || ''), ...(i.note ? { note: String(i.note) } : {}) });
+      }
+    }
+    const openCount = readings.filter((r) => r.dueToday && r.openToday).length + invites.length;
+    return NextResponse.json({ date: today, readings, invites, openCount });
+  }
+
   if (action === 'helpers') {
     if (!isParent) return NextResponse.json({ error: 'parents-only' }, { status: 403 });
     const snap = await famRef.collection('helpers').get();
@@ -482,6 +540,185 @@ export async function POST(req: NextRequest) {
       treasureId, kidId, kind: 'sighting', on: today, at: Date.now(), byName: actorName, note: `Seen: ${where}`,
     });
     return NextResponse.json({ ok: true });
+  }
+
+  // ── 📖 The reading loop (D31 · D32 · D33 · D37 · N9) ──────────────
+  //
+  // Readings are per reader, on the book doc. Reading is not "editing":
+  // any member may start a reading on any shelf book (their own, or —
+  // parents/helpers — on a kid's behalf). A kid touches only their own.
+  if (action.startsWith('reading-')) {
+    if (t.categoryId !== 'book') return NextResponse.json({ error: 'not-a-book' }, { status: 409 });
+    if (ENDED.includes(String(t.status))) return NextResponse.json({ error: 'already-ended' }, { status: 409 });
+    const readings = (Array.isArray(t.readings) ? t.readings : []) as Array<Record<string, unknown>>;
+    const invites = (Array.isArray(t.invites) ? t.invites : []) as Array<Record<string, unknown>>;
+    const now = Date.now();
+    const bookName = String(t.name || 'the book');
+    const bookMetaPages = Number((t.book as { pages?: number } | undefined)?.pages || 0);
+
+    /** Who is the reader of a new reading, and may this caller act for them? */
+    const resolveReader = (requested: string): { readerKidId: string; readerUid?: string; readerName: string } | null => {
+      if (requested) {
+        if (!kidName.has(requested)) return null;
+        if (!isParent && !isHelper && viewerChildId !== requested) return null;
+        return { readerKidId: requested, readerName: kidName.get(requested)!.name };
+      }
+      if (viewerChildId) return { readerKidId: viewerChildId, readerName: kidName.get(viewerChildId)?.name || actorName };
+      return { readerKidId: '', readerUid: uid, readerName: actorName };
+    };
+    /** May this caller act on an existing reading? */
+    const mayTouch = (r: Record<string, unknown>) => {
+      if (isParent) return true;
+      if (viewerChildId) return String(r.readerKidId) === viewerChildId;
+      if (isHelper) return !!r.readerKidId || String(r.readerUid) === uid; // on a kid's behalf, or their own
+      return false;
+    };
+    const startFor = async (who: { readerKidId: string; readerUid?: string; readerName: string }, pages: number, togetherWith: string) => {
+      const already = readings.find((r) => !r.finishedOn && String(r.readerKidId) === who.readerKidId && (who.readerKidId || String(r.readerUid) === who.readerUid));
+      if (already) return { error: 'already-reading', readingId: String(already.id) };
+      const before = readings.filter((r) => !!r.finishedOn && String(r.readerKidId) === who.readerKidId && (who.readerKidId || String(r.readerUid) === who.readerUid)).length;
+      const reading: Record<string, unknown> = {
+        id: `r${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+        readerKidId: who.readerKidId, readerName: who.readerName,
+        readNo: before + 1, startedOn: today, currentPage: 0,
+        reminder: { mode: settings.reading.mode, hour: settings.reading.hour },
+        marks: [],
+      };
+      if (who.readerUid) reading.readerUid = who.readerUid;
+      if (pages > 0) reading.pages = pages;
+      if (togetherWith) reading.togetherWith = togetherWith;
+      await ref.update({ readings: [...readings, reading], lastReadOn: today, updatedAt: now, updatedByName: actorName });
+      await logEvent(eventsCol, {
+        treasureId, kidId, kind: 'read_start', on: today, at: now, byName: actorName,
+        note: `${who.readerName} started reading${before > 0 ? ` — read #${before + 1} 🔁` : ''}${togetherWith ? ` · with ${togetherWith}` : ''}`,
+      });
+      return { readingId: String(reading.id), readNo: before + 1 };
+    };
+
+    if (action === 'reading-start') {
+      const who = resolveReader(str(body.readerKidId, 80));
+      if (!who) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+      const pages = optInt(body.pages, 1, 20000) || bookMetaPages || 0;
+      const r = await startFor(who, pages, str(body.togetherWith, 60));
+      if ('error' in r) return NextResponse.json(r, { status: 409 });
+      return NextResponse.json(r);
+    }
+
+    const readingId = str(body.readingId, 40);
+    const idx = readings.findIndex((r) => String(r.id) === readingId);
+
+    if (action === 'reading-mark') {
+      if (idx < 0) return NextResponse.json({ error: 'no-such-reading' }, { status: 404 });
+      const r = readings[idx];
+      if (!mayTouch(r)) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+      if (r.finishedOn) return NextResponse.json({ error: 'already-finished' }, { status: 409 });
+      const page = optInt(body.page, 0, 20000) ?? 0;
+      const prev = Number(r.currentPage || 0);
+      const marks = (Array.isArray(r.marks) ? r.marks : []) as Array<Record<string, unknown>>;
+      const next: Record<string, unknown> = {
+        ...r, currentPage: page, lastMarkOn: today,
+        marks: [...marks, { on: today, page, at: now }].slice(-READING_MARKS_KEPT),
+      };
+      const togetherWith = str(body.togetherWith, 60);
+      if (togetherWith) next.togetherWith = togetherWith;
+      const list = readings.slice(); list[idx] = next;
+      await ref.update({ readings: list, lastReadOn: today, updatedAt: now, updatedByName: actorName });
+      // D37 · pages read → badge counters (kids only; never deducted).
+      if (r.readerKidId && page > prev) {
+        await bumpBadgeCountersAdmin(db, familyId, String(r.readerKidId), { pagesRead: page - prev });
+      }
+      return NextResponse.json({ ok: true, currentPage: page });
+    }
+
+    if (action === 'reading-finish') {
+      if (idx < 0) return NextResponse.json({ error: 'no-such-reading' }, { status: 404 });
+      const r = readings[idx];
+      if (!mayTouch(r)) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+      if (r.finishedOn) return NextResponse.json({ ok: true, readNo: Number(r.readNo || 1) });
+      const pages = Number(r.pages || 0);
+      const list = readings.slice();
+      list[idx] = { ...r, finishedOn: today, lastMarkOn: today, currentPage: pages > 0 ? pages : Number(r.currentPage || 0) };
+      await ref.update({
+        readings: list, lastReadOn: today,
+        readingsDone: Number(t.readingsDone || 0) + 1,
+        updatedAt: now, updatedByName: actorName,
+      });
+      const readNo = Number(r.readNo || 1);
+      await logEvent(eventsCol, {
+        treasureId, kidId, kind: 'read_finish', on: today, at: now, byName: actorName,
+        note: `${String(r.readerName || 'Someone')} finished ${bookName} 🏁${readNo > 1 ? ` — read #${readNo} 🔁` : ''}`,
+      });
+      if (r.readerKidId) {
+        const deltas: Record<string, number> = { booksFinished: 1 };
+        if (readNo > 1) deltas.readAgain = 1;
+        if (pages > Number(r.currentPage || 0)) deltas.pagesRead = pages - Number(r.currentPage || 0);
+        await bumpBadgeCountersAdmin(db, familyId, String(r.readerKidId), deltas);
+      }
+      return NextResponse.json({ ok: true, readNo });
+    }
+
+    if (action === 'reading-reminder') {
+      if (idx < 0) return NextResponse.json({ error: 'no-such-reading' }, { status: 404 });
+      const r = readings[idx];
+      if (!mayTouch(r)) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+      const mode = READING_MODES.includes(str(body.mode, 10)) ? str(body.mode, 10) : settings.reading.mode;
+      const hour = num(body.hour, 0, 23, settings.reading.hour);
+      const list = readings.slice(); list[idx] = { ...r, reminder: { mode, hour } };
+      await ref.update({ readings: list, updatedAt: now, updatedByName: actorName });
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === 'reading-invite') {
+      const toKidId = str(body.toKidId, 80);
+      if (!toKidId || !kidName.has(toKidId)) return NextResponse.json({ error: 'no-such-kid' }, { status: 404 });
+      if (viewerChildId && viewerChildId === toKidId) return NextResponse.json({ error: 'invite-yourself' }, { status: 409 });
+      if (invites.some((i) => String(i.toKidId) === toKidId && String(i.status) === 'open')) {
+        return NextResponse.json({ ok: true, already: true });
+      }
+      const note = str(body.note, 160);
+      const invite: Record<string, unknown> = {
+        id: `i${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+        toKidId, fromName: actorName, fromUid: uid, on: today, at: now, status: 'open',
+      };
+      if (note) invite.note = note;
+      await ref.update({ invites: [...invites, invite], updatedAt: now, updatedByName: actorName });
+      await logEvent(eventsCol, {
+        treasureId, kidId, kind: 'read_invite', on: today, at: now, byName: actorName,
+        note: `${actorName} invited ${kidName.get(toKidId)!.name} to read ${bookName}${note ? ` — “${note}”` : ''}`,
+      });
+      // 🔔 the invitee hears about it (bell); My Day shows it anyway.
+      const kidDoc = await famRef.collection('children').doc(toKidId).get();
+      const kidUid = String((kidDoc.data() as { uid?: string } | undefined)?.uid || '');
+      if (kidUid) {
+        await famRef.collection('notifications').add({
+          type: 'cupboard-invite',
+          title: `💌 ${actorName} thinks you’d love ${bookName}`,
+          message: note || 'Open the Family Cupboard to start reading.',
+          read: false, forUserId: kidUid, link: `/sparks/treasures/cupboard/${treasureId}`,
+          createdAt: FieldValue.serverTimestamp(),
+        }).catch(() => {});
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === 'reading-invite-respond') {
+      const inviteId = str(body.inviteId, 40);
+      const iIdx = invites.findIndex((i) => String(i.id) === inviteId);
+      if (iIdx < 0) return NextResponse.json({ error: 'no-such-invite' }, { status: 404 });
+      const inv = invites[iIdx];
+      const toKidId = String(inv.toKidId || '');
+      if (!isParent && viewerChildId !== toKidId) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+      const accept = body.accept === true;
+      const list = invites.slice(); list[iIdx] = { ...inv, status: accept ? 'accepted' : 'dismissed', respondedAt: now };
+      await ref.update({ invites: list, updatedAt: now, updatedByName: actorName });
+      if (!accept) return NextResponse.json({ ok: true });
+      const who = resolveReader(toKidId);
+      if (!who) return NextResponse.json({ ok: true });
+      const r = await startFor(who, bookMetaPages, '');
+      return NextResponse.json({ ok: true, readingId: r.readingId });
+    }
+
+    return NextResponse.json({ error: 'unknown-action' }, { status: 400 });
   }
 
   if (!canEdit) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
