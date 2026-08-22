@@ -812,6 +812,25 @@ export async function POST(req: NextRequest) {
       const activeDays = days(quest.activeDays);
       const all = await stepsCol.where('questId', '==', questId).get();
 
+      // QF-3 · 📅 Week Planner — pin ONE activity to ONE day (also moves a
+      // dated, not-done step). A parent's explicit day wins even if it's
+      // a rest day; a day already holding an activity is refused so the
+      // one-a-day rule stays intact.
+      const pinDate = typeof body.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.date) ? body.date : '';
+      if (pinDate) {
+        if (!ids.length) return NextResponse.json({ error: 'no-ids' }, { status: 400 });
+        if (pinDate < todayInTZ()) return NextResponse.json({ error: 'past-day' }, { status: 400 });
+        const target = all.docs.find((d) => d.id === ids[0]);
+        if (!target) return NextResponse.json({ error: 'not-found' }, { status: 404 });
+        const t = target.data() as { done?: boolean; status?: string; date?: string };
+        if (t.done) return NextResponse.json({ error: 'already-done' }, { status: 409 });
+        if ((t.status ?? 'approved') !== 'approved') return NextResponse.json({ error: 'not-approved' }, { status: 409 });
+        const clash = all.docs.find((d) => d.id !== target.id && (d.data() as { date?: string }).date === pinDate);
+        if (clash) return NextResponse.json({ error: 'day-taken' }, { status: 409 });
+        await target.ref.update({ date: pinDate, seq: 0, status: 'approved' });
+        return NextResponse.json({ ok: true, scheduled: 1, from: pinDate, to: pinDate });
+      }
+
       // Days that already carry an activity are full. One activity a
       // day is the whole point — a kid opening the app to three of them
       // closes the app.
@@ -830,7 +849,10 @@ export async function POST(req: NextRequest) {
       // Start today when today is an active day and still free; that way
       // a parent approving at breakfast gives the child something to do
       // this morning rather than tomorrow.
-      let cursor = todayInTZ();
+      // QF-3 · `from` lets "Plan next week" start on next Monday rather
+      // than the next free day from today.
+      const fromReq = typeof body.from === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.from) ? body.from : '';
+      let cursor = fromReq && fromReq > todayInTZ() ? fromReq : todayInTZ();
       const dates: string[] = [];
       for (let guard = 0; guard < 400 && dates.length < queue.length; guard++) {
         if (activeDays.includes(dowOf(cursor)) && !taken.has(cursor)

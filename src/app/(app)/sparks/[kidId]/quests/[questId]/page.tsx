@@ -23,6 +23,7 @@ import MarkerPanel from '@/components/sparks/MarkerPanel';
 import QuestRemindersPanel from '@/components/sparks/QuestRemindersPanel';
 import CoachEarCard from '@/components/sparks/CoachEarCard';
 import QuestFinishPanel from '@/components/sparks/QuestFinishPanel';
+import WeekPlanner, { KidWeekStrip } from '@/components/sparks/WeekPlanner';
 import {
   subscribeToQuest, pauseQuest, resumeQuest, deleteQuest, updateQuest, repairStreak,
   consistency, pathwayProgress, groupStepsByWeek, rhythmLine, restDays,
@@ -159,6 +160,11 @@ export default function QuestDetailPage() {
           </div>
         </div>
 
+        {/* ── QF-3 · 📅 Week Planner — the parent's first thing on the page ── */}
+        {isParent && familyId && quest.status === 'active' && (
+          <WeekPlanner familyId={familyId} kidId={kidId} kidName={kid.name} quest={quest} steps={steps} />
+        )}
+
         {/* ── 🎬 Step zero · the baseline, before anything else ────── */}
         {quest.status === 'active' && (
           <BaselineCallout
@@ -200,6 +206,9 @@ export default function QuestDetailPage() {
                 </div>
               </div>
             )}
+
+            {/* QF-3 · kid's read-only week strip */}
+            {!isParent && <KidWeekStrip quest={quest} steps={steps} />}
 
             {/* 🔒 What's next — readable, not doable. */}
             {upNext && (!todayStep || todayStep.done) && (
