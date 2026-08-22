@@ -68,6 +68,9 @@ export interface DiaryEntry {
   /** Slice 8d · true once a knock was allowed — parents read the page
    *  until the kid re-locks it (re-lock clears this server-side). */
   knock_open?: boolean;
+  /** PAST-1 · ⭐ parent stars on a page — uid → name. Meta, never
+   *  content; survives redaction so the browser can highlight the day. */
+  parent_stars?: Record<string, string>;
   /** Slice 8k · ⏳ today-only allow — open while the LOCAL day matches,
    *  self-locking past midnight. */
   knock_open_until?: string;
@@ -447,4 +450,16 @@ export async function addDiaryWord(
     pingDiary(familyId, ownerId);
     return { word: r.word, note: r.note ?? '', count: r.count };
   } catch { return null; }
+}
+
+
+/** PAST-1 · ⭐ a parent stars / un-stars a kid's page (toggle). Server
+ *  refuses pages the parent can't currently read (locked + no door). */
+export async function toggleDiaryStar(familyId: string, ownerId: string, entryId: string): Promise<{ starred?: boolean; error?: string }> {
+  if (isGuestActive()) return { error: 'guest' };
+  try {
+    const r = await diaryApi<{ starred: boolean }>('star', { ownerId, entryId });
+    pingDiary(familyId, ownerId);
+    return r;
+  } catch (e) { return { error: (e as Error).message || 'star-failed' }; }
 }

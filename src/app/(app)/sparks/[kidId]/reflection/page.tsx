@@ -36,6 +36,7 @@ import { toDisplayDate } from '@/lib/dates';
 import { PolishControl, PolishedText } from '@/components/sparks/PolishedText';
 import AreaScreen from '@/components/sparks/AreaScreen';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
+import FilledDaysBrowser from '@/components/sparks/FilledDaysBrowser';
 import Link from 'next/link';
 import ReflectionOriginChip from '@/components/sparks/ReflectionOriginChip';
 import CelebrationBurst from '@/components/sparks/CelebrationBurst';
@@ -890,6 +891,20 @@ export default function ReflectionPage() {
 
       {/* This-week strip */}
       <WeekStrip byDate={streak.byDate} sw={sw} />
+
+      {/* PAST-1 · 📚 the past, drill-down: Years ▸ Months ▸ filled days,
+          ⭐ where a parent rated. Taps open that day's sheet. */}
+      <FilledDaysBrowser
+        sw={sw}
+        accent="#5A3CB8" soft="#F6EFFF" line="#cdbdf0"
+        starLabel={sw ? 'mzazi amepima' : 'rated by a parent'}
+        days={recent.map((r) => ({
+          date: r.date,
+          emoji: r.ai_read?.mood_emoji,
+          starred: !!r.parent_rating,
+        }))}
+        onOpenDay={(d) => setScoreDate(d)}
+      />
 
       {/* 2026-06-23 · Reflection hit-map — filterable calendar to spot missing
           submissions, shaded by score, taps open the day. */}

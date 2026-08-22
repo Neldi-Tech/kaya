@@ -33,7 +33,7 @@ function pageStyleProps(style?: string): { className: string; style?: React.CSSP
 }
 
 export function EntryCard({
-  e, isOwner, kidFirstName, sw, onToggleLock, onKnock, onQuietOpen, onNudge, onSetFeeling,
+  e, isOwner, kidFirstName, sw, onToggleLock, onKnock, onQuietOpen, onNudge, onSetFeeling, onStar, viewerUid,
 }: {
   e: DiaryEntry;
   isOwner: boolean;
@@ -47,6 +47,9 @@ export function EntryCard({
   onQuietOpen?: () => void;
   /** Slice 8g · owner corrects an AI-guessed feeling. */
   onSetFeeling?: (feeling: string) => void;
+  /** PAST-1 · ⭐ parent stars / un-stars this page. */
+  onStar?: () => void;
+  viewerUid?: string;
 }) {
   const [pickFeeling, setPickFeeling] = useState(false);
   // ⏳ Sealed page — hidden from EVERYONE (owner too) until the date.
@@ -160,6 +163,18 @@ export function EntryCard({
           <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full bg-[#EFEAF9] text-[#4a3d78]">🔒 {sw ? 'Imefungwa' : 'Locked · just mine'}</span>
         ) : (
           <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full bg-[#DDF5DF] text-[#2E7D34]">💛 {sw ? 'Imeshirikiwa na wazazi' : 'Shared with parents'}</span>
+        )}
+        {e.parent_stars && Object.keys(e.parent_stars).length > 0 && (
+          <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full bg-[#FFF1C9] text-[#8A6800]">
+            ⭐ {Object.values(e.parent_stars).map((n) => n.split(' ')[0]).join(' + ')} {sw ? 'ameipenda' : (Object.keys(e.parent_stars).length > 1 ? 'starred this' : 'starred this')}
+          </span>
+        )}
+        {onStar && (
+          <button type="button" onClick={onStar}
+            className={`text-[10.5px] font-extrabold px-2 py-0.5 rounded-full border ${viewerUid && e.parent_stars?.[viewerUid] ? 'bg-[#FFF1C9] border-[#D4A847] text-[#8A6800]' : 'bg-white border-[#ECE4D3] text-[#5A6488]'}`}
+            title={sw ? 'Weka nyota' : 'Star this page'}>
+            {viewerUid && e.parent_stars?.[viewerUid] ? '⭐' : '☆'} {sw ? 'Nyota' : 'Star'}
+          </button>
         )}
         {e.linked_reflection_date && (
           <Link href={`/sparks/${e.ownerId}/reflection`}
