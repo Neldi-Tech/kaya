@@ -82,6 +82,20 @@ export interface ReflectionAIScore {
   rationale: string;   // 1 short sentence, kid-readable
 }
 
+/** 🗄 Treasures 2.0 (D35) · where a reflection came from. Absent = the
+ *  daily reflection. `book` entries are written by the Cupboard gateway
+ *  (id `${kidId}_${date}_book_${treasureId}`) so the day's own doc is
+ *  never touched; `quest` is the seam Quests adopt next. */
+export interface ReflectionOrigin {
+  kind: 'daily' | 'book' | 'quest';
+  /** treasureId / questId */
+  refId?: string;
+  /** "Percy Jackson" — the chip's label */
+  label?: string;
+  readingId?: string;
+  page?: number;
+}
+
 export interface ReflectionEntry {
   /** Doc id = `${kidId}_${date}`; these mirror it. */
   kidId: string;
@@ -113,6 +127,9 @@ export interface ReflectionEntry {
   /** Slice 8j · 📷 earlier scans kept when the page is retaken — the
    *  honesty trail (a retake can never hide a page a parent saw). */
   retakes?: Array<{ scanUrl: string; at: number }>;
+  /** 🗄 Treasures 2.0 (D35) · absent = daily; 'book' = written about a
+   *  Cupboard book (counts for the streak like any reflection). */
+  origin?: ReflectionOrigin;
   createdAt: Timestamp;
   createdBy: string;            // uid (kid or parent)
   updatedAt: Timestamp;

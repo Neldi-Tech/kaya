@@ -254,9 +254,27 @@ export interface Reading {
   reminder: { mode: ReadingReminderMode; hour: number };
   /** The last ~60 page marks — the progress line on the spine. */
   marks?: ReadingMark[];
+  /** D34 · how many book notes (reflections) this reading produced. */
+  notes?: number;
+  /** D36 · the Finish Quiz, once the book is finished. */
+  quiz?: ReadingQuiz;
   /** Cron bookkeeping — never shown. */
   lastNudgeOn?: string;
   quietLineOn?: string;
+}
+
+/** D36 · 🏁 the Finish Quiz — Kaya asks, the kid answers, Kaya scores
+ *  understanding (display-only), a parent rates as usual. Skippable. */
+export interface ReadingQuiz {
+  questions: string[];
+  askedAt: number;
+  answers?: string[];
+  answeredAt?: number;
+  /** Kaya's read of understanding, 0–100 — display-only, never points. */
+  understanding?: number;
+  rationale?: string;
+  skippedAt?: number;
+  parentRating?: { stars?: number; percent?: number; note?: string; byName: string; at: number; pointsAwarded?: number };
 }
 
 /** D33 · "I think you'd love this" — lands on the invitee's My Day. */

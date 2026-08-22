@@ -36,6 +36,8 @@ import { toDisplayDate } from '@/lib/dates';
 import { PolishControl, PolishedText } from '@/components/sparks/PolishedText';
 import AreaScreen from '@/components/sparks/AreaScreen';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
+import Link from 'next/link';
+import ReflectionOriginChip from '@/components/sparks/ReflectionOriginChip';
 import CelebrationBurst from '@/components/sparks/CelebrationBurst';
 import PhotoLightbox from '@/components/sparks/PhotoLightbox';
 
@@ -124,19 +126,19 @@ export default function ReflectionPage() {
   // recent list can show the real page next to the transcribed words.
   const scanByDate = useMemo(() => {
     const m: Record<string, string> = {};
-    for (const r of recent) if (r.source === 'scan' && r.scanUrl) m[r.date] = r.scanUrl;
+    for (const r of recent) if (!r.origin && r.source === 'scan' && r.scanUrl) m[r.date] = r.scanUrl;
     return m;
   }, [recent]);
   const weekReview = weeklyReviews[0];
   const weekScans = useMemo(() => {
     if (!weekReview) return [] as Array<{ date: string; url: string }>;
     return recent
-      .filter((r) => r.source === 'scan' && r.scanUrl && r.date >= weekReview.weekStart && r.date <= weekReview.weekEnd)
+      .filter((r) => !r.origin && r.source === 'scan' && r.scanUrl && r.date >= weekReview.weekStart && r.date <= weekReview.weekEnd)
       .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
       .map((r) => ({ date: r.date, url: r.scanUrl as string }));
   }, [recent, weekReview]);
   const recentScans = useMemo(
-    () => recent.filter((r) => r.source === 'scan' && r.scanUrl && r.date !== today).slice(0, 8),
+    () => recent.filter((r) => !r.origin && r.source === 'scan' && r.scanUrl && r.date !== today).slice(0, 8),
     [recent, today],
   );
   /** Open an arbitrary set of scanned pages in the shared lightbox. */
@@ -857,6 +859,31 @@ export default function ReflectionPage() {
                 </button>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* 🗄 Treasures 2.0 (D34 · D35) · book notes are real reflections with
+          an origin chip — listed here so the distinction is clear, and
+          they count toward the streak like any reflection. */}
+      {recent.some((r) => r.origin?.kind === 'book') && (
+        <div className="rounded-[16px] border border-[#E4CDB2] bg-[#F6ECDF] p-3.5 mb-3">
+          <div className="flex items-center justify-between">
+            <div className="font-display font-extrabold text-[13px] text-[#0F1F44]">📚 Book notes <ReflectionOriginChip origin={{ kind: 'book' }} small /></div>
+            <Link href="/sparks/treasures/cupboard/books" className="text-[11px] font-extrabold no-underline" style={{ color: '#6E4624' }}>Book Shelf ›</Link>
+          </div>
+          <div className="mt-2 grid gap-1.5">
+            {recent.filter((r) => r.origin?.kind === 'book').slice(0, 5).map((r) => (
+              <Link key={`${r.date}-${r.origin?.refId}`} href={r.origin?.refId ? `/sparks/treasures/cupboard/${r.origin.refId}` : '#'}
+                className="block rounded-[12px] bg-white border border-[#E4CDB2] px-3 py-2 no-underline">
+                <div className="flex items-center gap-1.5 text-[10px] font-extrabold text-[#8A8471]">
+                  {toDisplayDate(r.date)} <ReflectionOriginChip origin={r.origin} small withLabel />
+                  {typeof r.ai_score?.soundness === 'number' && <span className="ml-auto text-[#0E6B5E]">{r.ai_score.soundness}%</span>}
+                </div>
+                <p className="text-[11.5px] italic text-[#394458] mt-1 m-0 leading-snug line-clamp-2">&ldquo;{r.text}&rdquo;</p>
+                {r.parent_rating?.stars ? <p className="text-[10.5px] font-bold mt-0.5 m-0" style={{ color: '#D4A847' }}>{'★'.repeat(r.parent_rating.stars)}{'☆'.repeat(5 - r.parent_rating.stars)}{r.parent_rating.notes ? <span className="text-[#2C4A44]"> {r.parent_rating.notes}</span> : null}</p> : null}
+              </Link>
+            ))}
           </div>
         </div>
       )}

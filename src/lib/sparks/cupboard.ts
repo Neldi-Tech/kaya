@@ -78,7 +78,9 @@ export interface CupboardItem extends Treasure {
 
 export interface CupboardShelf {
   items: CupboardItem[];
-  kids: Array<{ id: string; name: string; emoji: string }>;
+  /** `age` from the child's birthday (absent when no birthday) — gates
+   *  the Finish Quiz (D36) and the Game Night picker (D38). */
+  kids: Array<{ id: string; name: string; emoji: string; age?: number }>;
   settings: CupboardSettings;
   me: {
     role: 'parent' | 'kid' | 'helper';
@@ -370,8 +372,8 @@ export async function markPage(
 
 export async function finishReading(
   familyId: string, treasureId: string, readingId: string,
-): Promise<{ ok: true; readNo: number }> {
-  const r = await cupboardApi<{ ok: true; readNo: number }>('reading-finish', { treasureId, readingId });
+): Promise<{ ok: true; readNo: number; quizEligible?: boolean }> {
+  const r = await cupboardApi<{ ok: true; readNo: number; quizEligible?: boolean }>('reading-finish', { treasureId, readingId });
   pingCupboard(familyId);
   return r;
 }
@@ -397,6 +399,89 @@ export async function respondToInvite(
   const r = await cupboardApi<{ ok: true; readingId?: string }>('reading-invite-respond', { treasureId, inviteId, accept });
   pingCupboard(familyId);
   return r;
+}
+
+// ── ✍️ Book notes = reflections (C4 · D34 · D35) ───────────────────
+//
+// A kid's note about a book is a real ReflectionEntry in
+// `sparks_reflections` with `origin: { kind: 'book', … }`, written and
+// read through THIS gateway (doc id `${kidId}_${date}_book_${treasureId}`)
+// so the daily reflection doc is never touched. The AI engine's routes
+// (/api/sparks/ai/reflect · reflection-read · reflection-score) are the
+// same ones the daily reflection uses — the page orchestrates them and
+// attaches the results here.
+
+export interface BookNoteEntry {
+  id: string;
+  kidId: string;
+  date: string;
+  text: string;
+  source: 'typed' | 'scan';
+  scanUrl?: string;
+  origin: { kind: 'book'; refId: string; label?: string; readingId?: string; page?: number };
+  feedback?: { wentWell: string; tip?: string; cheer: string };
+  ai_read?: { mood_emoji: string; mood_word: string; theme_emoji: string; theme_label: string; kaya_response: string };
+  ai_score?: { soundness: number; rationale: string };
+  parent_rating?: { stars?: number; soundness_percent?: number; notes?: string; ratedByName: string; ratedAt?: number };
+  createdAt?: number;
+}
+
+export async function saveReadingNote(
+  familyId: string, treasureId: string, readingId: string,
+  note: { text: string; source: 'typed' | 'scan'; scanUrl?: string; page?: number },
+): Promise<{ entryId: string; date: string; text: string }> {
+  const r = await cupboardApi<{ entryId: string; date: string; text: string }>('reading-note', { treasureId, readingId, ...note });
+  pingCupboard(familyId);
+  return r;
+}
+
+export async function attachReadingNoteAI(
+  treasureId: string, entryId: string,
+  ai: { feedback?: BookNoteEntry['feedback']; ai_read?: BookNoteEntry['ai_read']; ai_score?: BookNoteEntry['ai_score'] },
+): Promise<void> {
+  await cupboardApi('reading-note-ai', { treasureId, entryId, ...ai });
+}
+
+export async function rateReadingNote(
+  familyId: string, treasureId: string, entryId: string,
+  rating: { stars?: number; percent?: number; notes?: string },
+): Promise<void> {
+  await cupboardApi('reading-note-rate', { treasureId, entryId, ...rating });
+  pingCupboard(familyId);
+}
+
+export async function listReadingNotes(treasureId: string, readerKidId?: string): Promise<BookNoteEntry[]> {
+  const { entries } = await cupboardApi<{ entries: BookNoteEntry[] }>('reading-notes', { treasureId, readerKidId });
+  return entries || [];
+}
+
+// ── 🏁 The Finish Quiz (C4 · D36) ───────────────────────────────────
+
+export async function startQuiz(familyId: string, treasureId: string, readingId: string): Promise<{ questions: string[]; generated: boolean }> {
+  const r = await cupboardApi<{ questions: string[]; generated: boolean }>('quiz-start', { treasureId, readingId });
+  pingCupboard(familyId);
+  return r;
+}
+
+export async function answerQuiz(
+  familyId: string, treasureId: string, readingId: string, answers: string[],
+): Promise<{ understanding?: number; rationale?: string }> {
+  const r = await cupboardApi<{ understanding?: number; rationale?: string }>('quiz-answer', { treasureId, readingId, answers });
+  pingCupboard(familyId);
+  return r;
+}
+
+export async function skipQuiz(familyId: string, treasureId: string, readingId: string): Promise<void> {
+  await cupboardApi('quiz-skip', { treasureId, readingId });
+  pingCupboard(familyId);
+}
+
+export async function rateQuiz(
+  familyId: string, treasureId: string, readingId: string,
+  rating: { stars?: number; percent?: number; note?: string; pointsAwarded?: number },
+): Promise<void> {
+  await cupboardApi('quiz-rate', { treasureId, readingId, ...rating });
+  pingCupboard(familyId);
 }
 
 /** What a kid's My Day / Workplan / Sparks Today strip needs — one call. */
