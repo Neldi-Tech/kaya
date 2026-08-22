@@ -180,6 +180,14 @@ function bookMeta(v: unknown): Record<string, unknown> {
   const publisher = str(b.publisher, 120); if (publisher) out.publisher = publisher;
   const coverUrl = str(b.coverUrl, 600); if (/^https?:\/\//.test(coverUrl)) out.coverUrl = coverUrl;
   const ageMin = optInt(b.ageMin, 1, 18); if (ageMin) out.ageMin = ageMin;
+  // D43 · "What it's about" — a parent may set/clear it; the source chip travels with it.
+  if (b.summary !== undefined) {
+    const sum = str(b.summary, 600);
+    out.summary = sum;
+    const src = str(b.summarySource, 20);
+    if (['googlebooks', 'openlibrary', 'kaya', 'parent'].includes(src)) out.summarySource = src;
+  }
+  if (b.summaryHidden !== undefined) out.summaryHidden = b.summaryHidden === true;
   return out;
 }
 
@@ -877,6 +885,7 @@ export async function POST(req: NextRequest) {
       const kidAge = kidName.get(readerKidId)?.age;
       const kidFirst = (kidName.get(readerKidId)?.name || 'the reader').split(' ')[0];
       const bookAuthor = String((t.book as { author?: string } | undefined)?.author || '');
+      const bookSummary = String((t.book as { summary?: string } | undefined)?.summary || '');
       const saveQuiz = async (q: Record<string, unknown>) => {
         const list = readings.slice(); list[idx] = { ...r, quiz: q };
         await ref.update({ readings: list, updatedAt: now, updatedByName: actorName });
@@ -921,7 +930,7 @@ export async function POST(req: NextRequest) {
               output_config: { effort: 'low', format: { type: 'json_schema', schema: QUIZ_Q_SCHEMA } },
               system: [{ type: 'text', text: 'You write a warm, short end-of-book quiz for a child in a family app. 3 to 5 open questions, age-appropriate, about the story, the characters, and what the child thinks — never trick questions, never yes/no. One sentence each. Use the child\'s own notes when given so the questions feel personal. Return JSON {"questions": [...]}.', cache_control: { type: 'ephemeral' } }],
               messages: [{ role: 'user', content:
-                `Book: "${bookName}"${bookAuthor ? ` by ${bookAuthor}` : ''}.\nReader: ${kidFirst}${kidAge !== undefined ? `, about ${kidAge} years old` : ''}.\n${notes.length ? `Their notes while reading:\n${notes.join('\n')}` : 'No notes were written while reading.'}\nWrite the questions.` }],
+                `Book: "${bookName}"${bookAuthor ? ` by ${bookAuthor}` : ''}.${bookSummary ? `\nWhat it's about: ${bookSummary}` : ''}\nReader: ${kidFirst}${kidAge !== undefined ? `, about ${kidAge} years old` : ''}.\n${notes.length ? `Their notes while reading:\n${notes.join('\n')}` : 'No notes were written while reading.'}\nWrite the questions.` }],
             });
             const textBlock = resp.content.find((b) => b.type === 'text');
             if (textBlock && textBlock.type === 'text') {

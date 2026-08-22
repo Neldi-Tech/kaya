@@ -164,6 +164,8 @@ export async function cupboardApi<T>(
 export interface LookupBook {
   name: string; author?: string; pages?: number; year?: number;
   publisher?: string; coverUrl?: string; isbn?: string; ageMin?: number;
+  /** D43 · "What it's about". */
+  summary?: string; summarySource?: 'googlebooks' | 'openlibrary' | 'kaya' | 'parent';
 }
 export interface LookupGame {
   name: string; ageMin?: number; playersMin?: number; playersMax?: number;
@@ -200,6 +202,21 @@ export async function cupboardLookup(
   });
   if (!res.ok) return { found: false, reason: `lookup-${res.status}` };
   return res.json() as Promise<LookupResult>;
+}
+
+/** D43 · "What it's about" on demand — libraries first, then Kaya's words
+ *  (pass `ageYears` to rewrite for a particular reader). */
+export async function fetchBookSummary(title: string, author?: string, ageYears?: number): Promise<{ summary: string; summarySource: 'googlebooks' | 'openlibrary' | 'kaya' } | null> {
+  const token = await idToken();
+  if (!token) return null;
+  const res = await fetch('/api/sparks/treasures/cupboard/lookup', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({ action: 'summary', title, author, ageYears }),
+  }).catch(() => null);
+  if (!res || !res.ok) return null;
+  const j = await res.json().catch(() => null) as { found?: boolean; summary?: string; summarySource?: 'googlebooks' | 'openlibrary' | 'kaya' } | null;
+  return j?.found && j.summary ? { summary: j.summary, summarySource: j.summarySource || 'kaya' } : null;
 }
 
 // Refresh bus — one channel per family (the Cupboard is family-wide).

@@ -44,6 +44,7 @@ import { subscribeToReflections, computeReflectionStreak } from '@/lib/sparks/re
 import { subscribeToDiary, computeDiaryStats } from '@/lib/sparks/diary';
 import { subscribeToQuests, activeCount } from '@/lib/sparks/quests';
 import { subscribeToTreasures, liveTreasures } from '@/lib/sparks/treasures';
+import { fetchMyReading, fetchCupboard, DAY_LABEL } from '@/lib/sparks/cupboard';
 import SparksTodayCard from '@/components/sparks/SparksTodayCard';
 
 // B5 · the areas were eight equal-weight tiles, so a daily habit and a
@@ -123,6 +124,28 @@ export default function KidSparksHomePage() {
   // Diary tile chip — days filled this year (Slice 8). Fails to 0 for
   // sibling viewers (the API denies them; the tile is hidden anyway).
   const [diaryPages, setDiaryPages] = useState<number | null>(null);
+  // 🗄 Treasures 2.0 (D44) · the Cupboard door's live line — tonight's
+  // reading for THIS kid + the family's game night. Fails quiet.
+  const [cupboardLine, setCupboardLine] = useState('');
+  useEffect(() => {
+    if (!familyId || !kidId || !(isParent || isSelf)) { setCupboardLine(''); return; }
+    let dead = false;
+    Promise.all([fetchMyReading(kidId).catch(() => null), fetchCupboard().catch(() => null)]).then(([mr, shelf]) => {
+      if (dead) return;
+      const parts: string[] = [];
+      const due = mr?.readings.find((r) => r.dueToday && r.openToday) || mr?.readings[0];
+      if (due) parts.push(`📖 ${due.name}${due.pages ? ` p.${due.currentPage} of ${due.pages}` : ''}${due.dueToday && due.openToday ? ' tonight' : ''}`);
+      if (mr?.invites.length) parts.push(`💌 ${mr.invites[0].fromName} invited you: ${mr.invites[0].name}`);
+      if (shelf?.settings?.gameNight?.enabled && shelf.items.some((t) => t.categoryId === 'game')) {
+        const g = shelf.settings.gameNight;
+        parts.push(`🎲 Family fun ${DAY_LABEL[g.dayOfWeek]} ${String(g.hour).padStart(2, '0')}:${String(g.minute).padStart(2, '0')}`);
+      }
+      if (!parts.length && shelf) parts.push(`📚 ${shelf.items.filter((t) => t.categoryId === 'book').length} books · 🎲 ${shelf.items.filter((t) => t.categoryId === 'game').length} games — ours, together`);
+      setCupboardLine(parts.join(' · '));
+    });
+    return () => { dead = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [familyId, kidId, isParent, isSelf]);
   // Quests tile chip — how many quests are running right now (max 2 · D14).
   const [questsActive, setQuestsActive] = useState<number | null>(null);
   // Treasures tile chip — live things they look after (💎 · 2026-08-16).
@@ -317,6 +340,25 @@ export default function KidSparksHomePage() {
             />
           )}
 
+          {/* 🗄 Treasures 2.0 (D44) — the Family Cupboard door sits UP TOP,
+              right under "what's due": books + games the whole family
+              shares, with a live line (tonight's reading · game night).
+              Siblings viewing each other don't get it. */}
+          {(isParent || isSelf) && (
+            <Link
+              href="/sparks/treasures/cupboard"
+              className="mb-4 lg:mb-6 rounded-[18px] p-[14px] lg:p-[18px] flex items-center gap-3 border border-[#E4CDB2] hover:border-[#8B5E34] transition-colors no-underline"
+              style={{ background: '#F6ECDF' }}
+            >
+              <div className="w-11 h-11 rounded-[14px] grid place-items-center text-xl shrink-0 text-white" style={{ background: 'linear-gradient(135deg,#6E4624,#8B5E34)' }} aria-hidden>🗄</div>
+              <div className="flex-1 min-w-0">
+                <div className="font-display font-extrabold text-[14px] text-[#0F1F44] leading-tight">Family Cupboard</div>
+                <div className="text-[11px] text-[#5A6488] mt-0.5 leading-tight truncate">{cupboardLine || '📚 Books · 🎲 Games — ours, together'}</div>
+              </div>
+              <span className="text-[11px] font-extrabold px-2 py-1 rounded-full whitespace-nowrap" style={{ background: '#fff', color: '#6E4624' }}>Open</span>
+            </Link>
+          )}
+
           {(['practice', 'record'] as const).map((group) => {
             const keys = SPARKS_AREA_ORDER.filter((a) =>
               group === 'practice' ? PRACTICE_AREAS.includes(a) : !PRACTICE_AREAS.includes(a));
@@ -375,25 +417,6 @@ export default function KidSparksHomePage() {
               </div>
             );
           })}
-
-          {/* 🗄 Treasures 2.0 — the Family Cupboard door. Family-wide
-              (books + games we share), so it sits beside the kid's own
-              areas rather than inside them. Siblings viewing each other
-              don't get it — the shelf is reached from your OWN page. */}
-          {(isParent || isSelf) && (
-            <Link
-              href="/sparks/treasures/cupboard"
-              className="mt-3 lg:mt-5 rounded-[18px] p-[14px] lg:p-[18px] flex items-center gap-3 border border-[#E4CDB2] hover:border-[#8B5E34] transition-colors no-underline"
-              style={{ background: '#F6ECDF' }}
-            >
-              <div className="w-11 h-11 rounded-[14px] grid place-items-center text-xl shrink-0 text-white" style={{ background: 'linear-gradient(135deg,#6E4624,#8B5E34)' }} aria-hidden>🗄</div>
-              <div className="flex-1 min-w-0">
-                <div className="font-display font-extrabold text-[14px] text-[#0F1F44] leading-tight">Family Cupboard</div>
-                <div className="text-[11px] text-[#5A6488] mt-0.5 leading-tight">📚 Books · 🎲 Games — ours, together</div>
-              </div>
-              <span className="text-[11px] font-extrabold px-2 py-1 rounded-full whitespace-nowrap" style={{ background: '#fff', color: '#6E4624' }}>Open</span>
-            </Link>
-          )}
 
           {/* AI strip — purple → mint gradient per mockup. Full-width
               under the area grid so it reads as the persistent companion. */}

@@ -2,18 +2,17 @@
 
 // Kaya Sparks · Treasures 2.0 — 📷 Scan to add (C2 · D28 · D29 · D30 · N1).
 //
-// "Names never get written wrong." Four tiers, ONE confirm card:
-//   1 · live barcode viewfinder — getUserMedia + zxing-wasm decoding
-//       frames on the phone (native BarcodeDetector as an accelerator
-//       where Chrome has it). iOS Safari has no native detector, which
-//       is exactly why zxing is the one dependency.
-//   2 · still-photo decode — camera denied? the <input capture> path,
-//       same decoder, same result.
-//   3 · the front face — no barcode / no match: snap the cover or the
-//       box, Kaya reads title + author (books) or title + the printed
-//       "Ages 8+ · 2–6 players · 30 min" (games), then the title is
-//       looked up to canonicalise it.
-//   4 · manual ⚠ — only after 1–3 miss; stays flagged for a parent.
+// "Names never get written wrong." Tiers (D30′, Elia 22-Aug — cover first):
+//   1 · 📖 the cover — snap the front of the book (or the game box):
+//       Kaya AI reads title + author (games: title + the printed
+//       "Ages 8+ · 2–6 players · 30 min"), the title is looked up to
+//       canonicalise it and fetch cover · pages · "what it's about" (D43).
+//   2 · ▌▌ barcode — live viewfinder, getUserMedia + zxing-wasm decoding
+//       frames on the phone (native BarcodeDetector as an accelerator).
+//       No live camera? a photo of the barcode runs INSIDE this tab —
+//       same decoder, same result (the old third option, folded in).
+//   3 · ⌨ manual ⚠ — only after both miss; stays flagged for a parent.
+// ONE confirm card for every tier.
 //
 // Shelf-fill (N1): the camera stays open; every beep drops into a tray;
 // confirm all at once. Offline: the code still decodes on the phone, the
@@ -39,7 +38,7 @@ interface Props {
   onTypeInstead: () => void;
 }
 
-type Tier = 'live' | 'still' | 'front';
+type Tier = 'front' | 'live';
 
 interface TrayItem {
   key: string;
@@ -129,8 +128,11 @@ export default function CupboardScanSheet({ familyId, shelf, defaultKind = 'book
   const isParent = me.role === 'parent';
   const isHelper = me.role === 'helper';
 
-  const [tier, setTier] = useState<Tier>('live');
+  const [tier, setTier] = useState<Tier>('front');
   const [camMsg, setCamMsg] = useState('Starting the camera…');
+  /** D30′ · no live camera → the photo paths show inside each tab. */
+  const [camFailed, setCamFailed] = useState(false);
+  const [snapping, setSnapping] = useState(false);
   const [tray, setTray] = useState<TrayItem[]>([]);
   const [confirm, setConfirm] = useState<TrayItem | null>(null);
   const [frontBusy, setFrontBusy] = useState(false);
@@ -184,12 +186,11 @@ export default function CupboardScanSheet({ familyId, shelf, defaultKind = 'book
     }));
   }, []);
 
-  // ── tier 1 · live viewfinder ──
+  // ── the camera (both tabs) — decode loop only on the barcode tab ──
   useEffect(() => {
-    if (tier !== 'live') return;
     let cancelled = false;
     (async () => {
-      if (!navigator.mediaDevices?.getUserMedia) { setTier('still'); return; }
+      if (!navigator.mediaDevices?.getUserMedia) { setCamFailed(true); return; }
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false,
@@ -198,11 +199,13 @@ export default function CupboardScanSheet({ familyId, shelf, defaultKind = 'book
         streamRef.current = stream;
         const v = videoRef.current;
         if (v) { v.srcObject = stream; await v.play().catch(() => {}); }
-        setCamMsg('Point at the barcode — hold steady');
+        setCamFailed(false);
+        setCamMsg(tier === 'live' ? 'Point at the barcode — hold steady' : 'Hold the front of the book in the frame · tap Snap');
       } catch {
-        setTier('still');
+        setCamFailed(true);
         return;
       }
+      if (tier !== 'live') return;
       // Decoder: native BarcodeDetector when present, else zxing.
       type BD = { detect: (src: ImageBitmapSource) => Promise<Array<{ rawValue: string }>> };
       const NativeBD = (window as unknown as { BarcodeDetector?: new (o: { formats: string[] }) => BD }).BarcodeDetector;
@@ -251,11 +254,27 @@ export default function CupboardScanSheet({ familyId, shelf, defaultKind = 'book
       const zx = await getDecoder();
       const text = await zx(file);
       if (text) { await onCode(text); setCamMsg('Got it — scan another, or confirm below'); }
-      else setCamMsg('No barcode in that photo — snap the front instead');
-    } catch { setCamMsg('Could not read that — snap the front instead'); }
+      else setCamMsg('No barcode in that photo — try 📖 the cover instead');
+    } catch { setCamMsg('Could not read that — try 📖 the cover instead'); }
   }
 
-  // ── tier 3 · the front face ──
+  /** 📖 Snap the cover from the live camera → Kaya reads it. */
+  async function snapCover() {
+    const v = videoRef.current;
+    if (!v || v.readyState < 2 || snapping) return;
+    setSnapping(true);
+    try {
+      const scale = Math.min(1, 1280 / Math.max(v.videoWidth, v.videoHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.round(v.videoWidth * scale); c.height = Math.round(v.videoHeight * scale);
+      c.getContext('2d')!.drawImage(v, 0, 0, c.width, c.height);
+      const blob: Blob | null = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.85));
+      if (!blob) return;
+      await readFront(new File([blob], 'cover.jpg', { type: 'image/jpeg' }));
+    } finally { setSnapping(false); }
+  }
+
+  // ── tier 1 · the cover (Kaya AI) ──
   async function readFront(file: File) {
     setFrontBusy(true); setFrontErr('');
     try {
@@ -293,7 +312,7 @@ export default function CupboardScanSheet({ familyId, shelf, defaultKind = 'book
       allowDuplicate: it.allowDuplicate === true,
     };
     if (it.kind === 'book' && it.book) {
-      input.book = { author: it.book.author, pages: it.book.pages, year: it.book.year, publisher: it.book.publisher, coverUrl: it.book.coverUrl, isbn: it.book.isbn || (it.code && it.code.length === 13 ? it.code : undefined), ageMin: it.book.ageMin };
+      input.book = { author: it.book.author, pages: it.book.pages, year: it.book.year, publisher: it.book.publisher, coverUrl: it.book.coverUrl, isbn: it.book.isbn || (it.code && it.code.length === 13 ? it.code : undefined), ageMin: it.book.ageMin, summary: it.book.summary, summarySource: it.book.summarySource };
     }
     if (it.kind === 'game' && it.game) {
       input.game = { ageMin: it.game.ageMin, playersMin: it.game.playersMin, playersMax: it.game.playersMax, minutes: it.game.minutes, gameKind: it.game.gameKind };
@@ -348,7 +367,7 @@ export default function CupboardScanSheet({ familyId, shelf, defaultKind = 'book
         <div className="p-4 text-white rounded-t-[22px]" style={{ background: 'linear-gradient(135deg,#6E4624 0%,#8B5E34 100%)' }}>
           <div className="text-[10.5px] font-extrabold opacity-85">🗄 The Family Cupboard</div>
           <div className="font-display text-[18px] font-extrabold mt-0.5">📷 Scan to add</div>
-          <div className="text-[11px] opacity-90 mt-0.5">Point at the barcode — or snap the front. Names come from the scan, never from typing.</div>
+          <div className="text-[11px] opacity-90 mt-0.5">Snap the cover — Kaya reads the name and author. Barcode if you prefer. Names come from the scan, never from typing.</div>
         </div>
 
         <div className="p-4">
@@ -371,51 +390,82 @@ export default function CupboardScanSheet({ familyId, shelf, defaultKind = 'book
             />
           ) : (
             <>
-              {/* tier switch */}
+              {/* tier switch — 📖 cover first (D30′), ▌▌ barcode second, ⌨ type last */}
               <div className="flex gap-1.5 mb-2.5">
-                {([['live', '▌▌ barcode'], ['still', '🖼 photo of barcode'], ['front', '📖 the front']] as Array<[Tier, string]>).map(([id, label]) => (
+                {([['front', '📖 Scan the cover'], ['live', '▌▌ Barcode']] as Array<[Tier, string]>).map(([id, label]) => (
                   <button key={id} type="button" onClick={() => setTier(id)}
                     className="text-[10.5px] font-extrabold px-2.5 py-1.5 rounded-full border border-[#E8E0CF]"
                     style={tier === id ? { background: WOOD, color: '#fff', borderColor: WOOD } : { background: '#fff', color: '#5B6B8C' }}>
                     {label}
                   </button>
                 ))}
+                <button type="button" onClick={onTypeInstead} className="text-[10.5px] font-extrabold px-2.5 py-1.5 rounded-full border border-[#E8E0CF] bg-white text-[#5B6B8C]">⌨ Type it</button>
               </div>
 
-              {tier === 'live' && (
-                <div className="relative rounded-[14px] overflow-hidden bg-[#0f1420]" style={{ height: 210 }}>
+              {/* one viewfinder, two frames */}
+              {!camFailed && (
+                <div className="relative rounded-[14px] overflow-hidden bg-[#0f1420]" style={{ height: 230 }}>
                   {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
                   <video ref={videoRef} playsInline muted className="w-full h-full object-cover" />
                   <div className="absolute inset-0 grid place-items-center pointer-events-none">
-                    <div className="w-[220px] h-[96px] border-2 rounded-[8px] relative" style={{ borderColor: '#3FA38F' }}>
-                      <div className="absolute left-2 right-2 top-1/2 h-[2px]" style={{ background: '#FF5C5C', boxShadow: '0 0 10px #FF5C5C' }} />
-                    </div>
+                    {tier === 'front' ? (
+                      <div className="w-[128px] h-[172px] border-2 rounded-[8px]" style={{ borderColor: '#3FA38F', boxShadow: '0 0 18px rgba(63,163,143,.45)' }} />
+                    ) : (
+                      <div className="w-[220px] h-[96px] border-2 rounded-[8px] relative" style={{ borderColor: '#3FA38F' }}>
+                        <div className="absolute left-2 right-2 top-1/2 h-[2px]" style={{ background: '#FF5C5C', boxShadow: '0 0 10px #FF5C5C' }} />
+                      </div>
+                    )}
                   </div>
-                  <div className="absolute bottom-0 left-0 right-0 text-center text-[10.5px] font-extrabold text-white/90 py-1.5 bg-black/30">{camMsg}</div>
-                </div>
-              )}
-
-              {tier === 'still' && (
-                <div className="rounded-[14px] border border-[#E8E0CF] bg-white p-3">
-                  <p className="text-[12px] font-extrabold text-[#0F1F44] m-0">🖼 Take a photo of the barcode</p>
-                  <p className="text-[10.8px] font-bold text-[#8A8471] mt-0.5 mb-2 leading-snug">{camMsg === 'Starting the camera…' ? 'The live camera isn’t available here — a still photo works the same.' : camMsg}</p>
-                  <input type="file" accept="image/*" capture="environment" className="text-[12px]" onChange={(e) => { const f = e.target.files?.[0]; if (f) decodeStill(f); e.target.value = ''; }} />
+                  <div className="absolute bottom-0 left-0 right-0 text-center text-[10.5px] font-extrabold text-white/90 py-1.5 bg-black/30">
+                    {tier === 'front' ? (frontBusy ? '🧠 Kaya is reading the cover…' : 'Hold the front of the book in the frame · tap Snap') : camMsg}
+                  </div>
                 </div>
               )}
 
               {tier === 'front' && (
-                <div className="rounded-[14px] border border-[#D9CCFA] bg-[#EFE8FF] p-3">
-                  <p className="text-[12px] font-extrabold text-[#3B2A73] m-0">📖 Snap the front — Kaya reads it</p>
-                  <p className="text-[10.8px] font-bold text-[#5A4A8A] mt-0.5 mb-2 leading-snug">
-                    Books: the title + author. Games: the title and the printed ages · players · minutes.{pendingCode ? ` Barcode ${pendingCode} will be kept as its identity.` : ''}
+                <div className="rounded-[14px] border border-[#D9CCFA] bg-[#EFE8FF] p-3 mt-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {!camFailed && (
+                      <button type="button" disabled={frontBusy || snapping} onClick={snapCover} className="px-4 py-2 rounded-full font-extrabold text-[12.5px] text-white disabled:opacity-50" style={{ background: '#5A3CB8' }}>
+                        {frontBusy || snapping ? '🧠 Reading…' : '📖 Snap the cover'}
+                      </button>
+                    )}
+                    <label className="text-[10.5px] font-extrabold px-2.5 py-1.5 rounded-full border border-[#D9CCFA] bg-white cursor-pointer" style={{ color: '#5A3CB8' }}>
+                      🖼 {camFailed ? 'Take a photo of the cover' : 'or choose a photo'}
+                      <input type="file" accept="image/*" capture="environment" disabled={frontBusy} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) readFront(f); e.target.value = ''; }} />
+                    </label>
+                    <div className="ml-auto"><ChoiceChips value={frontKind} onChange={setFrontKind} options={[{ id: 'book', label: '📚 Book' }, { id: 'game', label: '🎲 Game' }, { id: 'any', label: '🤷' }]} tone="jade" /></div>
+                  </div>
+                  <p className="text-[10.8px] font-bold text-[#5A4A8A] mt-1.5 mb-0 leading-snug">
+                    Kaya reads the <b>title + author</b> from the cover (games: title + ages · players · minutes from the box), then looks it up for the cover, pages and <b>what it&rsquo;s about</b>.{pendingCode ? ` Barcode ${pendingCode} will be kept as its identity.` : ''}
                   </p>
-                  <div className="mb-2"><ChoiceChips value={frontKind} onChange={setFrontKind} options={[{ id: 'book', label: '📚 A book' }, { id: 'game', label: '🎲 A game' }, { id: 'any', label: '🤷 Not sure' }]} tone="jade" /></div>
-                  <input type="file" accept="image/*" capture="environment" disabled={frontBusy} className="text-[12px]" onChange={(e) => { const f = e.target.files?.[0]; if (f) readFront(f); e.target.value = ''; }} />
-                  {frontBusy && <p className="text-[11px] font-extrabold text-[#5A3CB8] mt-2 m-0">🧠 Kaya is reading the front…</p>}
                   {frontErr && (
                     <div className="mt-2">
                       <p className="text-[11px] font-bold text-[#C0392B] m-0">{frontErr}</p>
-                      <button type="button" onClick={onTypeInstead} className="mt-1.5 text-[11px] font-extrabold" style={{ color: WOOD_DK }}>⌨ Type it instead (a parent confirms)</button>
+                      <div className="flex gap-2 mt-1.5">
+                        <button type="button" onClick={() => setTier('live')} className="text-[11px] font-extrabold" style={{ color: WOOD_DK }}>▌▌ Try the barcode</button>
+                        <button type="button" onClick={onTypeInstead} className="text-[11px] font-extrabold" style={{ color: WOOD_DK }}>⌨ Type it (a parent confirms)</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {tier === 'live' && (
+                <div className="rounded-[14px] border border-[#E8E0CF] bg-white p-3 mt-2">
+                  {camFailed ? (
+                    <>
+                      <p className="text-[12px] font-extrabold text-[#0F1F44] m-0">🖼 Take a photo of the barcode</p>
+                      <p className="text-[10.8px] font-bold text-[#8A8471] mt-0.5 mb-2 leading-snug">{camMsg === 'Starting the camera…' ? 'The live camera isn’t available here — a still photo works the same.' : camMsg}</p>
+                      <input type="file" accept="image/*" capture="environment" className="text-[12px]" onChange={(e) => { const f = e.target.files?.[0]; if (f) decodeStill(f); e.target.value = ''; }} />
+                    </>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-[10.8px] font-bold text-[#8A8471] m-0 leading-snug flex-1">Every beep drops into the tray — keep going, confirm all at once.</p>
+                      <label className="text-[10.5px] font-extrabold px-2.5 py-1.5 rounded-full border border-[#E8E0CF] bg-white cursor-pointer" style={{ color: WOOD_DK }}>
+                        🖼 photo of barcode
+                        <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) decodeStill(f); e.target.value = ''; }} />
+                      </label>
                     </div>
                   )}
                 </div>
@@ -454,14 +504,13 @@ export default function CupboardScanSheet({ familyId, shelf, defaultKind = 'book
                     {busy ? 'Adding…' : `✓ Confirm all (${ready})`}
                   </button>
                 )}
-                <button type="button" onClick={onTypeInstead} className="px-3.5 py-2.5 rounded-full font-extrabold text-[12px]" style={{ background: WOOD_BG, color: WOOD_DK }}>⌨ Type it</button>
                 <button type="button" onClick={close} className="px-3.5 py-2.5 rounded-full font-extrabold text-[12px] bg-[#EEF0F4] text-[#5B6B8C]">{added.length ? 'Done' : 'Close'}</button>
               </div>
               {added.length > 0 && (
                 <p className="text-[11px] font-extrabold text-[#2E7D4F] mt-2 m-0">✓ {added.length} added to the Cupboard{added.length === 1 ? ` · ` : ' '}{added.length === 1 && <Link href={`/sparks/treasures/cupboard/${added[0].addedId}`} className="text-[#0E6B5E]">open it →</Link>}</p>
               )}
               <p className="text-[10.5px] text-[#8A8471] italic leading-snug mt-2 mb-0">
-                Offline at the shelf? The barcode still reads; the cover comes when you’re back online. Kids’ typed titles wait ⚠ for a parent.
+                Offline at the shelf? Kaya’s read and the barcode still work; the cover and “what it’s about” come when you’re back online. Kids’ typed titles wait ⚠ for a parent.
               </p>
             </>
           )}
@@ -498,7 +547,7 @@ function TrayRow({ it, busy, onSame, onSecond, onFront, onType, onEdit }: {
           </div>
           <div className="text-[10px] font-bold text-[#5B6B8C] mt-0.5 line-clamp-1">
             {it.status === 'ready' && (it.kind === 'book'
-              ? `${it.book?.author || ''}${it.book?.pages ? ` · ${it.book.pages} pages` : ''}${it.nameSource === 'vision' ? ' · read by Kaya' : ' · matched'}`
+              ? `${it.book?.author || ''}${it.book?.pages ? ` · ${it.book.pages} pages` : ''}${it.nameSource === 'vision' ? ' · read by Kaya' : ' · matched'}${it.book?.summary ? ' · 📖 summary' : ''}`
               : `${[it.game?.ageMin ? `${it.game.ageMin}+` : '', it.game?.playersMin ? `${it.game.playersMin}–${it.game.playersMax || it.game.playersMin}` : '', it.game?.minutes ? `${it.game.minutes} min` : ''].filter(Boolean).join(' · ') || 'game'}${it.nameSource === 'vision' ? ' · read by Kaya' : ''}`)}
             {it.status === 'added' && '✓ added to the Cupboard'}
             {it.status === 'dup' && `⚠ already in the Cupboard — ${it.dupOf?.ownerName ? `${it.dupOf.ownerName}’s copy` : 'the family’s copy'}`}
@@ -546,6 +595,11 @@ function ConfirmCard({ item, shelf, whoOptions, whoValue, scope, kidId, whereKep
   const [pMax, setPMax] = useState(item.game?.playersMax ? String(item.game.playersMax) : '');
   const [minutes, setMinutes] = useState(item.game?.minutes ? String(item.game.minutes) : '');
   const [gameKind, setGameKind] = useState<GameKind | undefined>(item.game?.gameKind);
+  // D43 · "What it's about" — parents may edit; kids read.
+  const [summary, setSummary] = useState(item.book?.summary || '');
+  const [summaryOpen, setSummaryOpen] = useState(true);
+  const [editingSummary, setEditingSummary] = useState(false);
+  const summarySource = item.book?.summarySource;
   const digits = (s: string) => s.replace(/\D/g, '');
   const original = item.name || '';
   // D28 · editing a looked-up / read title turns it into a typed one.
@@ -596,12 +650,31 @@ function ConfirmCard({ item, shelf, whoOptions, whoValue, scope, kidId, whereKep
         <Field label="📍 Where it lives"><input className={inputCls} value={whereKept} onChange={(e) => onWhere(e.target.value)} placeholder="living-room cupboard, top shelf" maxLength={120} /></Field>
       </div>
 
+      {kind === 'book' && (summary || item.nameSource !== 'manual') && (
+        <div className="rounded-[12px] border border-[#E8E0CF] bg-white p-2.5 mb-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[12px] font-extrabold text-[#0F1F44]">📖 What it&rsquo;s about {summarySource && (
+              <span className="ml-1 inline-block text-[9.5px] font-extrabold px-2 py-0.5 rounded-full" style={summarySource === 'kaya' ? { background: '#EFE8FF', color: '#5A3CB8' } : { background: '#EEF0F4', color: '#5B6B8C' }}>
+                {summarySource === 'kaya' ? '🧠 Kaya’s words' : summarySource === 'openlibrary' ? 'from Open Library' : summarySource === 'parent' ? 'edited by a parent' : 'from Google Books'}
+              </span>)}
+            </div>
+            <div className="flex gap-2">
+              {isParent && summary && <button type="button" onClick={() => setEditingSummary((v) => !v)} className="text-[10.5px] font-extrabold" style={{ color: JADE }}>{editingSummary ? 'Done' : '✏️ edit'}</button>}
+              {summary && <button type="button" onClick={() => setSummaryOpen((v) => !v)} className="text-[10.5px] font-extrabold text-[#5B6B8C]">{summaryOpen ? 'hide' : 'show'}</button>}
+            </div>
+          </div>
+          {!summary && <p className="text-[10.5px] text-[#8A8471] italic mt-1 m-0">No summary yet — it arrives with the lookup when you’re online.</p>}
+          {summary && summaryOpen && !editingSummary && <p className="text-[11.5px] leading-snug text-[#394458] mt-1 m-0 border-l-[3px] border-[#E4CDB2] pl-2.5">{summary}</p>}
+          {summary && editingSummary && <textarea className={`${inputCls} mt-1 min-h-[64px]`} value={summary} onChange={(e) => setSummary(e.target.value)} maxLength={600} />}
+        </div>
+      )}
+
       {item.status === 'error' && <p className="text-[11.5px] text-[#C0392B] font-bold mt-1">{item.error}</p>}
 
       <div className="flex gap-2 mt-2">
         <button type="button" disabled={busy || !name.trim()} onClick={() => onAdd({
           ...item, kind, name: name.trim(), nameSource,
-          book: kind === 'book' ? { ...(item.book || { name: name.trim() }), name: name.trim(), author: author.trim() || undefined, pages: pages ? Number(pages) : undefined, ageMin: ageMin ? Number(ageMin) : undefined } : undefined,
+          book: kind === 'book' ? { ...(item.book || { name: name.trim() }), name: name.trim(), author: author.trim() || undefined, pages: pages ? Number(pages) : undefined, ageMin: ageMin ? Number(ageMin) : undefined, summary: summary.trim() || undefined, summarySource: summary.trim() ? (summary.trim() !== (item.book?.summary || '').trim() ? 'parent' : summarySource) : undefined } : undefined,
           game: kind === 'game' ? { name: name.trim(), ageMin: ageMin ? Number(ageMin) : undefined, playersMin: pMin ? Number(pMin) : undefined, playersMax: pMax ? Number(pMax) : undefined, minutes: minutes ? Number(minutes) : undefined, gameKind } : undefined,
         })} className="flex-1 px-4 py-2.5 rounded-full font-extrabold text-[13px] text-white disabled:opacity-50" style={{ background: WOOD }}>
           {busy ? 'Adding…' : '✓ Add to the Cupboard'}
