@@ -12,7 +12,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
-import { getFamilyMembers, type UserProfile } from '@/lib/firestore';
+import { getFamilyMembers, updateFamily, type UserProfile } from '@/lib/firestore';
 import { reservePost, finalizePost, uploadProcessedPhoto, type Post } from '@/lib/moments';
 import { processPhotoForUpload } from '@/lib/photoUpload';
 import { safeUploadBytes, compressImageBlob } from '@/lib/storageUpload';
@@ -27,7 +27,7 @@ import {
   type GreetingCard, type CardTheme, type KayaWritesSuggestion,
 } from '@/lib/greetingCards';
 import {
-  buildSignature, nthFor, displayTitle, typeMeta, type ReminderEvent, type GreetTo,
+  buildSignature, nthFor, displayTitle, typeMeta, saveReminder, type ReminderEvent, type GreetTo,
 } from '@/lib/reminders';
 
 const CAL = '#5B6CC8';
@@ -83,6 +83,34 @@ export default function GreetingCardStudio({ target, initial, onClose, onChanged
   const [kwBusy, setKwBusy] = useState(false);
   const [kwNote, setKwNote] = useState('');
   const fileRef = useRef<HTMLInputElement | null>(null);
+  // ✏️ Fix the honoree's name right here (Elia, 22-Aug): People-Book contact →
+  // the record of truth; event-only honoree → the reminder's greetTo.
+  const [renaming, setRenaming] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [renameBusy, setRenameBusy] = useState(false);
+  async function applyRename() {
+    const n = newName.trim();
+    if (!n || !honoree || !familyId || renameBusy) return;
+    setRenameBusy(true);
+    try {
+      if (honoree.contactId) {
+        const contacts = (family?.contacts || []).map((c) => (c.id === honoree.contactId ? { ...c, name: n } : c));
+        await updateFamily(familyId, { contacts });
+      } else if (!ev.id.startsWith('auto:')) {
+        const { auth } = await import('@/lib/firebase');
+        const token = await auth.currentUser?.getIdToken();
+        if (!token) throw new Error('Sign in');
+        await saveReminder(token, { id: ev.id, type: ev.type, title: ev.title, date: ev.date, originDate: ev.originDate, time: ev.time, withWho: ev.withWho, location: ev.location, note: ev.note, visibility: ev.visibility, repeat: ev.repeat, leadDays: ev.leadDays, channels: ev.channels, emailRecipients: ev.emailRecipients, greetTo: { ...honoree, name: n } });
+        setMsg('Name fixed on the reminder — the card updates on Save.');
+      } else {
+        setMsg('This name comes from the family profile — fix it in Settings → Family.');
+        setRenaming(false); setRenameBusy(false); return;
+      }
+      setRenaming(false); setDirty(true);
+      setMsg(`Name fixed → ${n}. Save the card to refresh the picture.`);
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Could not rename'); }
+    finally { setRenameBusy(false); }
+  }
 
   useEffect(() => {
     if (!familyId) return;
@@ -335,6 +363,30 @@ export default function GreetingCardStudio({ target, initial, onClose, onChanged
       <div className="flex justify-center mb-3">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={previewUrl} alt="Card preview" className="w-[220px] rounded-2xl shadow-lg border border-kaya-warm-dark" />
+      </div>
+
+      {/* Honoree — fix the name here; it flows People Book → reminder → card. */}
+      <div className="flex items-center gap-2 rounded-kaya border border-kaya-warm-dark bg-white px-3 py-2 mb-3">
+        <span className="text-base">{honoree.relationship === 'kid-friend' ? '🧒' : honoree.relationship === 'adult' ? '👤' : '🏠'}</span>
+        {renaming ? (
+          <>
+            <input value={newName} onChange={(e) => setNewName(e.target.value)} autoFocus maxLength={80}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void applyRename(); } if (e.key === 'Escape') setRenaming(false); }}
+              className="flex-1 rounded-kaya-sm border border-kaya-warm-dark bg-white px-2.5 py-1.5 text-sm font-bold text-kaya-chocolate" />
+            <button type="button" onClick={applyRename} disabled={renameBusy || !newName.trim()} className="rounded-kaya-sm px-3 py-1.5 text-xs font-extrabold text-white disabled:opacity-60" style={{ background: CAL }}>{renameBusy ? '…' : 'Fix'}</button>
+            <button type="button" onClick={() => setRenaming(false)} className="text-xs font-bold text-kaya-sand px-1">Cancel</button>
+          </>
+        ) : (
+          <>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] font-extrabold uppercase tracking-wide text-kaya-sand">Celebrating</div>
+              <div className="text-[13.5px] font-extrabold text-kaya-chocolate truncate">{honoree.name}</div>
+            </div>
+            {(isParent || role === 'helper') && (
+              <button type="button" onClick={() => { setNewName(honoree.name); setRenaming(true); }} className="rounded-kaya-sm px-2.5 py-1.5 text-[11px] font-bold text-kaya-sand bg-kaya-warm" title="Fix a misspelt name">✏️ Fix name</button>
+            )}
+          </>
+        )}
       </div>
 
       {/* Theme + accent */}

@@ -493,7 +493,7 @@ export default function RemindersPage() {
 
       {studio && (
         <GreetingCardStudio
-          target={studio}
+          target={{ ...studio, event: allEvents.find((e) => e.id === studio.event.id) || studio.event, honoree: honoreeForAuto(allEvents.find((e) => e.id === studio.event.id) || studio.event) }}
           initial={cards[cardIdFor(studio.event.id, studio.dateKey)] || null}
           onClose={() => setStudio(null)}
           onChanged={(c) => { if (c) setCards((m) => ({ ...m, [c.id]: c })); }}
