@@ -487,6 +487,9 @@ export default function GreetingCardStudio({ target, initial, onClose, onChanged
 
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <button type="button" onClick={() => persist()} disabled={saving || !canEdit} className="rounded-kaya px-4 py-2.5 text-sm font-extrabold text-white disabled:opacity-60" style={{ background: CAL }}>{saving ? 'Saving…' : dirty || !card ? 'Save card' : 'Saved ✓'}</button>
+        {card && canEdit && (status === 'sent' || status === 'belated') && (
+          <span className="text-[11px] text-kaya-sand">Already sent — edits update the link + email; re-share the picture for WhatsApp.</span>
+        )}
         {card && canEdit && status !== 'sent' && status !== 'belated' && (
           <button type="button" onClick={toggleReady} className="rounded-kaya px-4 py-2.5 text-sm font-extrabold bg-white border" style={{ borderColor: CAL, color: CAL_DK }}>
             {status === 'ready' ? '↩ Back to draft' : status === 'pending_parent' ? '⏳ Awaiting parent' : (!isParent && external ? '📨 Send to a parent' : '✓ Mark ready')}

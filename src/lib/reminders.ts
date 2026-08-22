@@ -299,6 +299,26 @@ export function buildSignature(ctx: SignatureContext): { line: string; roster?: 
   return roster ? { line, roster } : { line };
 }
 
+/** ✉️ 2.0 — the People Book is the record of truth for an outside honoree.
+ *  Re-hydrate a stored `greetTo` snapshot from the live contact so a corrected
+ *  name / email / number flows into the reminder AND its card (Elia, 22-Aug:
+ *  "corrections when correcting the records"). Returns the same object when
+ *  nothing changed, so callers can cheaply detect drift. */
+export function syncGreetToWithContact(g: GreetTo, contacts: FamilyContact[] | undefined): GreetTo {
+  if (!g.contactId || !contacts?.length) return g;
+  const c = contacts.find((x) => x.id === g.contactId);
+  if (!c) return g;
+  const emails = Array.from(new Set([c.email, ...(c.emails || [])].filter(Boolean))) as string[];
+  const next: GreetTo = { ...g, name: c.name, relationship: c.relationship };
+  if (emails[0]) next.email = emails[0]; else delete next.email;
+  if (emails.length > 1) next.emails = emails; else delete next.emails;
+  if (c.whatsapp) next.whatsapp = c.whatsapp; else delete next.whatsapp;
+  if (c.timezone) next.timezone = c.timezone; else delete next.timezone;
+  if (!emails.length) next.autoSend = false;
+  const same = JSON.stringify(next) === JSON.stringify(g);
+  return same ? g : next;
+}
+
 /** ✉️ 2.0 — built-in one-tap recipient groups for the EMAIL TO panel (Elia,
  *  22-Aug): Parents · Parents + Kids · Parents + Kids + Helpers (parents only).
  *  Resolved against the live member list; parents can untick individuals

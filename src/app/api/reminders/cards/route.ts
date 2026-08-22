@@ -16,7 +16,7 @@ import {
   type GreetingCard, type CardTheme, type CardLine, type CardStatus, type DeliveryChannel,
 } from '@/lib/greetingCards';
 import {
-  buildSignature, nthFor, displayTitle, type ReminderEvent, type GreetTo, type FamilyContact, type GreetingSignature, type ReminderType,
+  buildSignature, nthFor, displayTitle, syncGreetToWithContact, type ReminderEvent, type GreetTo, type FamilyContact, type GreetingSignature, type ReminderType,
 } from '@/lib/reminders';
 import {
   APP_URL, ensureCardToken, sendCardEmail, postCardToChat, bell, kidLoginUid, familyParents, appendDelivery,
@@ -132,8 +132,11 @@ export async function POST(req: NextRequest) {
       if (!ev) return NextResponse.json({ error: 'event-not-found' }, { status: 404 });
       if (ev.type !== 'birthday' && ev.type !== 'anniversary' && ev.type !== 'event') return NextResponse.json({ error: 'not-card-eligible' }, { status: 400 });
       if (!ev.greetTo) return NextResponse.json({ error: 'no-honoree' }, { status: 400 });
-      type = ev.type; eventTitle = displayTitle({ ...ev, id: eventId }, dateKey); honoree = ev.greetTo; visibility = ev.visibility;
+      type = ev.type; eventTitle = displayTitle({ ...ev, id: eventId }, dateKey); visibility = ev.visibility;
       nth = nthFor({ ...ev, id: eventId }, dateKey);
+      // People Book is the record of truth — a corrected contact flows into the event + card.
+      honoree = syncGreetToWithContact(ev.greetTo, fam.contacts);
+      if (honoree !== ev.greetTo) await evCol.doc(eventId).set({ greetTo: honoree, updatedAt: Date.now() }, { merge: true }).catch(() => {});
     }
 
     const lang: 'en' | 'sw' = raw.lang === 'sw' ? 'sw' : 'en';
@@ -342,7 +345,7 @@ export async function POST(req: NextRequest) {
     } else {
       const ev = (await evCol.doc(eventId).get()).data() as ReminderEvent | undefined;
       if (!ev || !ev.greetTo) return NextResponse.json({ error: 'no-honoree' }, { status: 400 });
-      type = ev.type; title = displayTitle({ ...ev, id: eventId }, dateKey); nth = nthFor({ ...ev, id: eventId }, dateKey); honoree = ev.greetTo;
+      type = ev.type; title = displayTitle({ ...ev, id: eventId }, dateKey); nth = nthFor({ ...ev, id: eventId }, dateKey); honoree = syncGreetToWithContact(ev.greetTo, fam.contacts);
     }
     const contact = honoree.contactId ? (fam.contacts || []).find((c) => c.id === honoree!.contactId) : undefined;
     const relation = contact?.relation || (honoree.relationship === 'kid-friend' ? "a kid's friend" : honoree.relationship === 'family' ? 'family member' : 'adult relative/friend');
@@ -418,6 +421,7 @@ export async function POST(req: NextRequest) {
     const existing = await loadCard(id);
     if (existing) return NextResponse.json({ card: existing.card });
     const fam = await loadFamily();
+    ev.greetTo = syncGreetToWithContact(ev.greetTo, fam.contacts);
     const parents = await familyParents(db, familyId);
     const sig = buildSignature({ parentNames: parents.map((p) => p.name), familyName: fam.name || '', kidNames: [], authorName: 'Kaya', authorRole: 'parent', relationship: ev.greetTo.relationship, lang: 'en', signature: fam.greetingSignature });
     const nth = nthFor({ ...ev, id: eventId }, dateKey);
