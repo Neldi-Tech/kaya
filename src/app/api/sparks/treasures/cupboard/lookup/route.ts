@@ -34,7 +34,7 @@ type ImgMedia = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
 const ALLOWED_MEDIA: ImgMedia[] = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const GAME_KINDS = ['party', 'strategy', 'cards', 'puzzle', 'outdoor', 'other'];
 
-export interface BookHit {
+interface BookHit {
   name: string;
   author?: string;
   pages?: number;
@@ -63,7 +63,7 @@ async function fetchJson(url: string): Promise<unknown> {
 }
 
 /** Digits only; ISBN-10 → ISBN-13. Returns '' when it isn't a code. */
-export function normaliseCode(raw: string): string {
+function normaliseCode(raw: string): string {
   const s = raw.replace(/[^0-9Xx]/g, '').toUpperCase();
   if (s.length === 10 && /^\d{9}[\dX]$/.test(s)) {
     const core = `978${s.slice(0, 9)}`;
@@ -77,7 +77,7 @@ export function normaliseCode(raw: string): string {
   return '';
 }
 
-export const isIsbnCode = (code: string) => code.length === 13 && /^97[89]/.test(code);
+const isIsbnCode = (code: string) => code.length === 13 && /^97[89]/.test(code);
 
 function yearOf(s: unknown): number | undefined {
   const m = String(s || '').match(/(1[5-9]\d\d|20\d\d)/);
