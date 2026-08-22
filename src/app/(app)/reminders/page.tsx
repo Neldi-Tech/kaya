@@ -21,7 +21,7 @@ import {
   REMINDER_TYPES, WEEKDAY_LABELS, LEAD_PRESETS, todayKey, resolveGroupRecipients,
   type ReminderEvent, type ReminderType, type ReminderVisibility,
   type RepeatRule, type RepeatFreq, type MonthDay, type ReminderRecipient,
-  type EmailGroup, type GreetTo, type FamilyContact, cardEligible, builtInGroups, nextAnniversaryOf,
+  type EmailGroup, type GreetTo, type FamilyContact, cardEligible, builtInGroups, nextAnniversaryOf, syncGreetToWithContact,
 } from '@/lib/reminders';
 import HonoreePicker from '@/components/reminders/HonoreePicker';
 import GreetingCardStudio, { type StudioTarget } from '@/components/reminders/GreetingCardStudio';
@@ -180,7 +180,12 @@ export default function RemindersPage() {
     return autoImportedEvents(profile.familyId, people, family || undefined);
   }, [children, family, profile?.familyId]);
 
-  const allEvents = useMemo(() => [...events, ...autoEvents], [events, autoEvents]);
+  // ✉️ 2.0 — People Book is the record of truth: show corrected names/emails
+  // even before the server re-syncs the stored snapshot.
+  const allEvents = useMemo(() => [
+    ...events.map((e) => (e.greetTo ? { ...e, greetTo: syncGreetToWithContact(e.greetTo, family?.contacts) } : e)),
+    ...autoEvents,
+  ], [events, autoEvents, family?.contacts]);
 
   const occurrences = useMemo(
     () => occurrencesInRange(allEvents, uid, role, { horizonDays: 60 }),

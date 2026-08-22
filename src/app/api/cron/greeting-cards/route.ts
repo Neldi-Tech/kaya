@@ -18,7 +18,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { Resend } from 'resend';
 import { dayKeyInTZ } from '@/lib/dates';
 import {
-  occursOn, addDaysKey, diffDaysKey, nthFor, displayTitle, buildSignature, FAMILY_TZ_DEFAULT,
+  occursOn, addDaysKey, diffDaysKey, nthFor, displayTitle, buildSignature, syncGreetToWithContact, FAMILY_TZ_DEFAULT,
   type ReminderEvent, type FamilyContact, type GreetingSignature, type GreetTo,
 } from '@/lib/reminders';
 import {
@@ -90,7 +90,8 @@ async function handle(req: NextRequest) {
         const ev = { id: d.id, ...(d.data() as Record<string, unknown>) } as ReminderEvent & { cardNudgeKeys?: string[] };
         if (!ev.greetTo || ev.status === 'pending_parent') continue;
         if (ev.type !== 'birthday' && ev.type !== 'anniversary' && ev.type !== 'event') continue;
-        const honoree: GreetTo = ev.greetTo;
+        const honoree: GreetTo = syncGreetToWithContact(ev.greetTo, fam.contacts);
+        if (honoree !== ev.greetTo) await d.ref.set({ greetTo: honoree }, { merge: true }).catch(() => {});
         const contact = honoree.contactId ? (fam.contacts || []).find((c) => c.id === honoree.contactId) : undefined;
         const tz = safeTz(honoree.timezone || contact?.timezone);
         const external = honoree.relationship !== 'family';
@@ -151,6 +152,10 @@ async function handle(req: NextRequest) {
                   };
                   await cardSnap.ref.set(fresh);
                   theCard = { id: cardId, ...fresh };
+                }
+                if (theCard.honoree.contactId === honoree.contactId && JSON.stringify(theCard.honoree) !== JSON.stringify(honoree)) {
+                  theCard = { ...theCard, honoree };
+                  await cardSnap.ref.set({ honoree }, { merge: true }).catch(() => {});
                 }
                 const r = await sendCardEmail({ db, familyId, familyName, cardRef: cardSnap.ref, card: theCard, contacts: fam.contacts, mode: 'auto' });
                 await cardSnap.ref.set({ sentKeys: FieldValue.arrayUnion(`${dateKey}:auto-email`) }, { merge: true }).catch(() => {});
