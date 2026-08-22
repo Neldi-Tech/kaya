@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebaseAdmin';
 import { FieldValue } from 'firebase-admin/firestore';
-import type { GreetingCard } from '@/lib/greetingCards';
+import { shortName, type GreetingCard } from '@/lib/greetingCards';
 import type { FamilyContact } from '@/lib/reminders';
 import { CARD_LINK_TTL_MS, postCardToChat, bell, familyParents } from '@/lib/greetingCards.server';
 
@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
     if (reaction) entry.reaction = reaction;
     if (text) entry.text = text;
     await cardRef.set({ thanks: FieldValue.arrayUnion(entry), updatedAt: Date.now() }, { merge: true });
-    const first = (card.honoree.name || 'They').split(/\s+/)[0];
+    const first = shortName(card.honoree.name) || 'They';
     const chat = `🙏 ${first} says${reaction ? ` ${reaction}` : ''}${text ? `: “${text}”` : ''} · via the card`;
     await postCardToChat(db, t.familyId, card, { uid: 'kaya', name: `${card.honoree.name} ✉️` }, chat).catch(() => {});
     const link = `/reminders?card=${encodeURIComponent(card.id)}`;

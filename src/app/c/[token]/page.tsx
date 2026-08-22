@@ -9,7 +9,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { cardSvgDataUrl, cardHeadline, type GreetingCard } from '@/lib/greetingCards';
+import { cardSvgDataUrl, cardHeadline, shortName, type GreetingCard } from '@/lib/greetingCards';
 import { toDisplayDate } from '@/lib/dates';
 
 type Proj = {
@@ -80,7 +80,7 @@ export default function PublicCardPage() {
 
   const sw = card?.lang === 'sw';
   const headline = card ? cardHeadline(card.type, card.nth, card.lang, card.eventTitle) : '';
-  const first = (card?.honoree.name || '').split(/\s+/)[0];
+  const first = shortName(card?.honoree.name);
 
   return (
     <div style={{ minHeight: '100vh', background: '#F4F1EA', fontFamily: "'Nunito', Lato, -apple-system, Segoe UI, Helvetica, Arial, sans-serif", color: '#1F2D3D' }}>

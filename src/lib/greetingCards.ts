@@ -149,13 +149,22 @@ export function cardHeadline(type: ReminderType, nth: number | null | undefined,
   return eventTitle && /gradu/i.test(eventTitle) ? 'Congratulations' : (eventTitle ? 'Congratulations' : 'Celebrating you');
 }
 
+const HONORIFICS = new Set(['mama','baba','bibi','babu','mzee','uncle','aunt','auntie','aunty','grandma','grandpa','granny','nana','mr','mrs','ms','dr','cousin','coach','teacher','sir','madam','pastor','rev','shangazi','mjomba','dada','kaka','mwalimu']);
+/** "Mama Rose" → "Mama Rose" (honorific kept), "Joseph Mwangi" → "Joseph". */
+export function shortName(full: string | undefined): string {
+  const parts = (full || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '';
+  if (parts.length >= 2 && HONORIFICS.has(parts[0].toLowerCase().replace(/\.$/, ''))) return `${parts[0]} ${parts[1]}`;
+  return parts[0];
+}
+
 export function typeEmoji(type: ReminderType): string {
   return type === 'birthday' ? '🎂' : type === 'anniversary' ? '💍' : '🎉';
 }
 
 /** Kaya's default one-liner when nobody drafted one (never embarrassing). */
 export function defaultOneLiner(card: Pick<GreetingCard, 'type' | 'nth' | 'lang' | 'honoree'>): string {
-  const first = (card.honoree.name || '').split(/\s+/)[0] || '';
+  const first = shortName(card.honoree.name);
   if (card.lang === 'sw') {
     if (card.type === 'birthday') return `Siku njema kabisa kwako, ${first}. Tunakupenda!`;
     if (card.type === 'anniversary') return 'Upendo unaodumu — hongera sana.';
@@ -167,7 +176,7 @@ export function defaultOneLiner(card: Pick<GreetingCard, 'type' | 'nth' | 'lang'
 }
 
 export function defaultMessage(card: Pick<GreetingCard, 'type' | 'nth' | 'lang' | 'honoree'>, signature: string): string {
-  const first = (card.honoree.name || '').split(/\s+/)[0] || '';
+  const first = shortName(card.honoree.name);
   if (card.lang === 'sw') {
     return card.type === 'birthday'
       ? `Mpendwa ${first}, heri ya kuzaliwa! Tunakutakia furaha, afya na baraka tele. Tunakupenda sana. — ${signature}`
@@ -270,7 +279,7 @@ function backgroundFor(theme: CardTheme, p: Palette, h: number): string {
   return s;
 }
 
-const STICKER_SPOTS: Array<[number, number]> = [[590, 86], [86, 86], [92, 700], [588, 706], [110, 400], [570, 400]];
+const STICKER_SPOTS: Array<[number, number]> = [[592, 132], [88, 168], [92, 750], [588, 750], [104, 470], [576, 470]];
 
 export interface CardSvgOptions {
   /** Include message + lines + signature + Kaya band under the front (share PNG). */
@@ -334,26 +343,29 @@ export function cardSvg(card: GreetingCard, opts: CardSvgOptions = {}): string {
   s += backgroundFor(card.theme, p, FRONT_H);
   const topY = p.pattern === 'stripes' ? 100 : 70;
   s += `<text x="48" y="${topY}" font-family="${font}" font-size="15" font-weight="800" letter-spacing="2.4" fill="${p.sub}">${esc(topLabel)}</text>`;
-  // big emoji
+  const footY = p.pattern === 'stripes' ? FRONT_H - 84 : FRONT_H - 52;
+  // Vertically centre the content block between the top label and the footer.
   const heroEmoji = card.stickers[0] && card.type === 'event' ? card.stickers[0] : typeEmoji(card.type);
-  s += `<text x="${W / 2}" y="${topY + 150}" text-anchor="middle" font-size="96">${esc(heroEmoji)}</text>`;
-  // headline
-  s += `<text x="${W / 2}" y="${topY + 230}" text-anchor="middle" font-family="${font}" font-size="40" font-weight="900" fill="${p.dark ? p.ink : accent}">${esc(headline)}</text>`;
-  let y = topY + 268;
-  for (const nl of nameLines) { s += `<text x="${W / 2}" y="${y}" text-anchor="middle" font-family="${font}" font-size="26" font-weight="800" fill="${p.ink}">${esc(nl)}</text>`; y += 32; }
-  // one-liner
-  y += 12;
+  const blockH = 120 + 64 + nameLines.length * 36 + 14 + olLines.length * 32 + (card.photoUrl ? 178 : 0);
+  const avail = footY - 30 - (topY + 30);
+  let y = topY + 30 + Math.max(0, (avail - blockH) / 2);
+  s += `<text x="${W / 2}" y="${y + 96}" text-anchor="middle" font-size="100">${esc(heroEmoji)}</text>`;
+  y += 120 + 50;
+  s += `<text x="${W / 2}" y="${y}" text-anchor="middle" font-family="${font}" font-size="44" font-weight="900" fill="${p.dark ? p.ink : accent}">${esc(headline)}</text>`;
+  y += 44;
+  for (const nl of nameLines) { s += `<text x="${W / 2}" y="${y}" text-anchor="middle" font-family="${font}" font-size="30" font-weight="800" fill="${p.ink}">${esc(nl)}</text>`; y += 36; }
+  y += 14;
   for (let i = 0; i < olLines.length; i++) {
     const t = (i === 0 ? '“' : '') + olLines[i] + (i === olLines.length - 1 ? '”' : '');
-    s += `<text x="${W / 2}" y="${y}" text-anchor="middle" font-family="${font}" font-size="22" font-style="italic" font-weight="700" fill="${p.ink}" opacity=".92">${esc(t)}</text>`; y += 30;
+    s += `<text x="${W / 2}" y="${y}" text-anchor="middle" font-family="${font}" font-size="24" font-style="italic" font-weight="700" fill="${p.ink}" opacity=".92">${esc(t)}</text>`; y += 32;
   }
-  // photo circle (placeholder ring when photoUrl present — rendered via <image>)
   if (card.photoUrl) {
-    s += `<defs><clipPath id="ph"><circle cx="${W / 2}" cy="${y + 80}" r="70"/></clipPath></defs>`;
-    s += `<circle cx="${W / 2}" cy="${y + 80}" r="74" fill="#fff" opacity=".9"/>`;
-    s += `<image href="${esc(card.photoUrl)}" x="${W / 2 - 70}" y="${y + 10}" width="140" height="140" preserveAspectRatio="xMidYMid slice" clip-path="url(#ph)"/>`;
+    const cy = y + 90;
+    s += `<defs><clipPath id="ph"><circle cx="${W / 2}" cy="${cy}" r="72"/></clipPath></defs>`;
+    s += `<circle cx="${W / 2}" cy="${cy}" r="76" fill="#fff" opacity=".9"/>`;
+    s += `<image href="${esc(card.photoUrl)}" x="${W / 2 - 72}" y="${cy - 72}" width="144" height="144" preserveAspectRatio="xMidYMid slice" clip-path="url(#ph)"/>`;
   }
-  // stickers
+  // stickers — corners + mid, never over the label/footer
   const stk = (card.stickers || []).slice(0, 6);
   stk.forEach((e, i) => {
     if (i === 0 && card.type === 'event') return; // used as hero
@@ -361,7 +373,6 @@ export function cardSvg(card: GreetingCard, opts: CardSvgOptions = {}): string {
     s += `<text x="${sx}" y="${sy}" text-anchor="middle" font-size="40">${esc(e)}</text>`;
   });
   // footer: signature + via KAYA
-  const footY = p.pattern === 'stripes' ? FRONT_H - 84 : FRONT_H - 52;
   s += `<text x="48" y="${footY}" font-family="${font}" font-size="18" font-style="italic" font-weight="700" fill="${p.ink}" opacity=".9">${esc(sigLine)}</text>`;
   s += `<text x="${W - 48}" y="${footY}" text-anchor="end" font-family="${font}" font-size="16" font-weight="900" letter-spacing="1.5" fill="${p.dark ? '#F3D06A' : p.ink}" opacity=".85">${esc(viaKaya)}</text>`;
   s += inside;
@@ -408,7 +419,7 @@ export async function downloadCard(card: GreetingCard): Promise<void> {
 export function whatsappText(card: GreetingCard, publicUrl: string | null): string {
   const lang = card.lang || 'en';
   const head = cardHeadline(card.type, card.nth, lang, card.eventTitle);
-  const first = (card.honoree.name || '').split(/\s+/)[0];
+  const first = shortName(card.honoree.name);
   const from = card.signatureLine ? ` — ${card.signatureLine}` : '';
   const open = publicUrl ? (lang === 'sw' ? ` Fungua kadi hapa: ${publicUrl}` : ` Open the card here: ${publicUrl}`) : '';
   return `${typeEmoji(card.type)} ${head}, ${first}! “${card.oneLiner || defaultOneLiner(card)}”${from}.${open} 💌`;
