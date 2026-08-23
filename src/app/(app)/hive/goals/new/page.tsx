@@ -12,6 +12,7 @@ import { useHive } from '@/contexts/HiveContext';
 import { addGoal, currencySymbol } from '@/lib/hive';
 import HoneyCoin from '@/components/hive/HoneyCoin';
 import BackButton from '@/components/ui/BackButton';
+import { Page, PageHeader, BTN_INLINE_LG } from '@/components/layout/Page';
 
 const ICONS = ['🚲', '🎧', '🎮', '📱', '⚽', '🎨', '📚', '🧱', '🎸', '🐶', '✈️', '🏕️'];
 
@@ -49,13 +50,15 @@ export default function NewGoalPage() {
     }
   };
 
+  // Web-Fit (2026-08-23): narrow tier (form); submit goes inline +
+  // right-aligned on desktop. Mobile markup unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="narrow">
       <div className="lg:hidden"><BackButton /></div>
-      <div className="mb-5">
+      <PageHeader className="mb-5">
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">New goal</p>
         <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1">What are you saving for? 🎯</h1>
-      </div>
+      </PageHeader>
 
       <div className="space-y-4">
         <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-4">
@@ -133,14 +136,16 @@ export default function NewGoalPage() {
 
         {error && <p className="text-hive-rose text-sm font-bold">{error}</p>}
 
+        <div className="lg:flex lg:justify-end">
         <button
           onClick={submit}
           disabled={submitting || isGuest}
-          className="w-full h-12 rounded-hive bg-hive-honey hover:bg-hive-honey-dk text-white font-nunito font-black text-sm disabled:opacity-40 transition-colors shadow-[0_8px_20px_-8px_rgba(243,156,47,0.5)]"
+          className={`w-full h-12 rounded-hive bg-hive-honey hover:bg-hive-honey-dk text-white font-nunito font-black text-sm disabled:opacity-40 transition-colors shadow-[0_8px_20px_-8px_rgba(243,156,47,0.5)] ${BTN_INLINE_LG}`}
         >
           {submitting ? 'Saving…' : 'Save goal'}
         </button>
+        </div>
       </div>
-    </div>
+    </Page>
   );
 }

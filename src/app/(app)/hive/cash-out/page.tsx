@@ -19,6 +19,7 @@ import KidSwitcher from '@/components/hive/KidSwitcher';
 import TransactionRow from '@/components/hive/TransactionRow';
 import PlanProgressStrip from '@/components/hive/PlanProgressStrip';
 import BackButton from '@/components/ui/BackButton';
+import { Page, BTN_INLINE_LG } from '@/components/layout/Page';
 import { formatCash } from '@/components/hive/format';
 import NumberInput from '@/components/hive/NumberInput';
 
@@ -204,8 +205,11 @@ export default function CashOutPage() {
     setFixSaving(false);
   };
 
+  // Web-Fit (2026-08-23): narrow tier (money flow); the request-form
+  // submit goes inline + right-aligned on desktop. The header keeps its
+  // own "+ Request spend" toggle (shown on every size). Mobile unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="narrow">
       <div className="lg:hidden"><BackButton /></div>
       <div className="mb-3 flex items-baseline justify-between gap-3">
         <div>
@@ -479,6 +483,7 @@ export default function CashOutPage() {
             const willAuto = !isBiz && cents > 0 && threshold > 0 && cents < threshold;
             const green = isBiz || willAuto;
             return (
+              <div className="lg:flex lg:justify-end">
               <button
                 onClick={submit}
                 disabled={submitting}
@@ -486,7 +491,7 @@ export default function CashOutPage() {
                   green
                     ? 'bg-hive-green hover:brightness-110 shadow-[0_8px_20px_-8px_rgba(63,175,108,0.5)]'
                     : 'bg-hive-honey hover:bg-hive-honey-dk'
-                }`}
+                } ${BTN_INLINE_LG}`}
               >
                 {submitting
                   ? 'Sending…'
@@ -496,6 +501,7 @@ export default function CashOutPage() {
                       ? 'Buy it now ⚡'
                       : 'Send request to parent'}
               </button>
+              </div>
             );
           })()}
         </div>
@@ -630,6 +636,6 @@ export default function CashOutPage() {
       <p className="mt-3 text-center text-[11px] text-hive-muted">
         Every spend needs parent approval. Categories tracked.
       </p>
-    </div>
+    </Page>
   );
 }

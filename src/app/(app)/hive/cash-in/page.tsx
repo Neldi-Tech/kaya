@@ -10,6 +10,7 @@ import { useHive } from '@/contexts/HiveContext';
 import KidSwitcher from '@/components/hive/KidSwitcher';
 import TransactionRow from '@/components/hive/TransactionRow';
 import BackButton from '@/components/ui/BackButton';
+import { Page, PageHeader } from '@/components/layout/Page';
 import { formatCash } from '@/components/hive/format';
 
 export default function CashInPage() {
@@ -39,13 +40,15 @@ export default function CashInPage() {
     return { monthCents, avgWeekCents: avg };
   }, [incoming]);
 
+  // Web-Fit (2026-08-23): narrow tier (money flow) — container only.
+  // Mobile markup unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="narrow">
       <div className="lg:hidden"><BackButton /></div>
-      <div className="mb-3">
+      <PageHeader>
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">Cash · In</p>
         <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1">Money I received</h1>
-      </div>
+      </PageHeader>
 
       <KidSwitcher />
 
@@ -89,6 +92,6 @@ export default function CashInPage() {
         All deposits logged. Parents add manually from{' '}
         <Link href="/parent/hive-deposit" className="text-hive-honey-dk font-bold hover:underline">/parent/hive-deposit</Link>.
       </p>
-    </div>
+    </Page>
   );
 }

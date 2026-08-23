@@ -21,6 +21,7 @@ import {
 import { DEPOSIT_BUILTINS } from '@/lib/moneyBuddy';
 import { formatCash, formatHoney, formatHp } from '@/components/hive/format';
 import { toDisplayDate } from '@/lib/dates';
+import { Page, PageHeader, PageSplit } from '@/components/layout/Page';
 
 const LAYERS: { key: 'all' | HiveLayer; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -210,18 +211,12 @@ export default function HiveStatementPage() {
     return `⭐ ${formatHp(earlier.house_points)} HP · 🪙 ${formatHoney(earlier.honey)} · 🍯 ${formatCash(earlier.treasury, currency)} · 💵 ${formatCash(earlier.cash, currency)}`;
   })();
 
-  return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
-      <Link href="/hive" className="text-[12px] text-hive-honey-dk font-nunito font-bold no-underline hover:underline inline-block mb-2">
-        ← The Hive
-      </Link>
-      <div className="flex items-center gap-2 mb-1">
-        <h1 className="font-nunito font-black text-2xl lg:text-[32px] tracking-tight">📜 My Statement</h1>
-      </div>
-      <p className="text-hive-muted text-sm mb-3">
-        Every move of your money — day by day, with your balance after each one.
-      </p>
-
+  // Web-Fit (2026-08-23): wide tier, main + rail. Desktop: layer chips +
+  // the "last 30 days" / earlier-months carry sit in the right rail
+  // (`railMobile="first"` = exactly where they were on mobile, above the
+  // day groups); the statement rows take the main column. Mobile unchanged.
+  const rail = (
+    <>
       {/* Layer chips (F7) */}
       <div className="flex gap-1.5 flex-wrap mb-4">
         {LAYERS.map((l) => (
@@ -253,7 +248,24 @@ export default function HiveStatementPage() {
           </div>
         </div>
       )}
+    </>
+  );
 
+  return (
+    <Page width="wide" className="pb-32">
+      <Link href="/hive" className="text-[12px] text-hive-honey-dk font-nunito font-bold no-underline hover:underline inline-block mb-2">
+        ← The Hive
+      </Link>
+      <PageHeader className="">
+      <div className="flex items-center gap-2 mb-1">
+        <h1 className="font-nunito font-black text-2xl lg:text-[32px] tracking-tight">📜 My Statement</h1>
+      </div>
+      <p className="text-hive-muted text-sm mb-3">
+        Every move of your money — day by day, with your balance after each one.
+      </p>
+      </PageHeader>
+
+      <PageSplit rail={rail} railMobile="first">
       {loading && <p className="text-sm text-hive-muted font-bold">Loading your story…</p>}
       {!loading && filtered.length === 0 && !hasEarlier && (
         <div className="bg-hive-paper border border-dashed border-hive-line rounded-hive p-6 text-center">
@@ -345,6 +357,7 @@ export default function HiveStatementPage() {
           </p>
         </div>
       )}
+      </PageSplit>
 
       {/* ✏️ Fix-entry sheet (parent-only) — deposits AND spends. The book
           stays append-only: original + ↩️ reversal + repost all remain. */}
@@ -437,6 +450,6 @@ export default function HiveStatementPage() {
           </div>
         </div>
       )}
-    </div>
+    </Page>
   );
 }

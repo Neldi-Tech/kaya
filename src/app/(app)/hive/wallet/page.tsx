@@ -12,6 +12,7 @@ import KidSwitcher from '@/components/hive/KidSwitcher';
 import PendingRequestBanner from '@/components/hive/PendingRequestBanner';
 import RatePill from '@/components/hive/RatePill';
 import BackButton from '@/components/ui/BackButton';
+import { Page, PageHeader } from '@/components/layout/Page';
 import { formatCash, formatHoney, formatHp, honeyToCashCents } from '@/components/hive/format';
 
 export default function WalletPage() {
@@ -28,17 +29,29 @@ export default function WalletPage() {
     ? Math.round((wallet.housePoints / config.hpToHoneyRate) * config.honeyToCashRate * fxRate * 100)
     : 0;
 
+  // Web-Fit (2026-08-23): wide tier. Desktop: the three balance cards sit
+  // 3-up, the Convert CTA moves into the header (mobile CTA `lg:hidden`).
+  // Mobile markup/order unchanged.
+  const convertAction = (
+    <Link
+      href="/hive/convert"
+      className="inline-flex items-center h-10 px-5 bg-hive-honey hover:bg-hive-honey-dk text-white rounded-hive font-nunito font-black text-sm transition-colors shadow-[0_8px_20px_-8px_rgba(243,156,47,0.5)] no-underline"
+    >
+      ⇄ Convert between layers
+    </Link>
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="wide">
       <div className="lg:hidden"><BackButton /></div>
-      <div className="mb-3">
+      <PageHeader actions={convertAction}>
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">
           {activeKid ? `${activeKid.name}'s Wallet` : 'Wallet'}
         </p>
         <h1 className="font-nunito font-black text-3xl lg:text-[40px] mt-1 leading-tight">
           My money 💰
         </h1>
-      </div>
+      </PageHeader>
 
       <KidSwitcher />
 
@@ -46,7 +59,7 @@ export default function WalletPage() {
 
       {/* Three balance cards stacked. Each links to the matching ledger
           surface (HP → Rewards store, Honey → Convert, Cash → Cash In). */}
-      <div className="space-y-2.5 mb-4">
+      <div className="space-y-2.5 mb-4 lg:space-y-0 lg:grid lg:grid-cols-3 lg:gap-3">
         <BalanceCard
           variant="hp"
           value={formatHp(wallet.housePoints)}
@@ -88,10 +101,10 @@ export default function WalletPage() {
         </Link>
       </div>
 
-      {/* Convert CTA — placeholder until PR-Hive-B */}
+      {/* Convert CTA — placeholder until PR-Hive-B. Desktop: header action. */}
       <Link
         href="/hive/convert"
-        className="block w-full bg-hive-honey hover:bg-hive-honey-dk text-white rounded-hive py-3.5 text-center font-nunito font-black text-sm transition-colors shadow-[0_8px_20px_-8px_rgba(243,156,47,0.5)] no-underline"
+        className="lg:hidden block w-full bg-hive-honey hover:bg-hive-honey-dk text-white rounded-hive py-3.5 text-center font-nunito font-black text-sm transition-colors shadow-[0_8px_20px_-8px_rgba(243,156,47,0.5)] no-underline"
       >
         ⇄ Convert between layers
       </Link>
@@ -114,6 +127,6 @@ export default function WalletPage() {
         </strong>{' '}
         across all layers
       </p>
-    </div>
+    </Page>
   );
 }

@@ -24,6 +24,7 @@ import { useHive } from '@/contexts/HiveContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { currencySymbol } from '@/lib/hive';
 import BackButton from '@/components/ui/BackButton';
+import { Page } from '@/components/layout/Page';
 import HoneyCoin from '@/components/hive/HoneyCoin';
 import { formatCashClean, formatHp, honeyToCashCents } from '@/components/hive/format';
 
@@ -47,8 +48,10 @@ export default function HiveGuidePage() {
   const exampleHoney = config.hpToHoneyRate > 0 ? Math.floor(exampleHp / config.hpToHoneyRate) : 0;
   const exampleCashCents = honeyToCashCents(exampleHoney, config.honeyToCashRate, fxRate);
 
+  // Web-Fit (2026-08-23): content tier (reading page) — container only;
+  // tip cards go 3-up on desktop. Mobile markup unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-8">
+    <Page width="content" className="pb-8">
       <div className="lg:hidden"><BackButton /></div>
 
       {/* Hero */}
@@ -231,7 +234,7 @@ export default function HiveGuidePage() {
 
       {/* Tips */}
       <h2 className="font-nunito font-black text-xl mb-3 mt-7">Smart money tips</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-7">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-7">
         <TipCard emoji="💼" title="Business money" body="If you run a Kaya business, your sales land right in your Treasury Reserve — ready to cash out." />
         <TipCard emoji="🎯" title="Set a goal" body="Picking something to save toward (a toy, a trip) makes the wait easier. Use Goals to track it." />
         <TipCard emoji="🗓️" title="Plan your month" body="Decide ahead what you'll save vs. spend on snacks vs. give. Use Plan." />
@@ -248,7 +251,7 @@ export default function HiveGuidePage() {
           ← Back to my Treasury Reserve
         </Link>
       </div>
-    </div>
+    </Page>
   );
 }
 
