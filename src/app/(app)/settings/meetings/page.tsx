@@ -28,6 +28,7 @@ import { useConfirm } from '@/contexts/ConfirmContext';
 import { updateFamily, getFamilyMembers, ReflectionMode, UserProfile } from '@/lib/firestore';
 import { SURPRISE_REGISTRY } from '@/lib/meetingSurprises';
 import BackButton from '@/components/ui/BackButton';
+import LeaderSettingsSection from '@/components/leader/LeaderSettingsSection';
 
 // Canonical agenda steps — kept in lockstep with `STEPS` in
 // /meetings/present/page.tsx. Order here is the default presentation
@@ -973,6 +974,9 @@ export default function MeetingSetupPage() {
           )}
         </div>
       </section>
+
+      {/* ── 👑 Leader of the Week (LW PR-L1) — self-saving block ── */}
+      <LeaderSettingsSection />
 
       {/* ── Prayer library ─────────────────────────────────────── */}
       <section className="mb-8 bg-white border border-kaya-warm-dark rounded-kaya-lg p-5 lg:p-7">

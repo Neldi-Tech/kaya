@@ -8,7 +8,7 @@
 
 import { auth } from './firebase';
 
-export type ShineTheme = 'classic' | 'night' | 'safari' | 'confetti';
+export type ShineTheme = 'classic' | 'night' | 'safari' | 'confetti' | 'crown';
 
 export interface ShineCardNote {
   text: string;
@@ -59,6 +59,8 @@ export const SHINE_THEMES: Array<{ id: ShineTheme; label: string; emoji: string 
   { id: 'night', label: 'Night Sky', emoji: '🌙' },
   { id: 'safari', label: 'Safari', emoji: '🦁' },
   { id: 'confetti', label: 'Confetti', emoji: '🎊' },
+  // 👑 LW PR-L5 — the Leader of the Week card.
+  { id: 'crown', label: 'Crown', emoji: '👑' },
 ];
 
 // ── Gateway caller (Diary idiom) ──────────────────────────────────
@@ -111,7 +113,7 @@ export interface RecognitionRound {
   id: string;
   date: string;
   lens: 'best' | 'improved' | 'comeback';
-  items: Array<{ kidId: string; kidName: string; emoji: string; kind: string; line: string; daysSince?: number; giftIdea?: { label: string; rewardId: string } }>;
+  items: Array<{ kidId: string; kidName: string; emoji: string; kind: string; line: string; daysSince?: number; giftIdea?: { label: string; rewardId: string }; termId?: string }>;
   sentTo: string[];
 }
 
@@ -171,6 +173,11 @@ const PALETTES: Record<ShineTheme, {
     bg: '#FFFBF4', frame: '#C9A5F0', frame2: '#EADDF9', brand: '#8b5cd6', name: '#241a34',
     quote: '#3d2d56', sig: '#6b5690', sealA: '#C9A5F0', sealB: '#8b5cd6', sealText: '#f6efff',
     bandA: '#8b5cd6', bandB: '#C9A5F0', bandText: '#f8f4ff', decor: '🎊',
+  },
+  crown: {
+    bg: '#FFFAEC', frame: '#C99A2E', frame2: '#F1DFAA', brand: '#9C7318', name: '#2a1d05',
+    quote: '#43340f', sig: '#7a5d18', sealA: '#F6D66B', sealB: '#B8860B', sealText: '#4a3305',
+    bandA: '#B8860B', bandB: '#F6D66B', bandText: '#3d2b08', decor: '👑',
   },
 };
 

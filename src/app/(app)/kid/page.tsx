@@ -12,6 +12,7 @@ import { daysToNextBirthday, ageAtNextBirthday } from '@/lib/dates';
 import KidAvatar from '@/components/ui/KidAvatar';
 import MeetingPrepCard from '@/components/meetings/MeetingPrepCard';
 import QuestionOfDayCard from '@/components/games/QuestionOfDayCard';
+import KidLeaderStrip from '@/components/leader/KidLeaderStrip';
 
 // Quick-pick reason chips for the appreciation form. Plain English so a
 // 6-year-old can tap without typing — they can still type a custom note.
@@ -221,6 +222,11 @@ export default function KidPage() {
           <div className="mx-auto mb-3 lg:mb-5 inline-block">
             <KidAvatar child={myChild} size="xl" bgOpacity="40" />
           </div>
+          {family?.houseLeader?.childId === myChild.id && (
+            <span className="inline-flex items-center gap-1.5 mb-2 px-3 py-1 rounded-full text-[11px] lg:text-[12px] font-black bg-white/25 border border-white/50" aria-label="Leader of the Week">
+              👑 Leader of the Week
+            </span>
+          )}
           <h1 className="font-display text-2xl lg:text-[40px] font-black lg:font-extrabold tracking-tight mb-0.5">{myChild.name}</h1>
           <p className="text-white/80 text-sm lg:text-base font-medium mb-5 lg:mb-7">{myChild.houseName} House</p>
 
@@ -246,6 +252,10 @@ export default function KidPage() {
       {/* 🎯 Question of the Day — the kids' landing surface finally carries the
           daily quiz (same shared question + streaks as /my-day; answering on
           either surface counts once). */}
+      {/* 👑 Leader of the Week (LW PR-L1) — the leader's gold strip (Notebook ·
+          mission · guide) or, for siblings, the "X is Leader of the Week" chip. */}
+      <KidLeaderStrip className="mb-5" />
+
       {profile?.uid && <QuestionOfDayCard meId={profile.uid} />}
 
       {/* Birthday countdown — only visible if birthday is set and within range */}

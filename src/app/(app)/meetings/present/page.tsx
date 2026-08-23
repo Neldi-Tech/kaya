@@ -40,6 +40,7 @@ import { computeFamilyCatchUps, CATCHUP_PERIODS, type KidCatchUps, type CatchUpP
 import { computeWindowRange, computeReview, computeDayScores } from '@/lib/meetingReview';
 import SundaySurpriseStep, { type SurpriseRecord } from '@/components/meetings/SundaySurpriseStep';
 import { giveAward } from '@/lib/firestore';
+import { leaderHandover, listLeaderNotes, draftLeaderReport, type LeaderNote } from '@/lib/leaderWeek';
 import { sendMessage } from '@/lib/messaging';
 import { auth as fbAuth } from '@/lib/firebase';
 import {
@@ -415,6 +416,32 @@ export default function MeetingPresenterPage() {
         cs.filter((c) => c.at >= Date.now() - 7 * 86400_000).sort((a, b) => a.n - b.n).slice(0, 10)))
       .catch(() => setWeekShine([]));
   }, [profile?.familyId]);
+
+  // 👑 LW PR-L3 — the Leader of the Week's Notebook this week (counts +
+  // Leader's Report line) for the Celebrate step. Gateway read; no rules.
+  const [leaderNotes, setLeaderNotes] = useState<LeaderNote[]>([]);
+  useEffect(() => {
+    const termId = family?.houseLeader?.termId;
+    if (!profile?.familyId || !termId) { setLeaderNotes([]); return; }
+    listLeaderNotes(profile.familyId, { termId })
+      .then((r) => setLeaderNotes(r.notes))
+      .catch(() => setLeaderNotes([]));
+  }, [profile?.familyId, family?.houseLeader?.termId]);
+  const leaderReport = useMemo(() => {
+    const hl = family?.houseLeader;
+    if (!hl) return null;
+    const names: Record<string, string> = {};
+    children.forEach((c) => { names[c.id] = c.name.split(' ')[0]; });
+    const approved = leaderNotes.filter((n) => n.status === 'approved' || n.status === 'adjusted');
+    const open = leaderNotes.filter((n) => n.status === 'pending' || n.status === 'resolving');
+    const shout = approved.filter((n) => n.kind === 'shoutout').length;
+    const heads = approved.filter((n) => n.kind === 'headsup').length;
+    const text = draftLeaderReport(
+      { id: hl.termId, childId: hl.childId, name: hl.name, emoji: hl.emoji, startAt: hl.startAt, endAt: null, source: hl.source, setBy: hl.setBy },
+      leaderNotes, names,
+    );
+    return { first: hl.name.split(' ')[0], emoji: hl.emoji, shout, heads, open: open.length, text };
+  }, [family?.houseLeader, leaderNotes, children]);
 
   // Guest suggestions — unique (name, relationship) pairs pulled from the
   // meeting HISTORY (up to ~a year back, SM3.1 · #1), plus the family's
@@ -849,9 +876,13 @@ export default function MeetingPresenterPage() {
   const [ledByName, setLedByName] = useState('');
   const [ledSeeded, setLedSeeded] = useState(false);
   const [prayerLedBy, setPrayerLedBy] = useState('');
+  // 👑 LW PR-L1 — tonight's leader as an ID too (kid childId when a kid
+  // leads), so the handover at FINISH can credit the Host trait.
+  const ledByRef = useRef<{ id: string; kind: 'parent' | 'kid' | 'helper' } | null>(null);
   useEffect(() => {
     if (ledSeeded || !family) return;
     setLedByName(family.nextMeetingLeader?.name || '');
+    ledByRef.current = family.nextMeetingLeader ? { id: family.nextMeetingLeader.id, kind: family.nextMeetingLeader.kind } : null;
     setLedSeeded(true);
   }, [family, ledSeeded]);
 
@@ -1047,6 +1078,18 @@ export default function MeetingPresenterPage() {
     // Finish again" retry — or a rerun of the presenter tonight — updates
     // THE SAME record instead of stacking duplicates in the history.
     await upsertWeeklyMeeting(profile.familyId, payload as Omit<Meeting, 'id'>);
+
+    // 👑 LW PR-L1 — Leader of the Week handover at FINISH: the current
+    // term closes (traits sealed, bonus, Recognition item) and, when the
+    // wheel picked a KID, that kid is crowned; an adult pick leaves the
+    // "appoint a House Leader" card for parents. Best-effort — the
+    // meeting record is already saved.
+    void leaderHandover(profile.familyId, {
+      ledChildId: ledByRef.current?.kind === 'kid' ? ledByRef.current.id : null,
+      openingWordDone,
+      themeSet: !!weekThemeText.trim(),
+      rolesDealt: roleEntries.length > 0,
+    }).catch(() => { /* quiet */ });
 
     // 🏅 BDG PR3 — one meeting counted for every kid marked present tonight
     // (Team Player → Meeting Champion). Best-effort: the meeting record is
@@ -1512,6 +1555,23 @@ export default function MeetingPresenterPage() {
                         ))}
                       </div>
                       <p className="text-[10.5px] text-white/70 mt-2">Read each one out — the card is on their Shine Wall forever.</p>
+                    </div>
+                  )}
+                  {/* 👑 LW PR-L3 — Leader's Notebook this week + Leader's Report
+                      (idea B), read aloud by the outgoing leader. A line, not
+                      a step — no meetingSetup change. */}
+                  {leaderReport && (
+                    <div className="rounded-kaya p-4 mb-4 border" style={{ background: 'linear-gradient(135deg,#FFF7E5,#FFE9C4)', borderColor: '#E9C867' }}>
+                      <p className="text-[10px] uppercase tracking-[0.14em] font-bold mb-1" style={{ color: '#B8860B' }}>📒 {leaderReport.first}&apos;s Notebook this week</p>
+                      <p className="text-[13px] font-bold text-[#4a3a18]">
+                        {leaderReport.shout} shout-out{leaderReport.shout === 1 ? '' : 's'} ✅ · {leaderReport.heads} heads-up{leaderReport.heads === 1 ? '' : 's'}
+                        {leaderReport.open > 0 ? (
+                          <> · <b>{leaderReport.open} still open</b>{profile?.role === 'parent' ? <> → <a href="/parent/leader" className="underline" style={{ color: '#B8860B' }}>decide now</a></> : null}</>
+                        ) : ' · nothing open'}
+                      </p>
+                      <p className="text-[10px] uppercase tracking-[0.14em] font-bold mt-3 mb-1" style={{ color: '#B8860B' }}>🎤 Leader&apos;s Report — {leaderReport.first} reads</p>
+                      <p className="text-[13px] text-[#4a3a18] italic">&ldquo;{leaderReport.text}&rdquo;</p>
+                      <p className="text-[10.5px] text-[#8A6800] mt-2">Then the wheel picks next week&apos;s leader — the crown moves when you finish tonight.</p>
                     </div>
                   )}
                   <CelebrateStep />
@@ -2454,6 +2514,9 @@ function LeaderPicker({
               <>
                 <span className="font-bold text-white">{queued.emoji} {queued.name}</span>
                 <span className="text-white/55"> is queued to lead next.</span>
+                {queued.kind === 'kid'
+                  ? <span className="text-kaya-gold-light"> 👑 Becomes Leader of the Week when you finish tonight.</span>
+                  : <span className="text-white/55"> 👑 A parent can appoint a kid as Leader of the Week from Home.</span>}
               </>
             ) : (
               <>Tap someone — or <span className="font-bold text-kaya-gold-light">spin the wheel</span> for a fair pick.</>

@@ -28,6 +28,7 @@ import {
   SHINE_THEMES, type ShineCard, type ShineTheme, type WaitingRound,
 } from '@/lib/shineCards';
 import { CardShareRow, postShineCardToMoments } from '@/components/rewards/ShineCards';
+import { markTermCelebrated } from '@/lib/leaderWeek';
 import { notifyAward } from '@/lib/notify';
 
 type Step = 'list' | 'pick' | 'detail' | 'gift' | 'points' | 'preview' | 'done';
@@ -39,6 +40,8 @@ const PROPOSAL: Record<string, { chip: string; blurb: string }> = {
   best:     { chip: '🎁 Gift',    blurb: 'A strong week deserves something real — a gift fits.' },
   improved: { chip: '🎖️ Token',  blurb: 'Climbing hard — a token of the comeback keeps the climb going.' },
   comeback: { chip: '🎖️ Token',  blurb: 'Bounced back after a rough patch — mark it with a token.' },
+  // 👑 LW PR-L5 — a sealed week as Leader of the Week.
+  leader:   { chip: '👑 Crown card', blurb: 'A week of leading the family — the crown card seals it on their wall.' },
 };
 
 const svgDataUrl = (card: ShineCard) =>
@@ -130,7 +133,8 @@ export default function RecognitionWizard() {
     setGiftCustom(false);
     setGiftPathway('simple'); setGiftAmount('');
     setPts(0);
-    setTheme(profile ? rememberedTheme(profile.uid) : 'classic');
+    // 👑 leader items default to the crown theme (parent can still switch).
+    setTheme(it.kind === 'leader' ? 'crown' : (profile ? rememberedTheme(profile.uid) : 'classic'));
     setErr('');
     setStep('detail');
   };
@@ -211,6 +215,9 @@ export default function RecognitionWizard() {
       };
       setCard(full);
       if (profile) rememberTheme(profile.uid, theme);
+      // 👑 LW PR-L5 — mark the leader term celebrated so the cron stops
+      // re-offering it (best-effort).
+      if (item?.kind === 'leader' && item.termId) markTermCelebrated(familyId, item.termId).catch(() => {});
       // ⑥c — auto-post to Moments (best-effort; card links back).
       postShineCardToMoments(familyId, profile, full).catch(() => {});
       // ⑥d — parent/helper emails (best-effort).
