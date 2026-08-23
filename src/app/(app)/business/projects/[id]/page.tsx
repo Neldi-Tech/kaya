@@ -18,6 +18,7 @@ import { uploadProjectPhoto, uploadProjectPhotoFromDataUrl, deleteBusinessPhoto 
 import AICoachCard from '@/components/business/AICoachCard';
 import AIImageButton from '@/components/business/AIImageButton';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
+import { Page, PageSplit } from '@/components/layout/Page';
 
 export default function ProjectDetailPage() {
   const params = useParams();
@@ -126,8 +127,64 @@ export default function ProjectDetailPage() {
 
   const st = PROJECT_STATUS_META[project.status];
 
+  // Web-Fit (2026-08-23): content tier, detail archetype. Desktop: the
+  // teammates + share cards sit in the right rail; mobile keeps them at the
+  // bottom exactly as before (`railMobile="last"`).
+  const rail = (
+    <>
+      {/* Teammates (parent-gated add) */}
+      <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-3">
+        <h3 className="font-nunito font-extrabold text-[14px] mb-2">🤝 Teammates</h3>
+        {(project.collaboratorIds?.length ?? 0) > 0 ? (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {project.collaboratorIds!.map((cid) => {
+              const c = children.find((k) => k.id === cid);
+              return <span key={cid} className="px-2.5 py-1 rounded-hive-pill bg-hive-cream text-[12px] font-nunito font-bold">{c?.avatarEmoji} {c?.name || 'Teammate'}</span>;
+            })}
+          </div>
+        ) : (
+          <p className="text-[12px] text-hive-muted mb-2">Just you for now.</p>
+        )}
+        {isParent ? (
+          <div className="flex flex-wrap gap-2">
+            {children.filter((c) => c.id !== project.ownerId).map((c) => {
+              const on = project.collaboratorIds?.includes(c.id);
+              return (
+                <button key={c.id} onClick={() => toggleCollaborator(c.id, !on)}
+                  className={`px-3 py-1.5 rounded-hive-pill text-[12px] font-nunito font-extrabold border transition ${on ? 'bg-hive-navy text-hive-honey border-transparent' : 'bg-hive-paper text-hive-muted border-hive-line'}`}>
+                  {on ? '✓ ' : '+ '}{c.avatarEmoji} {c.name}
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-[11px] text-hive-muted">Ask a parent to add a sibling teammate.</p>
+        )}
+      </div>
+
+      {/* Share to Moments — parent OK (per the locked decision) */}
+      <div className="bg-hive-paper border border-hive-line rounded-hive p-4">
+        <h3 className="font-nunito font-extrabold text-[14px] mb-1">📸 Share to Moments</h3>
+        {project.sharedMomentPostId ? (
+          <p className="text-[12.5px] text-[#2F7D32] font-nunito font-bold">✓ Shared to the family feed — the memory lasts!</p>
+        ) : isParent ? (
+          <>
+            <p className="text-[12px] text-hive-muted mb-2">Post this project&apos;s photos to the family Moments feed.</p>
+            <button onClick={share} disabled={sharing || !project.photoUrls?.length}
+              className="w-full h-11 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[13px] disabled:opacity-40 hover:brightness-110 transition">
+              {sharing ? 'Sharing…' : project.photoUrls?.length ? 'Share to Moments' : 'Add a photo first'}
+            </button>
+          </>
+        ) : (
+          <p className="text-[12px] text-hive-muted">Ask a parent to share your favourite photo to Moments. 💛</p>
+        )}
+      </div>
+    </>
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="content">
+      <PageSplit rail={rail} railMobile="last" sticky={false}>
       <div className="rounded-hive p-3.5 mb-3 flex items-center gap-3 bg-hive-navy text-hive-cream">
         <div className="text-[22px]">{st.emoji}</div>
         <div className="flex-1 min-w-0">
@@ -228,54 +285,7 @@ export default function ProjectDetailPage() {
           />
         </div>
       )}
-
-      {/* Teammates (parent-gated add) */}
-      <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-3">
-        <h3 className="font-nunito font-extrabold text-[14px] mb-2">🤝 Teammates</h3>
-        {(project.collaboratorIds?.length ?? 0) > 0 ? (
-          <div className="flex flex-wrap gap-2 mb-2">
-            {project.collaboratorIds!.map((cid) => {
-              const c = children.find((k) => k.id === cid);
-              return <span key={cid} className="px-2.5 py-1 rounded-hive-pill bg-hive-cream text-[12px] font-nunito font-bold">{c?.avatarEmoji} {c?.name || 'Teammate'}</span>;
-            })}
-          </div>
-        ) : (
-          <p className="text-[12px] text-hive-muted mb-2">Just you for now.</p>
-        )}
-        {isParent ? (
-          <div className="flex flex-wrap gap-2">
-            {children.filter((c) => c.id !== project.ownerId).map((c) => {
-              const on = project.collaboratorIds?.includes(c.id);
-              return (
-                <button key={c.id} onClick={() => toggleCollaborator(c.id, !on)}
-                  className={`px-3 py-1.5 rounded-hive-pill text-[12px] font-nunito font-extrabold border transition ${on ? 'bg-hive-navy text-hive-honey border-transparent' : 'bg-hive-paper text-hive-muted border-hive-line'}`}>
-                  {on ? '✓ ' : '+ '}{c.avatarEmoji} {c.name}
-                </button>
-              );
-            })}
-          </div>
-        ) : (
-          <p className="text-[11px] text-hive-muted">Ask a parent to add a sibling teammate.</p>
-        )}
-      </div>
-
-      {/* Share to Moments — parent OK (per the locked decision) */}
-      <div className="bg-hive-paper border border-hive-line rounded-hive p-4">
-        <h3 className="font-nunito font-extrabold text-[14px] mb-1">📸 Share to Moments</h3>
-        {project.sharedMomentPostId ? (
-          <p className="text-[12.5px] text-[#2F7D32] font-nunito font-bold">✓ Shared to the family feed — the memory lasts!</p>
-        ) : isParent ? (
-          <>
-            <p className="text-[12px] text-hive-muted mb-2">Post this project&apos;s photos to the family Moments feed.</p>
-            <button onClick={share} disabled={sharing || !project.photoUrls?.length}
-              className="w-full h-11 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[13px] disabled:opacity-40 hover:brightness-110 transition">
-              {sharing ? 'Sharing…' : project.photoUrls?.length ? 'Share to Moments' : 'Add a photo first'}
-            </button>
-          </>
-        ) : (
-          <p className="text-[12px] text-hive-muted">Ask a parent to share your favourite photo to Moments. 💛</p>
-        )}
-      </div>
-    </div>
+      </PageSplit>
+    </Page>
   );
 }

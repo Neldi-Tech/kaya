@@ -17,6 +17,7 @@ import { formatCash } from '@/components/hive/format';
 import { toDisplayDate } from '@/lib/dates';
 import BackButton from '@/components/ui/BackButton';
 import SaleReceiptSheet from '@/components/business/SaleReceiptSheet';
+import { Page, PageSplit } from '@/components/layout/Page';
 
 const COST_LABEL: Record<string, string> = {
   supplies: 'Supplies', tools: 'Tools', help: 'Help', other: 'Other',
@@ -94,8 +95,29 @@ export default function BusinessHistoryPage() {
       return s - e.amountCents;
     }, 0);
 
+  // Web-Fit (2026-08-23): content tier, list archetype. Desktop: the
+  // lifetime summary sits in the right rail (stacked 1-col), the day groups
+  // fill the main column. Mobile DOM order unchanged (`railMobile="first"`).
+  const rail = (
+    <div className="grid grid-cols-3 gap-2.5 mb-3 lg:grid-cols-1 lg:mb-0">
+      <div className="bg-hive-paper border border-hive-line rounded-hive p-3">
+        <div className="text-[10px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted">Money in</div>
+        <div className="font-nunito font-black text-[15px] mt-0.5 text-[#2F7D32]">{formatCash(totals.revenue, currency)}</div>
+      </div>
+      <div className="bg-hive-paper border border-hive-line rounded-hive p-3">
+        <div className="text-[10px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted">Money out</div>
+        <div className="font-nunito font-black text-[15px] mt-0.5 text-hive-rose">{formatCash(totals.costs, currency)}</div>
+      </div>
+      <div className="bg-hive-paper border border-hive-line rounded-hive p-3">
+        <div className="text-[10px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted">Net · sales</div>
+        <div className="font-nunito font-black text-[15px] mt-0.5">{formatCash(totals.net, currency)}</div>
+        <div className="text-[10px] text-hive-muted">{totals.sales} {totals.sales === 1 ? 'sale' : 'sales'}</div>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="content">
       <div className="lg:hidden"><BackButton /></div>
 
       {/* Header */}
@@ -114,24 +136,9 @@ export default function BusinessHistoryPage() {
         )}
       </div>
 
-      {/* Lifetime summary */}
-      <div className="grid grid-cols-3 gap-2.5 mb-3">
-        <div className="bg-hive-paper border border-hive-line rounded-hive p-3">
-          <div className="text-[10px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted">Money in</div>
-          <div className="font-nunito font-black text-[15px] mt-0.5 text-[#2F7D32]">{formatCash(totals.revenue, currency)}</div>
-        </div>
-        <div className="bg-hive-paper border border-hive-line rounded-hive p-3">
-          <div className="text-[10px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted">Money out</div>
-          <div className="font-nunito font-black text-[15px] mt-0.5 text-hive-rose">{formatCash(totals.costs, currency)}</div>
-        </div>
-        <div className="bg-hive-paper border border-hive-line rounded-hive p-3">
-          <div className="text-[10px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted">Net · sales</div>
-          <div className="font-nunito font-black text-[15px] mt-0.5">{formatCash(totals.net, currency)}</div>
-          <div className="text-[10px] text-hive-muted">{totals.sales} {totals.sales === 1 ? 'sale' : 'sales'}</div>
-        </div>
-      </div>
+      {/* Lifetime summary (rail on desktop) + the books */}
+      <PageSplit rail={rail} railMobile="first">
 
-      {/* The books */}
       {loading ? (
         <p className="text-center text-hive-muted text-sm py-8">Loading…</p>
       ) : ledger.length === 0 ? (
@@ -203,6 +210,7 @@ export default function BusinessHistoryPage() {
       <p className="mt-3 mb-2 text-center text-[11px] text-hive-muted">
         The full record stays here — sales, costs{business ? ` for ${business.name}` : ''}, and reinvestments.
       </p>
+      </PageSplit>
 
       {selected && familyId && profile?.uid && (
         <SaleReceiptSheet
@@ -214,6 +222,6 @@ export default function BusinessHistoryPage() {
           onClose={() => setSelected(null)}
         />
       )}
-    </div>
+    </Page>
   );
 }

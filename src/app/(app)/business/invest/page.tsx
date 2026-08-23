@@ -18,6 +18,7 @@ import {
 import { formatCash, formatCashClean } from '@/components/hive/format';
 import { formatWorth } from '@/components/business/money';
 import KidSwitcher from '@/components/hive/KidSwitcher';
+import { Page, PageSplit } from '@/components/layout/Page';
 
 export default function JuniorInvestorPage() {
   const { profile } = useAuth();
@@ -71,8 +72,37 @@ export default function JuniorInvestorPage() {
     return { value, invested, gain: value - invested };
   }, [holdings, quotes, fx]);
 
+  // Web-Fit (2026-08-23): content tier, detail archetype. Desktop: the
+  // "three big ideas" + parent-OK note sit in the right rail; mobile keeps
+  // them at the bottom exactly as before (`railMobile="last"`).
+  const rail = (
+    <>
+      {/* Big ideas */}
+      <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-3">
+        <h3 className="font-nunito font-extrabold text-[14px] mb-1">📖 Three big ideas</h3>
+        {[
+          ['Diversify', "Don't put all your eggs in one basket. Own different things."],
+          ['Compound', 'Your gains earn gains. Money grows faster as time passes.'],
+          ['Long-term', 'Stocks go up and down. Over years, patient kids win.'],
+        ].map(([t, d]) => (
+          <div key={t} className="py-2 border-b border-dashed border-hive-line last:border-0">
+            <div className="font-nunito font-bold text-[13px]">{t}</div>
+            <div className="text-[11px] text-hive-muted">{d}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-[#F4ECD8] border border-hive-line rounded-hive p-4">
+        <p className="text-[12px] text-hive-navy/80 leading-relaxed">
+          🔒 <b>A parent OK is needed for every buy.</b> Phase 1 is simulated (real prices, virtual money)
+          so you learn safely. Phase 2 opens real investing through a parent-controlled account.
+        </p>
+      </div>
+    </>
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="content">
       <div className="rounded-hive p-3.5 mb-3 flex items-center gap-3 bg-hive-navy text-hive-cream">
         <div className="text-[22px]">📈</div>
         <div className="flex-1 min-w-0">
@@ -84,6 +114,7 @@ export default function JuniorInvestorPage() {
 
       <KidSwitcher />
 
+      <PageSplit rail={rail} railMobile="last">
       {/* What is a stock */}
       <div className="bg-[#F4ECD8] border border-hive-honey/60 rounded-hive p-4 mb-3">
         <div className="flex items-center justify-between mb-1">
@@ -139,29 +170,8 @@ export default function JuniorInvestorPage() {
           />
         ))}
       </div>
-
-      {/* Big ideas */}
-      <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-3">
-        <h3 className="font-nunito font-extrabold text-[14px] mb-1">📖 Three big ideas</h3>
-        {[
-          ['Diversify', "Don't put all your eggs in one basket. Own different things."],
-          ['Compound', 'Your gains earn gains. Money grows faster as time passes.'],
-          ['Long-term', 'Stocks go up and down. Over years, patient kids win.'],
-        ].map(([t, d]) => (
-          <div key={t} className="py-2 border-b border-dashed border-hive-line last:border-0">
-            <div className="font-nunito font-bold text-[13px]">{t}</div>
-            <div className="text-[11px] text-hive-muted">{d}</div>
-          </div>
-        ))}
-      </div>
-
-      <div className="bg-[#F4ECD8] border border-hive-line rounded-hive p-4">
-        <p className="text-[12px] text-hive-navy/80 leading-relaxed">
-          🔒 <b>A parent OK is needed for every buy.</b> Phase 1 is simulated (real prices, virtual money)
-          so you learn safely. Phase 2 opens real investing through a parent-controlled account.
-        </p>
-      </div>
-    </div>
+      </PageSplit>
+    </Page>
   );
 }
 

@@ -32,6 +32,7 @@ import {
 import { uploadBusinessPhotoFromDataUrl } from '@/lib/businessPhoto';
 import { updateUserProfile } from '@/lib/firestore';
 import AIImageButton from '@/components/business/AIImageButton';
+import { Page, BTN_INLINE_LG } from '@/components/layout/Page';
 
 interface Row {
   id: string;
@@ -396,8 +397,10 @@ export default function NewBusinessPage() {
     }`;
   const filledProducts = rows.filter((r) => r.name.trim()).length;
 
+  // Web-Fit (2026-08-23): narrow tier (wizard/form) — container + inline
+  // submit buttons on desktop. Mobile unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="narrow">
       <div className="rounded-hive p-3.5 mb-4 flex items-center gap-3 bg-hive-navy text-hive-honey">
         <div className="text-[22px]">✨</div>
         <div>
@@ -463,10 +466,12 @@ export default function NewBusinessPage() {
             rows={2}
             className="w-full px-3 py-2.5 bg-hive-paper rounded-hive border border-hive-line text-[14px] focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
           />
+          <div className="lg:flex lg:justify-end">
           <button type="button" onClick={draft} disabled={drafting || idea.trim().length < 3}
-            className="w-full mt-2 h-12 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[14px] disabled:opacity-40 hover:brightness-110 active:scale-[0.99] transition">
+            className={`w-full mt-2 h-12 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[14px] disabled:opacity-40 hover:brightness-110 active:scale-[0.99] transition ${BTN_INLINE_LG}`}>
             {drafting ? 'Drafting your business… ✨' : showEditor ? '✨ Draft again' : '✨ Draft my business'}
           </button>
+          </div>
           {draftError && <p className="text-hive-rose text-[12px] font-bold mt-2">{draftError}</p>}
           {aiOff && (
             <p className="text-[12px] text-[#B25E16] font-nunito font-bold mt-2">
@@ -602,13 +607,15 @@ export default function NewBusinessPage() {
 
           {error && <p className="text-hive-rose text-[12px] font-bold mt-3">{error}</p>}
 
+          <div className="lg:flex lg:justify-end">
           <button type="button" onClick={submit} disabled={!canSubmit}
-            className="w-full mt-5 h-12 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[14px] disabled:opacity-40 hover:brightness-110 active:scale-[0.99] transition">
+            className={`w-full mt-5 h-12 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[14px] disabled:opacity-40 hover:brightness-110 active:scale-[0.99] transition ${BTN_INLINE_LG}`}>
             {saving ? 'Creating…'
               : keepsInventory && filledProducts > 0
                 ? `Create business + ${filledProducts} ${filledProducts === 1 ? 'product' : 'products'}`
                 : isParent ? 'Create business' : 'Start as Pilot →'}
           </button>
+          </div>
           {!canSubmit && !saving && (
             <p className="text-[12px] text-[#B25E16] text-center mt-2 font-nunito font-bold">
               {name.trim().length < 2 ? '✏️ Give it a name'
@@ -627,7 +634,7 @@ export default function NewBusinessPage() {
       )}
        </>
       )}
-    </div>
+    </Page>
   );
 }
 

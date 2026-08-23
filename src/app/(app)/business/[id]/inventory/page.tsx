@@ -20,6 +20,7 @@ import { relativeDayLabel } from '@/lib/dates';
 import { formatCash } from '@/components/hive/format';
 import { formatWorth } from '@/components/business/money';
 import { typeMeta, TYPE_GRADIENT } from '@/components/business/meta';
+import { Page, PageSplit } from '@/components/layout/Page';
 
 function centsFrom(input: string): number | undefined {
   const n = parseFloat(input.replace(/,/g, ''));
@@ -63,8 +64,42 @@ export default function InventoryPage() {
   const currency = config.currency;
   const stats = business?.stats;
 
+  // Web-Fit (2026-08-23): content tier, detail archetype. Desktop: recent
+  // stock changes + the kid lesson sit in the right rail; add-form + item
+  // groups fill the main column. Mobile DOM order unchanged (`railMobile="first"`
+  // — those two cards sat between the worth roll-up and the add form before).
+  const rail = (
+    <>
+      {/* Recent stock changes — the "what moved" summary (sold, went bad,
+          count fixed, added). Sales also show in the Dashboard books; this is
+          the inventory lens (units in/out), so spoilage + recounts show too. */}
+      {moves.length > 0 && (
+        <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-3">
+          <div className="flex items-baseline justify-between mb-1.5">
+            <h3 className="font-nunito font-extrabold text-[14px]">📊 Recent stock changes</h3>
+            <span className="text-[11px] text-hive-muted">last {Math.min(moves.length, 25)}</span>
+          </div>
+          <div>
+            {moves.slice(0, 8).map((m) => (
+              <StockChangeRow key={m.id} move={m} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Kid lesson */}
+      <div className="bg-[#F4ECD8] border border-hive-honey/60 rounded-hive p-4 mb-3">
+        <p className="text-[13px] leading-relaxed text-hive-navy">
+          <b>📚 Two kinds of things you own:</b> <b>assets</b> (trees, chickens, tools — they keep working
+          for you) and <b>stock</b> (fruits, eggs, things ready to sell). Add them up and you see how big
+          your business really is.
+        </p>
+      </div>
+    </>
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="content">
       <div className="rounded-hive p-3.5 mb-3 flex items-center gap-3 bg-hive-navy text-hive-cream">
         <div className="text-[22px]">📦</div>
         <div className="flex-1 min-w-0">
@@ -112,32 +147,7 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      {/* Recent stock changes — the "what moved" summary (sold, went bad,
-          count fixed, added). Sales also show in the Dashboard books; this is
-          the inventory lens (units in/out), so spoilage + recounts show too. */}
-      {moves.length > 0 && (
-        <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-3">
-          <div className="flex items-baseline justify-between mb-1.5">
-            <h3 className="font-nunito font-extrabold text-[14px]">📊 Recent stock changes</h3>
-            <span className="text-[11px] text-hive-muted">last {Math.min(moves.length, 25)}</span>
-          </div>
-          <div>
-            {moves.slice(0, 8).map((m) => (
-              <StockChangeRow key={m.id} move={m} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Kid lesson */}
-      <div className="bg-[#F4ECD8] border border-hive-honey/60 rounded-hive p-4 mb-3">
-        <p className="text-[13px] leading-relaxed text-hive-navy">
-          <b>📚 Two kinds of things you own:</b> <b>assets</b> (trees, chickens, tools — they keep working
-          for you) and <b>stock</b> (fruits, eggs, things ready to sell). Add them up and you see how big
-          your business really is.
-        </p>
-      </div>
-
+      <PageSplit rail={rail} railMobile="first" sticky={false}>
       {canEdit && <AddItemForm familyId={familyId!} businessId={businessId} uid={profile!.uid} currency={currency} />}
 
       {loading ? (
@@ -160,7 +170,8 @@ export default function InventoryPage() {
           )}
         </div>
       )}
-    </div>
+      </PageSplit>
+    </Page>
   );
 }
 

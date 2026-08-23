@@ -21,6 +21,11 @@ import { rangeFromQuery, monthKeysInRange, monthSpan, rangeLabel, type TimeRange
 import { formatCents } from '@/components/pantry/format';
 import { PulseHeader, PulseHero, PulseBreadcrumb } from '@/components/pulse/ui';
 import { toDisplayDate } from '@/lib/dates';
+import { Page, PageSplit, DATA_ROW, DATA_ROW_HOVER } from '@/components/layout/Page';
+
+// Web-Fit (2026-08-23): lg-only "DataRows" panel look in Pulse's palette
+// (mobile `flex flex-col gap-2` untouched).
+const ROWS_LG = 'lg:gap-0 lg:overflow-hidden lg:rounded-2xl lg:border lg:border-pulse-gold/30 lg:bg-white lg:divide-y lg:divide-pulse-gold/30';
 import {
   type PulseReading, type Trackable,
   subscribeToReadingsInMonth, subscribeToTrackables,
@@ -146,8 +151,33 @@ export default function BucketDrillDownPage() {
     : pace.flag === 'on_track' ? 'text-pulse-green'
     : 'text-hive-muted';
 
+  // Web-Fit (2026-08-23): content tier, detail archetype. Desktop: the
+  // metered-trackables section sits in the right rail; transactions render
+  // as dense rows. Mobile DOM order unchanged (`railMobile="last"`).
+  const rail = (
+    <>
+      {/* Metered trackables (consumption lens) */}
+      <div className="text-[11px] font-nunito font-black text-pulse-navy uppercase tracking-[1px] mt-5 mb-2 lg:mt-4">Metered in this bucket</div>
+      {metered.length === 0 ? (
+        <div className="bg-white border border-pulse-gold/30 rounded-2xl p-4 text-center text-[12px] text-hive-muted">
+          No meters mapped to {MODULE_LABEL[moduleKey]}. Add one in{' '}
+          <Link href="/pulse/admin" className="text-pulse-gold-dk font-bold underline">Task setup</Link> to see usage trends here.
+        </div>
+      ) : (
+        <div className={`flex flex-col gap-2 ${ROWS_LG}`}>
+          {metered.map(({ t, cents }) => (
+            <Link key={t.id} href={`/pulse/trackable/${t.id}`} className={`bg-white border border-pulse-gold/30 rounded-2xl p-3 flex items-center justify-between no-underline hover:bg-pulse-cream/40 ${DATA_ROW} ${DATA_ROW_HOVER}`}>
+              <span className="font-bold text-pulse-navy text-[13px]">{t.emoji} {t.name}</span>
+              <span className="font-nunito font-black text-pulse-navy text-[13px]">{formatCents(cents, currency)} ›</span>
+            </Link>
+          ))}
+        </div>
+      )}
+    </>
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="content" className="pb-32">
       <PulseBreadcrumb trail={[]} current={MODULE_LABEL[moduleKey]} />
       <PulseHeader
         eyebrow="Budget bucket"
@@ -155,6 +185,7 @@ export default function BucketDrillDownPage() {
         subtitle={`Cash spend · ${rangeLabel(range)}`}
       />
 
+      <PageSplit rail={rail} railMobile="last">
       {/* Hero — spend vs cap + run-rate */}
       <div className="mt-4">
         <PulseHero>
@@ -238,7 +269,7 @@ export default function BucketDrillDownPage() {
             <div className="text-[11px] font-nunito font-black text-pulse-navy uppercase tracking-[1px]">Transactions · {txns.length}</div>
             <span className="text-[10px] text-hive-muted font-bold">tap to drill</span>
           </div>
-          <div className="flex flex-col gap-2">
+          <div className={`flex flex-col gap-2 ${ROWS_LG}`}>
             {txns.map((t) => {
               const at = t.closedAt?.toDate?.();
               const dayKey = at ? `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}` : '';
@@ -247,7 +278,7 @@ export default function BucketDrillDownPage() {
                 <Link
                   key={t.id}
                   href={`/pulse/txn/${t.id}`}
-                  className="bg-white border border-pulse-gold/30 rounded-2xl p-3 flex items-center gap-3 no-underline hover:bg-pulse-cream/40"
+                  className={`bg-white border border-pulse-gold/30 rounded-2xl p-3 flex items-center gap-3 no-underline hover:bg-pulse-cream/40 lg:px-4 ${DATA_ROW} ${DATA_ROW_HOVER}`}
                 >
                   <div className="w-11 shrink-0 text-center">
                     <div className="font-nunito font-black text-pulse-navy text-base leading-none">{at ? at.getDate() : '?'}</div>
@@ -269,24 +300,7 @@ export default function BucketDrillDownPage() {
           </div>
         </>
       )}
-
-      {/* Metered trackables (consumption lens) */}
-      <div className="text-[11px] font-nunito font-black text-pulse-navy uppercase tracking-[1px] mt-5 mb-2">Metered in this bucket</div>
-      {metered.length === 0 ? (
-        <div className="bg-white border border-pulse-gold/30 rounded-2xl p-4 text-center text-[12px] text-hive-muted">
-          No meters mapped to {MODULE_LABEL[moduleKey]}. Add one in{' '}
-          <Link href="/pulse/admin" className="text-pulse-gold-dk font-bold underline">Task setup</Link> to see usage trends here.
-        </div>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {metered.map(({ t, cents }) => (
-            <Link key={t.id} href={`/pulse/trackable/${t.id}`} className="bg-white border border-pulse-gold/30 rounded-2xl p-3 flex items-center justify-between no-underline hover:bg-pulse-cream/40">
-              <span className="font-bold text-pulse-navy text-[13px]">{t.emoji} {t.name}</span>
-              <span className="font-nunito font-black text-pulse-navy text-[13px]">{formatCents(cents, currency)} ›</span>
-            </Link>
-          ))}
-        </div>
-      )}
-    </div>
+      </PageSplit>
+    </Page>
   );
 }

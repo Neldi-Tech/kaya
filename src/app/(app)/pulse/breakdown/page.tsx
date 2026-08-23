@@ -22,6 +22,7 @@ import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import { PulseHeader, PulseHero, PulseBreadcrumb } from '@/components/pulse/ui';
 import { projectMonthSpendCents } from '@/lib/pulse';
 import { rangeFromQuery, monthKeysInRange, monthSpan, rangeLabel, type TimeRange } from '@/lib/timeRange';
+import { Page } from '@/components/layout/Page';
 
 const monthKeyOf = (d: Date = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 const monthLabel = (d: Date = new Date()) => d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
@@ -123,11 +124,15 @@ export default function PulseBreakdownPage() {
     return <div className="mx-auto max-w-md px-4 pt-16 text-center text-hive-muted text-sm">Redirecting…</div>;
   }
 
+  // Web-Fit (2026-08-23): wide tier. Desktop: 2-col grid — hero (+ Future
+  // Self under it) left, composition right (row-span-2). Mobile stacks in
+  // DOM order exactly as before (lg-only classes, no wrappers).
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="wide" className="pb-32">
       <PulseBreadcrumb trail={[]} current={`Spent · ${rangeLabel(range)}`} />
       <PulseHeader eyebrow="Composition" title="Spent" subtitle={rangeLabel(range)} />
 
+      <div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start">
       {/* Hero */}
       <div className="mt-4">
         <PulseHero>
@@ -154,7 +159,7 @@ export default function PulseBreakdownPage() {
       </div>
 
       {/* Donut + segments */}
-      <div className="mt-3 bg-white border border-pulse-gold/30 rounded-2xl p-4">
+      <div className="mt-3 bg-white border border-pulse-gold/30 rounded-2xl p-4 lg:mt-4 lg:row-span-2">
         <div className="text-[10px] font-nunito font-black uppercase tracking-[1.4px] text-pulse-gold-dk mb-2">📐 Composition</div>
         {totalSpent === 0 ? (
           <p className="text-hive-muted text-sm py-6 text-center">No closed spend in {rangeLabel(range)}.</p>
@@ -206,7 +211,7 @@ export default function PulseBreakdownPage() {
         const year = monthlySave * 12;
         const five = monthlySave * 60;
         return (
-          <div className="mt-3 relative overflow-hidden rounded-2xl p-4 text-white"
+          <div className="mt-3 lg:mt-0 relative overflow-hidden rounded-2xl p-4 text-white"
             style={{ background: 'linear-gradient(135deg,#2a3a6a 0%,#0F1F44 100%)' }}>
             <div className="text-[10px] font-nunito font-black uppercase tracking-[1.4px] text-pulse-gold mb-2">🌳 Future Self · if this pace holds</div>
             <div className="text-[11.5px] font-bold opacity-80 mb-2.5">{monthLabel()} monthly save: {formatCentsBudgetNeat(monthlySave, currency)}</div>
@@ -217,7 +222,8 @@ export default function PulseBreakdownPage() {
           </div>
         );
       })()}
-    </div>
+      </div>
+    </Page>
   );
 }
 

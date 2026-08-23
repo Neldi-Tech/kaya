@@ -27,6 +27,7 @@ import DailySalesCard from '@/components/business/DailySalesCard';
 import AICoachCard from '@/components/business/AICoachCard';
 import AIImageButton from '@/components/business/AIImageButton';
 import StockTakeHistory from '@/components/business/StockTakeHistory';
+import { Page, PageSplit } from '@/components/layout/Page';
 
 const MILESTONE_META = Object.fromEntries(BUSINESS_MILESTONES.map((m) => [m.key, m]));
 
@@ -137,8 +138,182 @@ export default function BusinessDashboardPage() {
   const split = business.hiveSplit;
   const statCard = 'bg-hive-paper border border-hive-line rounded-hive p-3.5';
 
+  // Web-Fit (2026-08-23): content tier, detail archetype. Desktop: the
+  // books/activity cards (recent activity · snapshot · stock-take history ·
+  // coach · coming next) sit in the right rail; headline numbers go 4-up.
+  // Mobile DOM order unchanged — the rail is `railMobile="last"`, i.e. those
+  // cards stay at the bottom exactly as before.
+  const rail = (
+    <>
+      {/* Recent activity (the books) */}
+      <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-3">
+        <div className="flex items-baseline justify-between mb-1">
+          <h3 className="font-nunito font-extrabold text-[14px]">Recent activity</h3>
+          <Link href={`/business/${businessId}/history`} className="text-[11px] font-nunito font-extrabold text-hive-honey-dk hover:underline">
+            History →
+          </Link>
+        </div>
+        {ledger.length === 0 ? (
+          <p className="text-[12px] text-hive-muted py-3 text-center">No sales or costs yet. Log your first one above.</p>
+        ) : (
+          ledger.slice(0, 6).map((e) => {
+            const ms = (e.occurredAt as any)?.toMillis?.();
+            const date = typeof ms === 'number' ? new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+            const isSale = e.kind === 'sale';
+            return (
+              <div key={e.id} className="flex items-center justify-between gap-2 py-2 border-b border-dashed border-hive-line last:border-0">
+                <div className="min-w-0">
+                  <div className="text-[13px] truncate">{isSale ? '💵' : '🧾'} {e.description}{e.paymentStatus === 'unpaid' ? ' · IOU' : ''}</div>
+                  <div className="text-[11px] text-hive-muted">{date}</div>
+                </div>
+                <span className={`font-nunito font-extrabold text-[13px] shrink-0 ${isSale ? 'text-[#2F7D32]' : 'text-hive-rose'}`}>
+                  {isSale ? '+' : '−'}{formatCash(e.amountCents, config.currency)}
+                </span>
+              </div>
+            );
+          })
+        )}
+        {ledger.length > 6 && (
+          <Link href={`/business/${businessId}/history`} className="mt-2 block text-center text-[12px] font-nunito font-extrabold text-hive-honey-dk hover:underline">
+            See full history →
+          </Link>
+        )}
+      </div>
+
+      {/* Today's snapshot — what changed on the business today (or
+          yesterday when today is empty). Pulls from the same data
+          streams already loaded above (ledger / moves / takes), so
+          no extra wiring. */}
+      {(() => {
+        const tzOffsetMs = new Date().getTimezoneOffset() * 60_000;
+        const dayKey = (ms: number) => new Date(ms - tzOffsetMs).toISOString().slice(0, 10);
+        const todayKey = dayKey(Date.now());
+        const yesterdayKey = dayKey(Date.now() - 86_400_000);
+
+        const statsFor = (key: string) => {
+          const inDay = (ts: any) => {
+            const ms = ts?.toMillis?.();
+            return typeof ms === 'number' && dayKey(ms) === key;
+          };
+          const salesDay = ledger.filter((e) => e.kind === 'sale' && inDay(e.occurredAt));
+          const costsDay = ledger.filter((e) => e.kind === 'cost' && inDay(e.occurredAt));
+          const movesDay = moves.filter((m) => inDay(m.occurredAt));
+          const takeDay = takes.find((t) => t.date === key);
+          const empty = salesDay.length === 0 && costsDay.length === 0 && movesDay.length === 0 && !takeDay;
+          return {
+            empty,
+            salesCount: salesDay.length,
+            salesTotal: salesDay.reduce((s, e) => s + e.amountCents, 0),
+            costsCount: costsDay.length,
+            costsTotal: costsDay.reduce((s, e) => s + e.amountCents, 0),
+            movesCount: movesDay.length,
+            take: takeDay,
+          };
+        };
+
+        const today = statsFor(todayKey);
+        const useYesterday = today.empty;
+        const snap = useYesterday ? statsFor(yesterdayKey) : today;
+        const label = useYesterday ? 'Yesterday' : 'Today';
+        const dateLabel = new Date(useYesterday ? Date.now() - 86_400_000 : Date.now())
+          .toLocaleDateString(undefined, { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+
+        return (
+          <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-3">
+            <div className="flex items-baseline justify-between mb-2">
+              <h3 className="font-nunito font-extrabold text-[14px]">📅 {label}'s snapshot</h3>
+              <span className="text-[11px] text-hive-muted">{dateLabel}</span>
+            </div>
+            {snap.empty ? (
+              <p className="text-[12px] text-hive-muted py-1">
+                Nothing logged {useYesterday ? 'yesterday or today' : 'today yet'}. Log a sale, cost, or stock-take above to get started.
+              </p>
+            ) : (
+              <ul className="space-y-1.5 text-[12.5px]">
+                <li className="flex items-center justify-between gap-2">
+                  <span>📋 Stock-take</span>
+                  <span className="font-nunito font-extrabold">
+                    {snap.take
+                      ? <>✓ done · {snap.take.itemsTouched} item{snap.take.itemsTouched === 1 ? '' : 's'} touched</>
+                      : <span className="text-hive-muted">○ not done</span>}
+                  </span>
+                </li>
+                <li className="flex items-center justify-between gap-2">
+                  <span>💵 Sales</span>
+                  <span className="font-nunito font-extrabold text-[#2F7D32]">
+                    {snap.salesCount} · {formatCash(snap.salesTotal, config.currency)}
+                  </span>
+                </li>
+                <li className="flex items-center justify-between gap-2">
+                  <span>🧾 Costs</span>
+                  <span className="font-nunito font-extrabold text-hive-rose">
+                    {snap.costsCount} · {formatCash(snap.costsTotal, config.currency)}
+                  </span>
+                </li>
+                <li className="flex items-center justify-between gap-2">
+                  <span>📊 Stock changes</span>
+                  <span className="font-nunito font-extrabold">
+                    {snap.movesCount}
+                  </span>
+                </li>
+                <li className="flex items-center justify-between gap-2 pt-1 border-t border-dashed border-hive-line">
+                  <span className="text-hive-muted">Net</span>
+                  <span className={`font-nunito font-black ${
+                    snap.salesTotal - snap.costsTotal > 0 ? 'text-[#2F7D32]'
+                    : snap.salesTotal - snap.costsTotal < 0 ? 'text-hive-rose'
+                    : 'text-hive-muted'
+                  }`}>
+                    {snap.salesTotal - snap.costsTotal > 0 ? '+' : snap.salesTotal - snap.costsTotal < 0 ? '−' : ''}
+                    {formatCash(Math.abs(snap.salesTotal - snap.costsTotal), config.currency)}
+                  </span>
+                </li>
+              </ul>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Stock-take history — the daily habit log, same records + detail view as
+          the stock-take page (counts + photos/clips + notes). */}
+      <StockTakeHistory takes={takes} className="mb-3" />
+
+      {/* AI coach (pricing/cost tip from real numbers) + weekly review. */}
+      <div className="space-y-2.5 mb-3">
+        <AICoachCard
+          loop="pricing"
+          coachName={coachName}
+          currency={config.currency}
+          cta={`Ask ${coachName} about your price`}
+          facts={{
+            business: business.name,
+            type: t.label,
+            salesThisMonth: stats.salesCount,
+            monthRevenue: formatCash(stats.monthRevenueCents, config.currency),
+            monthProfit: formatCash(stats.monthProfitCents, config.currency),
+            ...(stats.monthRevenueCents > 0
+              ? { margin: `${Math.round((stats.monthProfitCents / stats.monthRevenueCents) * 100)}%` }
+              : {}),
+          }}
+        />
+        <Link href={`/business/${businessId}/weekly`}
+          className="w-full flex items-center justify-center gap-2 h-11 rounded-hive bg-hive-paper border border-hive-line text-hive-navy font-nunito font-extrabold text-[13px] hover:bg-hive-cream active:scale-[0.99] transition no-underline">
+          🗓️ Weekly review →
+        </Link>
+      </div>
+
+      {/* Coming next — what's still ahead. */}
+      <div className="bg-[#F4ECD8] border border-hive-line rounded-hive p-4">
+        <div className="text-[11px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted mb-1.5">Coming next</div>
+        <p className="text-[13px] text-hive-navy/80 leading-relaxed">
+          📈 Junior Investor — landing in the next update.
+        </p>
+      </div>
+    </>
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="content">
+      <PageSplit rail={rail} railMobile="last" sticky={false}>
       {/* Identity */}
       <div className="rounded-hive p-3.5 mb-3 flex items-center gap-3 bg-hive-navy text-hive-cream">
         {business.logoUrl ? (
@@ -192,8 +367,8 @@ export default function BusinessDashboardPage() {
         <DailySalesCard familyId={familyId} business={business} requests={requests} currency={config.currency} uid={profile.uid} />
       )}
 
-      {/* Headline numbers */}
-      <div className="grid grid-cols-2 gap-2.5 mb-3">
+      {/* Headline numbers (desktop: 4-up) */}
+      <div className="grid grid-cols-2 gap-2.5 mb-3 lg:grid-cols-4">
         <div className={statCard}>
           <div className="text-[11px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted">Worth</div>
           <div className="font-nunito font-black text-[22px] mt-0.5">{formatWorth(stats.worthCents, config.currency, bizConfig.displayRounding)}</div>
@@ -385,169 +560,7 @@ export default function BusinessDashboardPage() {
         </div>
       )}
 
-      {/* Recent activity (the books) */}
-      <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-3">
-        <div className="flex items-baseline justify-between mb-1">
-          <h3 className="font-nunito font-extrabold text-[14px]">Recent activity</h3>
-          <Link href={`/business/${businessId}/history`} className="text-[11px] font-nunito font-extrabold text-hive-honey-dk hover:underline">
-            History →
-          </Link>
-        </div>
-        {ledger.length === 0 ? (
-          <p className="text-[12px] text-hive-muted py-3 text-center">No sales or costs yet. Log your first one above.</p>
-        ) : (
-          ledger.slice(0, 6).map((e) => {
-            const ms = (e.occurredAt as any)?.toMillis?.();
-            const date = typeof ms === 'number' ? new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
-            const isSale = e.kind === 'sale';
-            return (
-              <div key={e.id} className="flex items-center justify-between gap-2 py-2 border-b border-dashed border-hive-line last:border-0">
-                <div className="min-w-0">
-                  <div className="text-[13px] truncate">{isSale ? '💵' : '🧾'} {e.description}{e.paymentStatus === 'unpaid' ? ' · IOU' : ''}</div>
-                  <div className="text-[11px] text-hive-muted">{date}</div>
-                </div>
-                <span className={`font-nunito font-extrabold text-[13px] shrink-0 ${isSale ? 'text-[#2F7D32]' : 'text-hive-rose'}`}>
-                  {isSale ? '+' : '−'}{formatCash(e.amountCents, config.currency)}
-                </span>
-              </div>
-            );
-          })
-        )}
-        {ledger.length > 6 && (
-          <Link href={`/business/${businessId}/history`} className="mt-2 block text-center text-[12px] font-nunito font-extrabold text-hive-honey-dk hover:underline">
-            See full history →
-          </Link>
-        )}
-      </div>
-
-      {/* Today's snapshot — what changed on the business today (or
-          yesterday when today is empty). Pulls from the same data
-          streams already loaded above (ledger / moves / takes), so
-          no extra wiring. */}
-      {(() => {
-        const tzOffsetMs = new Date().getTimezoneOffset() * 60_000;
-        const dayKey = (ms: number) => new Date(ms - tzOffsetMs).toISOString().slice(0, 10);
-        const todayKey = dayKey(Date.now());
-        const yesterdayKey = dayKey(Date.now() - 86_400_000);
-
-        const statsFor = (key: string) => {
-          const inDay = (ts: any) => {
-            const ms = ts?.toMillis?.();
-            return typeof ms === 'number' && dayKey(ms) === key;
-          };
-          const salesDay = ledger.filter((e) => e.kind === 'sale' && inDay(e.occurredAt));
-          const costsDay = ledger.filter((e) => e.kind === 'cost' && inDay(e.occurredAt));
-          const movesDay = moves.filter((m) => inDay(m.occurredAt));
-          const takeDay = takes.find((t) => t.date === key);
-          const empty = salesDay.length === 0 && costsDay.length === 0 && movesDay.length === 0 && !takeDay;
-          return {
-            empty,
-            salesCount: salesDay.length,
-            salesTotal: salesDay.reduce((s, e) => s + e.amountCents, 0),
-            costsCount: costsDay.length,
-            costsTotal: costsDay.reduce((s, e) => s + e.amountCents, 0),
-            movesCount: movesDay.length,
-            take: takeDay,
-          };
-        };
-
-        const today = statsFor(todayKey);
-        const useYesterday = today.empty;
-        const snap = useYesterday ? statsFor(yesterdayKey) : today;
-        const label = useYesterday ? 'Yesterday' : 'Today';
-        const dateLabel = new Date(useYesterday ? Date.now() - 86_400_000 : Date.now())
-          .toLocaleDateString(undefined, { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
-
-        return (
-          <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-3">
-            <div className="flex items-baseline justify-between mb-2">
-              <h3 className="font-nunito font-extrabold text-[14px]">📅 {label}'s snapshot</h3>
-              <span className="text-[11px] text-hive-muted">{dateLabel}</span>
-            </div>
-            {snap.empty ? (
-              <p className="text-[12px] text-hive-muted py-1">
-                Nothing logged {useYesterday ? 'yesterday or today' : 'today yet'}. Log a sale, cost, or stock-take above to get started.
-              </p>
-            ) : (
-              <ul className="space-y-1.5 text-[12.5px]">
-                <li className="flex items-center justify-between gap-2">
-                  <span>📋 Stock-take</span>
-                  <span className="font-nunito font-extrabold">
-                    {snap.take
-                      ? <>✓ done · {snap.take.itemsTouched} item{snap.take.itemsTouched === 1 ? '' : 's'} touched</>
-                      : <span className="text-hive-muted">○ not done</span>}
-                  </span>
-                </li>
-                <li className="flex items-center justify-between gap-2">
-                  <span>💵 Sales</span>
-                  <span className="font-nunito font-extrabold text-[#2F7D32]">
-                    {snap.salesCount} · {formatCash(snap.salesTotal, config.currency)}
-                  </span>
-                </li>
-                <li className="flex items-center justify-between gap-2">
-                  <span>🧾 Costs</span>
-                  <span className="font-nunito font-extrabold text-hive-rose">
-                    {snap.costsCount} · {formatCash(snap.costsTotal, config.currency)}
-                  </span>
-                </li>
-                <li className="flex items-center justify-between gap-2">
-                  <span>📊 Stock changes</span>
-                  <span className="font-nunito font-extrabold">
-                    {snap.movesCount}
-                  </span>
-                </li>
-                <li className="flex items-center justify-between gap-2 pt-1 border-t border-dashed border-hive-line">
-                  <span className="text-hive-muted">Net</span>
-                  <span className={`font-nunito font-black ${
-                    snap.salesTotal - snap.costsTotal > 0 ? 'text-[#2F7D32]'
-                    : snap.salesTotal - snap.costsTotal < 0 ? 'text-hive-rose'
-                    : 'text-hive-muted'
-                  }`}>
-                    {snap.salesTotal - snap.costsTotal > 0 ? '+' : snap.salesTotal - snap.costsTotal < 0 ? '−' : ''}
-                    {formatCash(Math.abs(snap.salesTotal - snap.costsTotal), config.currency)}
-                  </span>
-                </li>
-              </ul>
-            )}
-          </div>
-        );
-      })()}
-
-      {/* Stock-take history — the daily habit log, same records + detail view as
-          the stock-take page (counts + photos/clips + notes). */}
-      <StockTakeHistory takes={takes} className="mb-3" />
-
-      {/* AI coach (pricing/cost tip from real numbers) + weekly review. */}
-      <div className="space-y-2.5 mb-3">
-        <AICoachCard
-          loop="pricing"
-          coachName={coachName}
-          currency={config.currency}
-          cta={`Ask ${coachName} about your price`}
-          facts={{
-            business: business.name,
-            type: t.label,
-            salesThisMonth: stats.salesCount,
-            monthRevenue: formatCash(stats.monthRevenueCents, config.currency),
-            monthProfit: formatCash(stats.monthProfitCents, config.currency),
-            ...(stats.monthRevenueCents > 0
-              ? { margin: `${Math.round((stats.monthProfitCents / stats.monthRevenueCents) * 100)}%` }
-              : {}),
-          }}
-        />
-        <Link href={`/business/${businessId}/weekly`}
-          className="w-full flex items-center justify-center gap-2 h-11 rounded-hive bg-hive-paper border border-hive-line text-hive-navy font-nunito font-extrabold text-[13px] hover:bg-hive-cream active:scale-[0.99] transition no-underline">
-          🗓️ Weekly review →
-        </Link>
-      </div>
-
-      {/* Coming next — what's still ahead. */}
-      <div className="bg-[#F4ECD8] border border-hive-line rounded-hive p-4">
-        <div className="text-[11px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted mb-1.5">Coming next</div>
-        <p className="text-[13px] text-hive-navy/80 leading-relaxed">
-          📈 Junior Investor — landing in the next update.
-        </p>
-      </div>
-    </div>
+      </PageSplit>
+    </Page>
   );
 }

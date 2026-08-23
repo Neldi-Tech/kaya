@@ -22,6 +22,7 @@ import {
   subscribeToRecentRequests, MODULE_EMOJI, MODULE_LABEL,
 } from '@/lib/purchase';
 import { PulseHeader, PulseHero } from '@/components/pulse/ui';
+import { Page, PageSplit } from '@/components/layout/Page';
 import {
   type PulsePlan, type BudgetSnapshot, resolvePlan, suggestFocusModules, ROUND_STEPS, suggestRoundStep,
   subscribeBudgetSnapshots, ensureBudgetSnapshot,
@@ -193,10 +194,23 @@ export default function PulsePlanPage() {
       .map(([name, cents]) => ({ name, cents }));
   }, [recent]);
 
+  // Web-Fit (2026-08-23): content tier, detail archetype. Desktop: the
+  // history cards (savings trend · by budget line · by item) sit in the right
+  // rail; tracking + setup fill the main column. Mobile DOM order unchanged
+  // (`railMobile="last"` — those three sat at the bottom before).
+  const rail = (
+    <>
+      <SavingsTrend monthly={savings.monthly} currency={currency} />
+      <SavingsByModule rows={savings.byModule} currency={currency} />
+      <SpendByItem items={itemSpend} currency={currency} />
+    </>
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="content" className="pb-32">
       <PulseHeader back={{ href: '/pulse', label: 'Dashboard' }} eyebrow="Savings plan" title="Save with a plan" subtitle="Set a monthly target, then track against it." />
 
+      <PageSplit rail={rail} railMobile="last" sticky={false}>
       {plan && <PlanTracking plan={plan} caps={family?.householdBudgets} spent={spentThisMonth} currency={currency} />}
 
       <PlanSetup
@@ -216,11 +230,8 @@ export default function PulsePlanPage() {
           <div className="text-[11px] font-bold opacity-85 text-right leading-tight">{snapshots.length} month{snapshots.length === 1 ? '' : 's'}<br />frozen</div>
         </div>
       )}
-
-      <SavingsTrend monthly={savings.monthly} currency={currency} />
-      <SavingsByModule rows={savings.byModule} currency={currency} />
-      <SpendByItem items={itemSpend} currency={currency} />
-    </div>
+      </PageSplit>
+    </Page>
   );
 }
 

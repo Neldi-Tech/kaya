@@ -9,6 +9,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import { ProjectStatus, createProject } from '@/lib/projects';
+import { Page, BTN_INLINE_LG } from '@/components/layout/Page';
 
 const CATEGORIES = ['Craft', 'Build', 'Art', 'Recipe', 'Code', 'Science', 'Other'];
 
@@ -62,8 +63,10 @@ export default function NewProjectPage() {
   const chip = (active: boolean) =>
     `px-3 py-2 rounded-hive-pill text-[12.5px] font-nunito font-extrabold border transition ${active ? 'bg-hive-navy text-hive-honey border-transparent' : 'bg-hive-paper text-hive-muted border-hive-line'}`;
 
+  // Web-Fit (2026-08-23): narrow tier (form) — container + inline submit on
+  // desktop. Mobile unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="narrow">
       <div className="rounded-hive p-3.5 mb-3 flex items-center gap-3 bg-hive-navy text-hive-honey">
         <div className="text-[22px]">🎨</div>
         <div>
@@ -108,10 +111,12 @@ export default function NewProjectPage() {
 
       {error && <p className="text-hive-rose text-[12px] font-bold mt-3">{error}</p>}
 
+      <div className="lg:flex lg:justify-end">
       <button onClick={submit} disabled={!canSubmit}
-        className="w-full mt-5 h-12 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[14px] disabled:opacity-40 hover:brightness-110 active:scale-[0.99] transition">
+        className={`w-full mt-5 h-12 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[14px] disabled:opacity-40 hover:brightness-110 active:scale-[0.99] transition ${BTN_INLINE_LG}`}>
         {saving ? 'Creating…' : 'Create project'}
       </button>
+      </div>
       {!canSubmit && !saving && (
         <p className="text-[12px] text-[#B25E16] text-center mt-2 font-nunito font-bold">
           {title.trim().length < 2 ? '✏️ Give it a name'
@@ -119,6 +124,6 @@ export default function NewProjectPage() {
             : ''}
         </p>
       )}
-    </div>
+    </Page>
   );
 }
