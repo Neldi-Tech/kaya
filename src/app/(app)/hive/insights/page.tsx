@@ -12,6 +12,7 @@ import { useMemo } from 'react';
 import { useHive } from '@/contexts/HiveContext';
 import KidSwitcher from '@/components/hive/KidSwitcher';
 import BackButton from '@/components/ui/BackButton';
+import { Page, PageHeader, PageSplit } from '@/components/layout/Page';
 import { formatCash } from '@/components/hive/format';
 
 const TIPS = [
@@ -74,43 +75,11 @@ export default function InsightsPage() {
   // Pick a deterministic tip per day so it doesn't churn on each render.
   const tip = TIPS[new Date().getDate() % TIPS.length];
 
-  return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8">
-      <div className="lg:hidden"><BackButton /></div>
-      <div className="mb-3">
-        <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">Insights</p>
-        <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1">How am I doing? 📊</h1>
-      </div>
-
-      <KidSwitcher />
-
-      {/* Earnings bar chart */}
-      <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-4 mb-4">
-        <div className="flex items-baseline justify-between mb-3">
-          <h3 className="font-nunito font-extrabold text-[14px]">Earned this week</h3>
-          <p className="font-nunito font-black text-lg text-hive-green">
-            +{formatCash(weeklyEarningsCents, config.currency)}
-          </p>
-        </div>
-        <div className="h-32 flex items-end gap-1.5">
-          {days.map((d, i) => {
-            const h = d.cents === 0 ? 4 : Math.max(8, Math.round((d.cents / maxCents) * 96));
-            return (
-              <div key={i} className="flex-1 flex flex-col items-center gap-1.5">
-                <div className="w-full flex-1 flex items-end">
-                  <div
-                    className={`w-full rounded-t-[6px] transition-all ${d.cents > 0 ? 'bg-hive-honey' : 'bg-hive-line'}`}
-                    style={{ height: `${h}px` }}
-                    title={`${d.label}: ${formatCash(d.cents, config.currency)}`}
-                  />
-                </div>
-                <span className="text-[10px] text-hive-muted font-bold">{d.label}</span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
+  // Web-Fit (2026-08-23): content tier, main + rail. Desktop: the chart is
+  // the main column; save-rate / top-spend tiles + the tip sit in the right
+  // rail (`railMobile="last"` = exactly where they were on mobile).
+  const rail = (
+    <>
       {/* Save rate + top category */}
       <div className="grid grid-cols-2 gap-2.5 mb-4">
         <div className="bg-hive-paper border border-hive-line rounded-hive p-4">
@@ -147,6 +116,48 @@ export default function InsightsPage() {
           {tip}
         </p>
       </div>
-    </div>
+    </>
+  );
+
+  return (
+    <Page width="content">
+      <div className="lg:hidden"><BackButton /></div>
+      <PageHeader>
+        <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">Insights</p>
+        <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1">How am I doing? 📊</h1>
+      </PageHeader>
+
+      <KidSwitcher />
+
+      <PageSplit rail={rail} railMobile="last" sticky={false}>
+      {/* Earnings bar chart */}
+      <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-4 mb-4">
+        <div className="flex items-baseline justify-between mb-3">
+          <h3 className="font-nunito font-extrabold text-[14px]">Earned this week</h3>
+          <p className="font-nunito font-black text-lg text-hive-green">
+            +{formatCash(weeklyEarningsCents, config.currency)}
+          </p>
+        </div>
+        <div className="h-32 flex items-end gap-1.5">
+          {days.map((d, i) => {
+            const h = d.cents === 0 ? 4 : Math.max(8, Math.round((d.cents / maxCents) * 96));
+            return (
+              <div key={i} className="flex-1 flex flex-col items-center gap-1.5">
+                <div className="w-full flex-1 flex items-end">
+                  <div
+                    className={`w-full rounded-t-[6px] transition-all ${d.cents > 0 ? 'bg-hive-honey' : 'bg-hive-line'}`}
+                    style={{ height: `${h}px` }}
+                    title={`${d.label}: ${formatCash(d.cents, config.currency)}`}
+                  />
+                </div>
+                <span className="text-[10px] text-hive-muted font-bold">{d.label}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      </PageSplit>
+    </Page>
   );
 }

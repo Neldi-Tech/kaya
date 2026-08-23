@@ -16,6 +16,7 @@ import { saveMonthlyPlan, PLAN_CATEGORIES, TxCategory, currencySymbol, CURRENCIE
 import KidSwitcher from '@/components/hive/KidSwitcher';
 import NumberInput from '@/components/hive/NumberInput';
 import BackButton from '@/components/ui/BackButton';
+import { Page, PageHeader, PageSplit, BTN_INLINE_LG } from '@/components/layout/Page';
 import { formatCash } from '@/components/hive/format';
 
 export default function PlanPage() {
@@ -95,19 +96,12 @@ export default function PlanPage() {
     return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   })();
 
-  return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8">
-      <div className="lg:hidden"><BackButton /></div>
-      <div className="mb-3 flex items-baseline justify-between gap-3">
-        <div>
-          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">Plan</p>
-          <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1">My spending plan 🗓️</h1>
-          <p className="text-[12px] text-hive-muted mt-1">{monthLabel}</p>
-        </div>
-      </div>
-
-      <KidSwitcher />
-
+  // Web-Fit (2026-08-23): content tier, main + rail. Desktop: the
+  // this-month summary tile sits in the right rail (`railMobile="first"`
+  // = exactly where it was on mobile, right after the kid switcher);
+  // category cards flow 2-up; Save goes inline. Mobile unchanged.
+  const rail = (
+    <>
       {/* Top summary tile */}
       <div className="rounded-hive-lg bg-gradient-to-br from-[#FFE9C2] to-hive-honey-soft p-5 mb-4">
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-honey-dk">This month</p>
@@ -126,9 +120,23 @@ export default function PlanPage() {
           </div>
         </div>
       </div>
+    </>
+  );
 
+  return (
+    <Page width="content">
+      <div className="lg:hidden"><BackButton /></div>
+      <PageHeader>
+        <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">Plan</p>
+        <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1">My spending plan 🗓️</h1>
+        <p className="text-[12px] text-hive-muted mt-1">{monthLabel}</p>
+      </PageHeader>
+
+      <KidSwitcher />
+
+      <PageSplit rail={rail} railMobile="first">
       {/* Per-category cards */}
-      <div className="space-y-3">
+      <div className="space-y-3 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-3 lg:items-start">
         {PLAN_CATEGORIES.map((c) => {
           const planned = budget[c.id] || 0;
           const spent = monthSpending[c.id] || 0;
@@ -222,11 +230,11 @@ export default function PlanPage() {
       )}
 
       {/* Sticky-ish footer actions */}
-      <div className="mt-4 mb-2 flex items-center gap-3">
+      <div className="mt-4 mb-2 flex items-center gap-3 lg:justify-end">
         <button
           onClick={submit}
           disabled={!dirty || saving || isGuest}
-          className="flex-1 h-12 rounded-hive bg-hive-honey hover:bg-hive-honey-dk text-white font-nunito font-black text-sm disabled:opacity-40 transition-colors shadow-[0_8px_20px_-8px_rgba(243,156,47,0.5)]"
+          className={`flex-1 h-12 rounded-hive bg-hive-honey hover:bg-hive-honey-dk text-white font-nunito font-black text-sm disabled:opacity-40 transition-colors shadow-[0_8px_20px_-8px_rgba(243,156,47,0.5)] lg:flex-none ${BTN_INLINE_LG}`}
         >
           {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save plan'}
         </button>
@@ -245,6 +253,7 @@ export default function PlanPage() {
         Plans are a guide — they don&apos;t block spending. When you ask to spend, you&apos;ll see if it&apos;s within budget.{' '}
         <Link href="/hive/cash-out" className="text-hive-honey-dk font-bold hover:underline">Request a spend →</Link>
       </p>
-    </div>
+      </PageSplit>
+    </Page>
   );
 }

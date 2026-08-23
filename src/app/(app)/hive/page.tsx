@@ -24,6 +24,7 @@ import KidSwitcher from '@/components/hive/KidSwitcher';
 import PendingRequestBanner from '@/components/hive/PendingRequestBanner';
 import PlanSummaryCard from '@/components/hive/PlanSummaryCard';
 import { formatCash, honeyToCashCents } from '@/components/hive/format';
+import { Page, PageHeader, PageSplit } from '@/components/layout/Page';
 
 const ACTIONS = [
   { id: 'save',     icon: '🍯', label: 'Save',     desc: 'Convert HP → 🪙',     href: '/hive/convert'  },
@@ -62,9 +63,67 @@ export default function HiveHomePage() {
       setBusinessAssetsCents(bs.reduce((s, b) => s + (b.stats?.worthCents || 0), 0)));
   }, [profile?.familyId, activeKidId]);
 
+  // Web-Fit (2026-08-23): wide tier (hub). Desktop: 📜 Statement link in
+  // the header; hero row = Honey Pot hero (2/3) + 💵 Cash card & Withdraw /
+  // Spend (1/3); then main (wish · streak · wealth · commentary · plan) +
+  // a right rail holding the action tiles and Recent activity
+  // (`railMobile="last"` = exactly where they were on mobile). Mobile
+  // markup/order unchanged — desktop-only wrappers carry `lg:` classes.
+  const statementAction = (
+    <Link
+      href="/hive/statement"
+      className="inline-flex items-center h-10 px-5 rounded-hive border border-hive-line bg-hive-paper text-hive-honey-dk font-nunito font-black text-sm no-underline hover:border-hive-honey transition-colors"
+    >
+      📜 Statement
+    </Link>
+  );
+
+  const rail = (
+    <>
+      {/* Action grid — 6 items in a 2x3 layout. Guide sits last so kids
+          who already know the system don't have to scan past it. */}
+      <div className="grid grid-cols-2 gap-3 mb-6">
+        {ACTIONS.map((a) => (
+          <Link
+            key={a.id}
+            href={a.href}
+            className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-hive-honey transition-colors no-underline text-inherit"
+          >
+            <span className="text-2xl leading-none">{a.icon === '🍯' ? <HoneyPotIcon size={26} /> : a.icon}</span>
+            <span className="font-nunito font-extrabold text-[15px] mt-1">{a.label}</span>
+            <span className="text-[11px] text-hive-muted">{a.desc}</span>
+          </Link>
+        ))}
+      </div>
+
+      {/* Recent activity */}
+      <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-4 mb-6">
+        <div className="flex items-baseline justify-between mb-2">
+          <h3 className="font-nunito font-extrabold text-[14px]">Recent activity</h3>
+          {/* HIVE PR2 (F2) — "See all" now opens the 📜 Statement (the full
+              ledger story), not the wallet balances page. */}
+          <Link href="/hive/statement" className="text-[11px] font-nunito font-extrabold text-hive-honey-dk hover:underline">
+            See all · 📜 Statement →
+          </Link>
+        </div>
+        {recent.length === 0 ? (
+          <p className="text-[12px] text-hive-muted py-6 text-center">
+            No activity yet. Earn House Points and they&apos;ll start showing up here.
+          </p>
+        ) : (
+          <div>
+            {recent.map((t) => (
+              <TransactionRow key={t.id} tx={t} currency={config.currency} showLayerBadge />
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
-      <div className="mb-3">
+    <Page width="wide">
+      <PageHeader actions={statementAction}>
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">
           {activeKid ? `${activeKid.name}'s Hive` : 'Your Hive'}
         </p>
@@ -72,12 +131,14 @@ export default function HiveHomePage() {
           The Honey Pot
           <HoneyPotIcon size={40} className="-mt-1 drop-shadow-[0_3px_8px_rgba(120,70,5,0.25)]" />
         </h1>
-      </div>
+      </PageHeader>
 
       <KidSwitcher />
 
       <PendingRequestBanner />
 
+      <div className="lg:grid lg:grid-cols-3 lg:gap-4 lg:items-start lg:mb-2">
+      <div className="lg:col-span-2">
       <div className="mb-3">
         <HoneyPotHero
           treasuryCents={wallet.treasuryCents || 0}
@@ -92,7 +153,9 @@ export default function HiveHomePage() {
           beeBonusCents={beeBonusCents}
         />
       </div>
+      </div>
 
+      <div>
       {/* CASH UPGRADE — 💵 Cash card: real money in the kid's hand, the ONLY
           spendable pocket. Tapping opens the cash-filtered statement. */}
       <div className="mb-3 rounded-hive-lg p-5 border-2 border-[#BFE6CF] bg-gradient-to-br from-[#E6F7EE] to-[#F4FBF7]">
@@ -125,7 +188,11 @@ export default function HiveHomePage() {
       <p className="mb-5 text-center text-[11px] text-hive-muted font-bold">
         You can only spend what&apos;s in 💵 Cash
       </p>
+      </div>
+      </div>
 
+      <PageSplit rail={rail} railMobile="last" railWidth={360} sticky={false}>
+      <div className="lg:grid lg:grid-cols-2 lg:gap-4">
       {wish && (
         <WishJar
           goal={wish}
@@ -136,6 +203,7 @@ export default function HiveHomePage() {
       )}
 
       <SaverStreakCard child={activeKid} />
+      </div>
 
       <div className="mb-5">
         <WealthCard
@@ -186,45 +254,7 @@ export default function HiveHomePage() {
 
       {/* This-month spending plan summary (or "+ Set up a plan" prompt). */}
       <PlanSummaryCard />
-
-      {/* Action grid — 6 items in a 2x3 layout. Guide sits last so kids
-          who already know the system don't have to scan past it. */}
-      <div className="grid grid-cols-2 gap-3 mb-6">
-        {ACTIONS.map((a) => (
-          <Link
-            key={a.id}
-            href={a.href}
-            className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-hive-honey transition-colors no-underline text-inherit"
-          >
-            <span className="text-2xl leading-none">{a.icon === '🍯' ? <HoneyPotIcon size={26} /> : a.icon}</span>
-            <span className="font-nunito font-extrabold text-[15px] mt-1">{a.label}</span>
-            <span className="text-[11px] text-hive-muted">{a.desc}</span>
-          </Link>
-        ))}
-      </div>
-
-      {/* Recent activity */}
-      <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-4 mb-6">
-        <div className="flex items-baseline justify-between mb-2">
-          <h3 className="font-nunito font-extrabold text-[14px]">Recent activity</h3>
-          {/* HIVE PR2 (F2) — "See all" now opens the 📜 Statement (the full
-              ledger story), not the wallet balances page. */}
-          <Link href="/hive/statement" className="text-[11px] font-nunito font-extrabold text-hive-honey-dk hover:underline">
-            See all · 📜 Statement →
-          </Link>
-        </div>
-        {recent.length === 0 ? (
-          <p className="text-[12px] text-hive-muted py-6 text-center">
-            No activity yet. Earn House Points and they&apos;ll start showing up here.
-          </p>
-        ) : (
-          <div>
-            {recent.map((t) => (
-              <TransactionRow key={t.id} tx={t} currency={config.currency} showLayerBadge />
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+      </PageSplit>
+    </Page>
   );
 }

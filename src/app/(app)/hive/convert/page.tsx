@@ -16,6 +16,7 @@ import { requestHpToHoney, convertCoinsToTreasury } from '@/lib/hive';
 import KidSwitcher from '@/components/hive/KidSwitcher';
 import NumberInput from '@/components/hive/NumberInput';
 import BackButton from '@/components/ui/BackButton';
+import { Page, PageHeader, BTN_INLINE_LG } from '@/components/layout/Page';
 import { formatHoney, formatHp, honeyToCashCents, formatCash } from '@/components/hive/format';
 
 type Mode = 'hp_to_coins' | 'coins_to_pot';
@@ -70,15 +71,17 @@ export default function ConvertPage() {
   const coinsFromHp = config.hpToHoneyRate > 0 ? Math.floor(num / config.hpToHoneyRate) : 0;
   const potFromCoins = honeyToCashCents(num, config.honeyToCashRate, fxRate);
 
+  // Web-Fit (2026-08-23): narrow tier (money flow); submit goes inline +
+  // right-aligned on desktop. Mobile markup unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="narrow">
       <div className="lg:hidden"><BackButton /></div>
-      <div className="mb-5">
+      <PageHeader className="mb-5">
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">Convert</p>
         <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1">
           {mode === 'hp_to_coins' ? 'Save my points 🪙' : 'Fill the Honey Pot 🍯'}
         </h1>
-      </div>
+      </PageHeader>
 
       <KidSwitcher />
 
@@ -138,17 +141,19 @@ export default function ConvertPage() {
       {error && <p className="text-hive-rose text-sm font-bold text-center mb-3">{error}</p>}
       {done && <p className="text-hive-green text-sm font-bold text-center mb-3">✓ {done}</p>}
 
+      <div className="lg:flex lg:justify-end">
       <button
         onClick={submit}
         disabled={submitting || num <= 0 || isGuest || !activeKidId || breachReserve}
         className={`w-full h-12 rounded-hive font-nunito font-black text-[14px] text-white transition disabled:opacity-40 ${
           mode === 'coins_to_pot' ? 'bg-hive-honey-dk hover:brightness-110' : 'bg-hive-honey hover:bg-hive-honey-dk'
-        }`}
+        } ${BTN_INLINE_LG}`}
       >
         {submitting ? 'Working…'
           : mode === 'hp_to_coins' ? 'Request save (parent approves) →'
           : 'Move into Honey Pot 🍯'}
       </button>
+      </div>
 
       <p className="mt-3 text-[11px] text-hive-muted text-center leading-relaxed">
         {mode === 'coins_to_pot'
@@ -162,6 +167,6 @@ export default function ConvertPage() {
         <span className="text-hive-line">·</span>
         <Link href="/hive/guide" className="text-[12px] font-nunito font-extrabold text-hive-muted hover:text-hive-honey-dk hover:underline">📚 First time? Read the Guide</Link>
       </div>
-    </div>
+    </Page>
   );
 }

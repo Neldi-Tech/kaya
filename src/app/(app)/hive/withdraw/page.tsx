@@ -14,6 +14,7 @@ import { requestTreasuryToCash, cancelOwnRequest } from '@/lib/hive';
 import KidSwitcher from '@/components/hive/KidSwitcher';
 import NumberInput from '@/components/hive/NumberInput';
 import BackButton from '@/components/ui/BackButton';
+import { Page, PageHeader, BTN_INLINE_LG } from '@/components/layout/Page';
 import { formatCash } from '@/components/hive/format';
 
 // "Nice" quick-pick amounts scaled to the Pot: ~5% rounded to a clean
@@ -83,13 +84,15 @@ export default function WithdrawPage() {
     await cancelOwnRequest(profile.familyId, requestId, profile.uid);
   };
 
+  // Web-Fit (2026-08-23): narrow tier (money flow); submit goes inline +
+  // right-aligned on desktop. Mobile markup unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="narrow">
       <div className="lg:hidden"><BackButton /></div>
-      <div className="mb-5">
+      <PageHeader className="mb-5">
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">Kaya ATM</p>
         <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1">Get real cash 🏧</h1>
-      </div>
+      </PageHeader>
 
       <KidSwitcher />
 
@@ -211,13 +214,15 @@ export default function WithdrawPage() {
         )}
         {error && <p className="text-hive-rose text-sm font-bold">{error}</p>}
 
+        <div className="lg:flex lg:justify-end">
         <button
           onClick={submit}
           disabled={submitting || cents <= 0 || isGuest || !activeKidId}
-          className="w-full h-12 rounded-hive bg-hive-honey hover:bg-hive-honey-dk text-white font-nunito font-black text-[14px] disabled:opacity-40 transition-colors shadow-[0_8px_20px_-8px_rgba(243,156,47,0.5)]"
+          className={`w-full h-12 rounded-hive bg-hive-honey hover:bg-hive-honey-dk text-white font-nunito font-black text-[14px] disabled:opacity-40 transition-colors shadow-[0_8px_20px_-8px_rgba(243,156,47,0.5)] ${BTN_INLINE_LG}`}
         >
           {submitting ? 'Sending…' : `Ask ${config.treasuryCashApprovers >= 2 ? 'both parents' : 'parent'} for my cash →`}
         </button>
+        </div>
       </div>
 
       <p className="mt-3 text-[11px] text-hive-muted text-center leading-relaxed">
@@ -230,6 +235,6 @@ export default function WithdrawPage() {
         <span className="text-hive-line">·</span>
         <Link href="/hive/cash-out" className="text-[12px] font-nunito font-extrabold text-hive-muted hover:text-hive-honey-dk hover:underline">🛒 Spend my Cash</Link>
       </div>
-    </div>
+    </Page>
   );
 }
