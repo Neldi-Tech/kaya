@@ -13,6 +13,7 @@ import { DEFAULT_EARNING_METHODS } from '@/lib/earningMethods';
 import { auth as fbAuth } from '@/lib/firebase';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
+import { PAGE_WIDTH_CLASS } from '@/components/layout/Page';
 
 const CATEGORIES = [
   { id: 'kindness',       icon: '💖', label: 'Kindness' },
@@ -281,7 +282,7 @@ export default function AwardPage() {
           </span>
         );
     return (
-      <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 pt-16 lg:pt-24 text-center animate-slide-up">
+      <div className={`mx-auto max-w-md w-full ${PAGE_WIDTH_CLASS.narrow} px-4 pt-16 lg:pt-24 text-center animate-slide-up`}>
         {/* 🌟 RR PR-2 — the freshly minted Shine Card(s), ready to share. */}
         <div className="text-6xl lg:text-7xl mb-4">{successEmoji}</div>
         <h2 className="font-display text-2xl lg:text-3xl font-black mb-2">{successHeading}</h2>
@@ -547,8 +548,10 @@ export default function AwardPage() {
 
       {/* ─────────────────────────────────────────────────────────── */}
       {/* DESKTOP (lg+) — form left, live preview right                */}
+      {/* Web-Fit (2026-08-23): content tier (1040, centred) — this     */}
+      {/* block is desktop-only; the mobile block above is untouched.   */}
       {/* ─────────────────────────────────────────────────────────── */}
-      <div className="hidden lg:block max-w-[1400px] w-full px-8 py-8">
+      <div className={`hidden lg:block mx-auto ${PAGE_WIDTH_CLASS.content} w-full px-8 py-8`}>
         <div className="mb-7 flex items-end justify-between">
           <div>
             <h1 className="font-display text-[34px] leading-tight font-extrabold tracking-tight">Award points</h1>

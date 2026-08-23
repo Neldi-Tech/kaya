@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { getNotifications, markNotificationRead, Notification } from '@/lib/firestore';
 import BackButton from '@/components/ui/BackButton';
+import { Page, DataRows, DATA_ROW, DATA_ROW_HOVER } from '@/components/layout/Page';
 
 const TYPE_ICONS: Record<string, string> = {
   points:  '🎖️',
@@ -76,8 +77,11 @@ export default function NotificationsPage() {
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
+  // Web-Fit (2026-08-23): content tier. The header already carries its
+  // action (Mark all read) inline; the feed renders as dense rows at lg.
+  // Mobile markup unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="content">
       <div className="lg:hidden"><BackButton /></div>
 
       <div className="mb-5 lg:mb-7 flex items-end justify-between gap-4">
@@ -108,12 +112,12 @@ export default function NotificationsPage() {
           <p className="text-kaya-sand text-sm">Activity updates will appear here as your family rates routines, awards points, and runs meetings.</p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <DataRows tone="kaya">
           {notifications.map((n) => (
             <button
               key={n.id}
               onClick={() => handleRead(n)}
-              className={`w-full text-left flex items-start gap-3 p-3 lg:p-4 rounded-kaya border transition-colors ${
+              className={`w-full text-left flex items-start gap-3 p-3 lg:p-4 rounded-kaya border transition-colors ${DATA_ROW} ${DATA_ROW_HOVER} ${
                 n.read
                   ? 'bg-white border-kaya-warm-dark/60 opacity-70 hover:opacity-100'
                   : 'bg-white border-kaya-gold/40 shadow-sm hover:border-kaya-gold'
@@ -134,8 +138,8 @@ export default function NotificationsPage() {
               {!n.read && <div className="w-2 h-2 rounded-full bg-kaya-gold flex-shrink-0 mt-2" />}
             </button>
           ))}
-        </div>
+        </DataRows>
       )}
-    </div>
+    </Page>
   );
 }

@@ -12,6 +12,7 @@ import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
 import CoachMark from '@/components/ui/CoachMark';
 import NextUp from '@/components/ui/NextUp';
+import { PAGE_WIDTH_CLASS } from '@/components/layout/Page';
 
 const RATING_OPTIONS: { value: RatingValue; label: string; emoji: string; color: string }[] = [
   { value: 'excellent', label: 'Excellent', emoji: '🌟', color: '#27AE60' },
@@ -291,7 +292,7 @@ export default function RatePage() {
 
   if (children.length === 0) {
     return (
-      <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 pt-12 lg:pt-16 text-center">
+      <div className={`mx-auto max-w-md w-full ${PAGE_WIDTH_CLASS.narrow} px-4 pt-12 lg:pt-16 text-center`}>
         <p className="text-5xl mb-3">👶</p>
         <p className="text-kaya-sand text-sm">No children added yet. Go to Settings to add children.</p>
       </div>
@@ -461,8 +462,10 @@ export default function RatePage() {
 
       {/* ─────────────────────────────────────────────────────────── */}
       {/* DESKTOP (lg+) — split layout                                 */}
+      {/* Web-Fit (2026-08-23): content tier (1040, centred) — this     */}
+      {/* block is desktop-only; the mobile block above is untouched.   */}
       {/* ─────────────────────────────────────────────────────────── */}
-      <div className="hidden lg:block max-w-[1400px] w-full px-8 py-8">
+      <div className={`hidden lg:block mx-auto ${PAGE_WIDTH_CLASS.content} w-full px-8 py-8`}>
         {/* Page header */}
         <div className="flex items-end justify-between gap-6 mb-7">
           <div>

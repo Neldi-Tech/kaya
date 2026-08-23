@@ -29,6 +29,7 @@ import { updateFamily, getFamilyMembers, ReflectionMode, UserProfile } from '@/l
 import { SURPRISE_REGISTRY } from '@/lib/meetingSurprises';
 import BackButton from '@/components/ui/BackButton';
 import LeaderSettingsSection from '@/components/leader/LeaderSettingsSection';
+import { Page, PageHeader, PageSplit } from '@/components/layout/Page';
 
 // Canonical agenda steps — kept in lockstep with `STEPS` in
 // /meetings/present/page.tsx. Order here is the default presentation
@@ -316,19 +317,55 @@ export default function MeetingSetupPage() {
   const allAgendaStepsOn = agendaSteps.length === AGENDA_STEPS.length;
   const allClosingsOn = closingEnabled.length === CLOSING_MODES.length;
 
+  // Web-Fit (2026-08-23): wide tier, main + rail. The sticky save bar
+  // renders in a sticky right rail at lg (desktop-only copy); the in-flow
+  // mobile bar is `lg:hidden`. Sections stay in DOM order. Mobile
+  // markup unchanged.
+  const saveBar = (cls: string) => (
+    <div className={cls}>
+      <div className="bg-kaya-chocolate text-kaya-gold-light rounded-kaya-lg shadow-2xl p-4 lg:p-5 flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="font-display font-extrabold text-[13px] lg:text-sm">
+            {savedFlash ? '✅ Saved' : 'Save your meeting setup'}
+          </div>
+          <div className="text-[11px] lg:text-[12px] opacity-70">
+            {savedFlash ? 'Presenter mode will use these settings next time you start a meeting.' : 'Your changes apply the next time you open Presenter Mode.'}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className="shrink-0 h-11 lg:h-12 px-5 lg:px-6 rounded-kaya bg-kaya-gold text-kaya-chocolate font-display font-extrabold text-[13px] lg:text-sm hover:bg-kaya-gold-dark transition-colors disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+      <div className="mt-3 text-center">
+        <Link
+          href="/meetings/present"
+          className="text-[12px] lg:text-[13px] font-bold text-kaya-sand hover:text-kaya-chocolate"
+        >
+          Try it in Presenter Mode →
+        </Link>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="wide" className="pb-32">
       <div className="lg:hidden"><BackButton /></div>
 
       {/* Hero */}
-      <div className="mb-7">
+      <PageHeader className="mb-7">
         <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-sand">Settings · Family meetings</p>
         <h1 className="font-display text-2xl lg:text-[34px] font-black tracking-tight">Meeting setup ⚙️</h1>
         <p className="text-sm text-kaya-sand mt-1">
           Configure what Presenter Mode shows each week — your agenda, your closing, your prayer library.
         </p>
-      </div>
+      </PageHeader>
 
+      <PageSplit rail={saveBar('')} railMobile="hidden">
       {/* ── Agenda flow ─────────────────────────────────────────── */}
       <section className="mb-8 bg-white border border-kaya-warm-dark rounded-kaya-lg p-5 lg:p-7">
         <div className="flex items-baseline justify-between mb-1">
@@ -1076,35 +1113,9 @@ export default function MeetingSetupPage() {
         )}
       </section>
 
-      {/* Sticky save bar */}
-      <div className="sticky bottom-4 lg:bottom-8 z-10">
-        <div className="bg-kaya-chocolate text-kaya-gold-light rounded-kaya-lg shadow-2xl p-4 lg:p-5 flex items-center gap-3">
-          <div className="flex-1 min-w-0">
-            <div className="font-display font-extrabold text-[13px] lg:text-sm">
-              {savedFlash ? '✅ Saved' : 'Save your meeting setup'}
-            </div>
-            <div className="text-[11px] lg:text-[12px] opacity-70">
-              {savedFlash ? 'Presenter mode will use these settings next time you start a meeting.' : 'Your changes apply the next time you open Presenter Mode.'}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saving}
-            className="shrink-0 h-11 lg:h-12 px-5 lg:px-6 rounded-kaya bg-kaya-gold text-kaya-chocolate font-display font-extrabold text-[13px] lg:text-sm hover:bg-kaya-gold-dark transition-colors disabled:opacity-50"
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-        </div>
-        <div className="mt-3 text-center">
-          <Link
-            href="/meetings/present"
-            className="text-[12px] lg:text-[13px] font-bold text-kaya-sand hover:text-kaya-chocolate"
-          >
-            Try it in Presenter Mode →
-          </Link>
-        </div>
-      </div>
-    </div>
+      {/* Sticky save bar (mobile · in flow). Desktop: the rail copy. */}
+      {saveBar('sticky bottom-4 z-10 lg:hidden')}
+      </PageSplit>
+    </Page>
   );
 }

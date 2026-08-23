@@ -41,6 +41,7 @@ import {
   type PerformancePolicy, type PerformanceMetric, DEFAULT_PERFORMANCE_POLICY,
   DEFAULT_KID_REVIEW_SETTINGS, type HelperLink, type WorkDay, ALL_WORK_DAYS,
 } from '@/lib/firestore';
+import { Page, PageHeader } from '@/components/layout/Page';
 
 const METRIC_LABELS: Record<PerformanceMetric, { label: string; emoji: string; sub: string }> = {
   workplan:         { label: 'Workplan',         emoji: '✅', sub: 'Daily tasks done' },
@@ -111,10 +112,12 @@ export default function PerformanceSettingsPage() {
   }
   if (!family) return null;
 
+  // Web-Fit (2026-08-23): content tier. The seven self-saving cards lay
+  // out 2-up at lg (each keeps its designed width). Mobile unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="content" className="pb-32">
       <div className="lg:hidden"><BackButton /></div>
-      <div className="mb-4">
+      <PageHeader className="mb-4">
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">
           Settings · Performance
         </p>
@@ -126,13 +129,13 @@ export default function PerformanceSettingsPage() {
           consolidated score from weighted metrics — a tutor-only family might weight
           Ratings higher; a household-heavy setup might lean on Workplan + Budget.
         </p>
-      </div>
+      </PageHeader>
 
       {loading && (
         <p className="text-center text-hive-muted text-sm py-8">Loading…</p>
       )}
       {!loading && (
-        <div className="space-y-4">
+        <div className="space-y-4 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start">
           <TrackedCard
             policy={policy}
             helpers={helpers}
@@ -153,7 +156,7 @@ export default function PerformanceSettingsPage() {
           <HelpersSeeOwnCard policy={policy} familyId={family.id} byUid={profile!.uid} />
         </div>
       )}
-    </div>
+    </Page>
   );
 }
 

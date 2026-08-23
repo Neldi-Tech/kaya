@@ -15,6 +15,7 @@ import { fetchFxRates, suggestedRate, formatRate, FxRates } from '@/lib/fxRates'
 import KidAvatar from '@/components/ui/KidAvatar';
 import BackButton from '@/components/ui/BackButton';
 import NumberInput from '@/components/hive/NumberInput';
+import { Page, PageHeader, PageSplit } from '@/components/layout/Page';
 
 export default function ParentRatesPage() {
   const { profile, isGuest } = useAuth();
@@ -149,18 +150,59 @@ export default function ParentRatesPage() {
   // Live preview: e.g. 100 HP / 100 = 1 🍯 × $1 = $1.
   const preview100 = (hpToHoney > 0 ? (100 / hpToHoney) * honeyToCash : 0).toFixed(2);
 
+  // Web-Fit (2026-08-23): content tier, main + rail. On desktop the
+  // Live preview card and the Save/Reset bar also render in a sticky
+  // right rail (desktop-only copies); the in-flow originals are marked
+  // `lg:hidden`. Mobile markup/order unchanged.
+  const livePreview = (cls: string) => (
+    <div className={`bg-gradient-to-br from-[#FFE9C2] to-hive-honey-soft rounded-hive-lg p-5 ${cls}`.trim()}>
+      <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-honey-dk">Live preview</p>
+      <p className="font-nunito font-black text-2xl mt-1">100 HP ≈ ${preview100}</p>
+      <p className="text-[12px] text-hive-muted mt-1">At these rates, kids see the conversion line in their wallet.</p>
+    </div>
+  );
+  const saveBar = (cls: string) => (
+    <div className={`flex items-center gap-3 pt-2 ${cls}`.trim()}>
+      <button
+        onClick={save}
+        disabled={!dirty || saving || isGuest}
+        className="h-12 px-6 bg-hive-honey hover:bg-hive-honey-dk text-white rounded-hive-pill font-nunito font-black text-sm disabled:opacity-40 transition-colors shadow-[0_8px_20px_-8px_rgba(243,156,47,0.5)]"
+      >
+        {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save changes'}
+      </button>
+      {dirty && !saving && (
+        <button onClick={reset} className="h-12 px-4 text-[12px] font-nunito font-extrabold text-hive-muted hover:text-hive-navy">
+          Reset
+        </button>
+      )}
+      <Link href="/parent/approvals" className="ml-auto text-[12px] font-nunito font-extrabold text-hive-honey-dk hover:underline">
+        Approvals →
+      </Link>
+    </div>
+  );
+  const rail = (
+    <div className="space-y-4">
+      {livePreview('')}
+      {error && (
+        <p className="text-hive-rose text-sm font-bold">{error}</p>
+      )}
+      {saveBar('')}
+    </div>
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="content">
       <div className="lg:hidden"><BackButton /></div>
-      <div className="mb-5 lg:mb-7">
+      <PageHeader className="mb-5 lg:mb-7">
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">Parent · The Hive</p>
         <h1 className="font-nunito font-black text-3xl lg:text-[40px] mt-1">Rates &amp; policy</h1>
         <p className="text-sm text-hive-muted mt-2">
           Two levers control the whole flow. Higher Lever A = kids accumulate Honey faster.
           Higher Lever B = Honey converts to more real cash.
         </p>
-      </div>
+      </PageHeader>
 
+      <PageSplit rail={rail} railMobile="hidden">
       <div className="space-y-4">
         <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-5">
           <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-honey-dk">Lever A · HP → 🍯</p>
@@ -231,11 +273,7 @@ export default function ParentRatesPage() {
           )}
         </div>
 
-        <div className="bg-gradient-to-br from-[#FFE9C2] to-hive-honey-soft rounded-hive-lg p-5">
-          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-honey-dk">Live preview</p>
-          <p className="font-nunito font-black text-2xl mt-1">100 HP ≈ ${preview100}</p>
-          <p className="text-[12px] text-hive-muted mt-1">At these rates, kids see the conversion line in their wallet.</p>
-        </div>
+        {livePreview('lg:hidden')}
 
         <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-5">
           <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-honey-dk mb-3">Cash-out minimum</p>
@@ -455,28 +493,13 @@ export default function ParentRatesPage() {
         </div>
 
         {error && (
-          <p className="text-hive-rose text-sm font-bold">{error}</p>
+          <p className="text-hive-rose text-sm font-bold lg:hidden">{error}</p>
         )}
 
-        <div className="flex items-center gap-3 pt-2">
-          <button
-            onClick={save}
-            disabled={!dirty || saving || isGuest}
-            className="h-12 px-6 bg-hive-honey hover:bg-hive-honey-dk text-white rounded-hive-pill font-nunito font-black text-sm disabled:opacity-40 transition-colors shadow-[0_8px_20px_-8px_rgba(243,156,47,0.5)]"
-          >
-            {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save changes'}
-          </button>
-          {dirty && !saving && (
-            <button onClick={reset} className="h-12 px-4 text-[12px] font-nunito font-extrabold text-hive-muted hover:text-hive-navy">
-              Reset
-            </button>
-          )}
-          <Link href="/parent/approvals" className="ml-auto text-[12px] font-nunito font-extrabold text-hive-honey-dk hover:underline">
-            Approvals →
-          </Link>
-        </div>
+        {saveBar('lg:hidden')}
       </div>
-    </div>
+      </PageSplit>
+    </Page>
   );
 }
 

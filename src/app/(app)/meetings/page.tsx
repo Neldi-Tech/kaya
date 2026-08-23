@@ -15,6 +15,7 @@ import MeetingReportSheet, { fmtMeetingDay } from '@/components/meetings/Meeting
 import { subscribeMeetingSubmissions, isCurrentCycle, meetingCycleKey, type MeetingSubmission } from '@/lib/meetingSubmissions';
 import { getAllMeetingSubmissionHistory, type SubmissionHistoryDoc } from '@/lib/meetingSubmissionHistory';
 import { participatesInMeetings } from '@/lib/participation';
+import { PAGE_WIDTH_CLASS } from '@/components/layout/Page';
 
 // Quick-log fallback agenda — kept in sync with the new presenter
 // mode's 6-step flow so what families see in the sidebar matches.
@@ -519,8 +520,10 @@ export default function MeetingsPage() {
 
       {/* ─────────────────────────────────────────────────────────── */}
       {/* DESKTOP (lg+) — vertical stepper + main pane                 */}
+      {/* Web-Fit (2026-08-23): wide tier (1280, centred) — this block  */}
+      {/* is desktop-only; the mobile block above is untouched.         */}
       {/* ─────────────────────────────────────────────────────────── */}
-      <div className="hidden lg:block max-w-[1400px] w-full px-8 py-8">
+      <div className={`hidden lg:block mx-auto ${PAGE_WIDTH_CLASS.wide} w-full px-8 py-8`}>
         <div className="mb-4">
           <h1 className="font-display text-[34px] leading-tight font-extrabold tracking-tight">Family meetings</h1>
           <p className="text-sm text-kaya-sand mt-1">A 5-step weekly rhythm: gratitude, celebration, appreciations, goals, closing reflection.</p>

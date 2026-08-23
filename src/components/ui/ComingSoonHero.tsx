@@ -9,6 +9,7 @@
 
 import Link from 'next/link';
 import BackButton from './BackButton';
+import { Page } from '@/components/layout/Page';
 
 export type ComingSoonBullet = { emoji: string; title: string; desc: string };
 
@@ -34,8 +35,10 @@ export default function ComingSoonHero({
     ? `mailto:hello@ourkaya.com?subject=${encodeURIComponent(notifySubject)}`
     : null;
 
+  // Web-Fit (2026-08-23): content tier container (teaser stub — container
+  // only). Mobile unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-24">
+    <Page width="content" className="pb-24">
       <div className="lg:hidden"><BackButton /></div>
 
       {/* Hero card */}
@@ -92,6 +95,6 @@ export default function ComingSoonHero({
           ← Back to home
         </Link>
       </div>
-    </div>
+    </Page>
   );
 }

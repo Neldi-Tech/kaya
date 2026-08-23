@@ -26,6 +26,7 @@ import type { HelperPayrollConfig, PayBasis, PayFrequency, PayrollAllowance, Pay
 import { useHive } from '@/contexts/HiveContext';
 import { formatCents } from '@/components/pantry/format';
 import { updateFamily, type HelperLink, type WorkDay, ALL_WORK_DAYS } from '@/lib/firestore';
+import { PAGE_WIDTH_CLASS, PageSplit } from '@/components/layout/Page';
 
 const SESSION_LENGTH_CHOICES: { days: number; label: string }[] = [
   { days: 7,   label: '7 days' },
@@ -144,20 +145,13 @@ export default function HelpersSettingsPage() {
   const activeHelpers = (helpers ?? []).filter((h) => h.status !== 'removed');
   const removedHelpers = (helpers ?? []).filter((h) => h.status === 'removed');
 
-  return (
-    <div className="mx-auto max-w-3xl px-4 lg:px-8 py-6 lg:py-8">
-      {/* Header */}
-      <button
-        onClick={() => router.push('/settings')}
-        className="inline-flex items-center gap-1 text-sm text-kaya-sand hover:text-kaya-chocolate mb-4"
-      >
-        <ChevronLeft size={16} /> Settings
-      </button>
-      <h1 className="font-display font-extrabold text-2xl lg:text-3xl tracking-tight">Helpers</h1>
-      <p className="text-sm text-kaya-sand mt-1 max-w-xl">
-        Helpers (nannies, tutors, grandparents, drivers) can log routines and feedback for the kids you give them access to.
-      </p>
-
+  // Web-Fit (2026-08-23): wide tier, main + rail. The guidance card, the
+  // family-code / login-URL card and the session-length card (which sat
+  // above the list on mobile) become the right rail at lg; the helpers
+  // list is the main column. Mobile DOM order unchanged (railMobile=
+  // "first" = exactly where those cards were).
+  const rail = (
+    <>
       {/* How it works — quick parent guidance so first-time use is
           obvious without leaving the page. Plain English, short. */}
       <div className="mt-4 bg-kaya-cream/70 border border-kaya-warm-dark/60 rounded-kaya p-4 text-xs text-kaya-chocolate leading-relaxed">
@@ -256,9 +250,26 @@ export default function HelpersSettingsPage() {
           </div>
         </div>
       )}
+    </>
+  );
+
+  return (
+    <div className={`mx-auto max-w-3xl ${PAGE_WIDTH_CLASS.wide} px-4 lg:px-8 py-6 lg:py-8`}>
+      {/* Header */}
+      <button
+        onClick={() => router.push('/settings')}
+        className="inline-flex items-center gap-1 text-sm text-kaya-sand hover:text-kaya-chocolate mb-4"
+      >
+        <ChevronLeft size={16} /> Settings
+      </button>
+      <h1 className="font-display font-extrabold text-2xl lg:text-3xl tracking-tight">Helpers</h1>
+      <p className="text-sm text-kaya-sand mt-1 max-w-xl">
+        Helpers (nannies, tutors, grandparents, drivers) can log routines and feedback for the kids you give them access to.
+      </p>
 
       {/* Helpers list */}
-      <div className="mt-8 flex items-center justify-between">
+      <PageSplit rail={rail} railMobile="first" railWidth={360} sticky={false}>
+      <div className="mt-8 lg:mt-0 flex items-center justify-between">
         <h2 className="font-display font-bold text-lg">Helpers in this family</h2>
         {!showAdd && (
           <button
@@ -353,6 +364,7 @@ export default function HelpersSettingsPage() {
           </div>
         </details>
       )}
+      </PageSplit>
     </div>
   );
 }
