@@ -12,6 +12,7 @@ import { daysToNextBirthday, ageAtNextBirthday } from '@/lib/dates';
 import KidAvatar from '@/components/ui/KidAvatar';
 import MeetingPrepCard from '@/components/meetings/MeetingPrepCard';
 import QuestionOfDayCard from '@/components/games/QuestionOfDayCard';
+import KidHelperReviewCard from '@/components/helpers/KidHelperReviewCard';
 import KidLeaderStrip from '@/components/leader/KidLeaderStrip';
 
 // Quick-pick reason chips for the appreciation form. Plain English so a
@@ -202,6 +203,8 @@ export default function KidPage() {
           they land on after sign-in. Same component renders on /workplan
           and /my-day; whichever surface a family enables, the card finds
           them. */}
+      {/* HP2 D10 · ⭐ weekly helper review (Fri→Sun, kid session only). */}
+      {profile?.role === 'kid' && <KidHelperReviewCard className="mb-3" />}
       {profile?.uid && profile.role === 'kid' && (
         <MeetingPrepCard
           meId={profile.uid}

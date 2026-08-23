@@ -17,6 +17,7 @@ import TodaysWorkplanCard from '@/components/helpers/TodaysWorkplanCard';
 import BirthdayWishCard from '@/components/birthdays/BirthdayWishCard';
 import WeekThemeCard from '@/components/meetings/WeekThemeCard';
 import KnockTodoCard from '@/components/sparks/KnockTodoCard';
+import KidHelperReviewCard from '@/components/helpers/KidHelperReviewCard';
 import { useTodaysBirthdays } from '@/components/birthdays/useTodaysBirthdays';
 import KidAvatar from '@/components/ui/KidAvatar';
 import RemindersInline from '@/components/reminders/RemindersInline';
@@ -173,6 +174,8 @@ export default function MyDayPage() {
     return <>{tabBar}{wishCard}{remindersStrip}{songStrip}
       {/* Slice 8k · 🚪 pending diary knocks land on My Day too. */}
       <KnockTodoCard familyId={family.id} kidId={profile.childId} className="mx-auto max-w-md w-full lg:max-w-4xl px-4 lg:px-8 pt-4" />
+      {/* HP2 D10 · ⭐ weekly helper review — Fri→Sun only, kid session only. */}
+      <KidHelperReviewCard className="mx-auto max-w-md w-full lg:max-w-4xl px-4 lg:px-8 pt-4" />
       <MyDayKid familyId={family.id} childId={profile.childId} userUid={profile.uid} name={name} avatarEmoji={me?.avatarEmoji} /></>;
   }
 
