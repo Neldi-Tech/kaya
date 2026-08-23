@@ -91,7 +91,10 @@ export default function PointsAudienceRow({ type }: { type: AudienceType }) {
             kidItsAbout: next.kidItsAbout === true,
             groupIds: next.groupIds || [],
             emails: next.emails || [],
-            fullEmails: (next.fullEmails || []).filter((e) => (next.emails || []).includes(e)),
+            // fullEmails ⊆ custom emails ∪ selected groups' external addresses
+            fullEmails: (next.fullEmails || []).filter((e) =>
+              (next.emails || []).includes(e)
+              || groups.filter((g) => (next.groupIds || []).includes(g.id)).some((g) => (g.externalEmails || []).map((x) => x.toLowerCase()).includes(e))),
           },
         },
       });
@@ -250,9 +253,34 @@ export default function PointsAudienceRow({ type }: { type: AudienceType }) {
         </div>
       )}
 
+      {/* 👥 A selected group's OUTSIDE addresses — each can be flipped to
+          the 🔥 full report (e.g. a parent's work inbox inside "Family
+          Mails"); default ⭐ totals keeps the privacy line for real outsiders. */}
+      {groups.filter((g) => (aud.groupIds || []).includes(g.id) && (g.externalEmails || []).length > 0).map((g) => (
+        <div key={g.id} className="mt-2 ml-1 pl-2.5 border-l-2 border-dashed border-kaya-warm-dark">
+          <p className="text-[10px] font-bold text-kaya-sand mb-1">{g.emoji || '👥'} {g.name} · outside addresses</p>
+          <div className="flex flex-wrap gap-1.5">
+            {(g.externalEmails || []).map((raw) => {
+              const e = raw.toLowerCase();
+              const full = (aud.fullEmails || []).includes(e);
+              return (
+                <span key={e} className="inline-flex items-stretch rounded-full border-2 border-kaya-warm-dark overflow-hidden text-[11px] font-extrabold">
+                  <span className="inline-flex items-center px-2.5 py-1 bg-white text-kaya-chocolate">✉️ {e}</span>
+                  <button type="button" disabled={saving} onClick={() => toggleFull(e)}
+                    title={full ? 'Gets the full report — tap for totals only' : 'Gets totals only — tap for the full report'}
+                    className={`px-2 py-1 border-l-2 border-kaya-warm-dark ${full ? 'bg-kaya-gold text-kaya-chocolate' : 'bg-white text-kaya-sand'}`}>
+                    {full ? '🔥 full' : '⭐ totals'}
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+
       <p className="text-[10.5px] text-kaya-sand leading-relaxed mt-2">
         {type === 'rating'
-          ? '🧒 Only the rated kid gets it (not siblings), riding the COPPA kid-email settings — kids without an approved email simply skip. ✉️ Custom emails get ⭐ totals (first name + points + counts, no app links) unless you flip one to 🔥 full — e.g. your own work inbox.'
+          ? '🧒 Only the rated kid gets it (not siblings), riding the COPPA kid-email settings — kids without an approved email simply skip. ✉️ Custom emails and a group’s outside addresses get ⭐ totals (first name + points + counts, no app links) unless you flip one to 🔥 full — e.g. your own work inbox.'
           : '🧒 Rides the existing 🏅 kid reward emails + COPPA settings. ✉️ Custom emails get first name + points only — the award reason stays inside the family.'}
       </p>
     </div>
