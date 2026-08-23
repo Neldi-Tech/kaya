@@ -39,6 +39,14 @@ export const ROUND_WINDOW_MS = 72 * 3600_000;
 /** How far back the engine reads dismissals when it builds a round. */
 export const DISMISS_MEMORY_DAYS = 60;
 
+/** 🔄 Client-side "something changed" signal — the wizard fires it after
+ *  dismiss / undo / approve so sibling surfaces (stats, Hit-Map, learned
+ *  line, Home strip) refetch without a page reload. */
+export const RECOGNITION_CHANGED_EVENT = 'kaya:recognition-changed';
+export const emitRecognitionChanged = () => {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(RECOGNITION_CHANGED_EVENT));
+};
+
 /** Map key inside recognitionRounds/{date}.dismissed */
 export const dismissKey = (kidId: string, kind: string) => `${kidId}:${kind}`;
 

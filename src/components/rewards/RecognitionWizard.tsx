@@ -38,7 +38,7 @@ import { notifyAward } from '@/lib/notify';
 import { dismissRoundItem, undismissRoundItem } from '@/lib/shineCards';
 import {
   DISMISS_REASONS, DISMISS_NOTE_MAX, ROUND_WINDOW_MS, openRoundItems, roundStreak, dismissReason, dismissKey,
-  type DismissCode,
+  emitRecognitionChanged, type DismissCode,
 } from '@/lib/recognitionDismiss';
 
 type Step = 'list' | 'pick' | 'detail' | 'gift' | 'points' | 'preview' | 'done';
@@ -255,6 +255,7 @@ export default function RecognitionWizard() {
         } catch { /* best-effort */ }
       })();
       setStep('done');
+      emitRecognitionChanged();
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Could not complete — try again.');
     }
@@ -288,6 +289,7 @@ export default function RecognitionWizard() {
       setDismissFor(null); setDismissCode(''); setDismissNote('');
       setShowDismissed(false);
       setRefreshTick((t) => t + 1);
+      emitRecognitionChanged();
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Could not dismiss — try again.');
     }
@@ -299,6 +301,7 @@ export default function RecognitionWizard() {
     try {
       await undismissRoundItem(familyId, rowRound.date, it.kidId, it.kind);
       setRefreshTick((t) => t + 1);
+      emitRecognitionChanged();
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Could not undo — the round window may have closed.');
     }

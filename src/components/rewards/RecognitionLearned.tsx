@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { listDismissals } from '@/lib/shineCards';
-import { DISMISS_REASONS, summarizeDismissals, type DismissalRecord } from '@/lib/recognitionDismiss';
+import { DISMISS_REASONS, RECOGNITION_CHANGED_EVENT, summarizeDismissals, type DismissalRecord } from '@/lib/recognitionDismiss';
 import { toDisplayDate } from '@/lib/dates';
 
 const dayKey = (ms: number) => {
@@ -26,7 +26,10 @@ export default function KayaLearnedLine({ variant = 'compact', className = '' }:
 
   useEffect(() => {
     if (!familyId || (profile?.role !== 'parent' && profile?.role !== 'helper')) return;
-    listDismissals(familyId).then(setRecords).catch(() => setRecords([]));
+    const load = () => listDismissals(familyId).then(setRecords).catch(() => setRecords([]));
+    void load();
+    window.addEventListener(RECOGNITION_CHANGED_EVENT, load);
+    return () => window.removeEventListener(RECOGNITION_CHANGED_EVENT, load);
   }, [familyId, profile?.role]);
 
   const summary = useMemo(() => records ? summarizeDismissals(records, Date.now(), 30) : null, [records]);
