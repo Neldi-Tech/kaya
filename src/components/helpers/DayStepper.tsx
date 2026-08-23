@@ -26,11 +26,14 @@ function dayDiff(a: Date, b: Date): number {
   return Math.round((startOfDay(a).getTime() - startOfDay(b).getTime()) / 86_400_000);
 }
 
-export default function DayStepper({ selectedDate, onChange, helperCount }: {
+export default function DayStepper({ selectedDate, onChange, helperCount, compact = false }: {
   selectedDate: Date;
   onChange: (d: Date) => void;
   /** Helper count for the subline ("· 1 helper"). Null while loading. */
   helperCount: number | null;
+  /** HP2 D16 — desktop detail pane: arrows + date on one row, chips
+   *  beside them, no big heading. */
+  compact?: boolean;
 }) {
   const today = startOfDay(new Date());
   const diff = dayDiff(selectedDate, today);
@@ -56,6 +59,28 @@ export default function DayStepper({ selectedDate, onChange, helperCount }: {
   const chipOff = 'bg-hive-cream border-hive-line text-hive-muted hover:bg-hive-paper';
   const chipOn = 'bg-hive-ink border-hive-ink text-white';
   const chipJump = 'bg-pantry-leaf-soft border-pantry-leaf text-pantry-leaf-dk hover:brightness-105';
+
+  if (compact) {
+    return (
+      <div className="flex items-center gap-2 flex-wrap">
+        <button type="button" onClick={() => step(-1)} className={arrow} aria-label="Previous day">
+          <ChevronLeft size={18} />
+        </button>
+        <span className="font-nunito font-black text-[15px]">{rel}</span>
+        <span className="text-[12px] text-hive-muted">{fullDate}</span>
+        <button type="button" onClick={() => step(1)} className={arrow} aria-label="Next day">
+          <ChevronRight size={18} />
+        </button>
+        <span className="ml-2 inline-flex items-center gap-2 flex-wrap">
+          <button type="button" onClick={() => goto(-1)} className={`${chipBase} ${diff === -1 ? chipOn : chipOff}`}>‹ Yesterday</button>
+          {isToday
+            ? <button type="button" disabled className={`${chipBase} ${chipOn} cursor-default`}>Today</button>
+            : <button type="button" onClick={() => goto(0)} className={`${chipBase} ${chipJump}`}>↩ Today</button>}
+          <button type="button" onClick={() => goto(1)} className={`${chipBase} ${diff === 1 ? chipOn : chipOff}`}>Tomorrow ›</button>
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div className="mb-4">
