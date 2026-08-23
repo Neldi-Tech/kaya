@@ -107,6 +107,10 @@ export const BADGE_CATALOG: BadgeDef[] = [
   // 👨‍👩‍👧 Family goals
   { id: 'goal-getter', name: 'Goal Getter', icon: '🎪', tier: 'hard', area: 'family', how: 'Part of a reached family goal', signal: { kind: 'child_counter', key: 'goals_reached', threshold: 1 } },
   { id: 'family-legend', name: 'Family Legend', icon: '👑', tier: 'legendary', area: 'family', how: '3 family goals reached together', signal: { kind: 'child_counter', key: 'goals_reached', threshold: 3 } },
+  // 👑 LW PR-L4 — Leader of the Week (counter `leaderTerms` bumps when a week seals).
+  { id: 'crowned-1', name: 'Crowned', icon: '👑', tier: 'medium', area: 'family', how: 'Your first week as Leader of the Week', signal: { kind: 'child_counter', key: 'leaderTerms', threshold: 1 }, set: { id: 'crowned', level: 1 } },
+  { id: 'crowned-5', name: 'Trusted Leader', icon: '🎖️', tier: 'hard', area: 'family', how: '5 weeks as Leader of the Week', signal: { kind: 'child_counter', key: 'leaderTerms', threshold: 5 }, set: { id: 'crowned', level: 2 } },
+  { id: 'crowned-10', name: 'Family Captain', icon: '🏆', tier: 'legendary', area: 'family', how: '10 weeks as Leader of the Week', signal: { kind: 'child_counter', key: 'leaderTerms', threshold: 10 }, set: { id: 'crowned', level: 3 } },
   // 🎯 Quiz (server-bumped on correct answers)
   { id: 'brainiac-plus', name: 'Quiz Master', icon: '🧙', tier: 'hard', area: 'quiz', how: '100 correct daily questions', signal: { kind: 'child_counter', key: 'quiz_correct', threshold: 100 }, set: { id: 'quizset', level: 3 } },
   // 🧹 Chores / Workplan (server-bumped on approved items)
