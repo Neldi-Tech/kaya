@@ -25,6 +25,7 @@ import InfoIcon from '@/components/ui/InfoIcon';
 import { useHelperGrants, helperGrantsAllow } from '@/lib/useHelperGrants';
 import { openModuleGuide } from '@/lib/moduleGuides';
 import { useLocale } from '@/lib/useLocale';
+import { Page, PageHeader, PageGrid } from '@/components/layout/Page';
 
 export default function PantryHomePage() {
   const router = useRouter();
@@ -107,22 +108,70 @@ export default function PantryHomePage() {
   const itemCount = currentList?.items.length || 0;
   const doneCount = currentList?.items.filter((i) => i.done).length || 0;
 
+  // Web-Fit (2026-08-23): wide tier. Desktop gets the guide as a header
+  // pill, a hero row (active list + recent suppliers side by side) and
+  // 4-up tile rows. Mobile markup/order is unchanged — desktop-only
+  // copies are `hidden lg:block`, mobile-only ones `lg:hidden`.
+  const guideButton = (
+    <button
+      type="button"
+      onClick={() => openModuleGuide('household')}
+      className="inline-flex items-center gap-2 rounded-full bg-hive-navy text-white pl-1.5 pr-4 py-1.5 text-left hover:brightness-110 active:scale-[0.99] transition"
+    >
+      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-hive-honey text-white text-[11px] shrink-0">▶</span>
+      <span className="font-nunito font-black text-[12.5px]">{sw ? 'Jinsi Household inavyofanya kazi' : 'How Household works'}</span>
+    </button>
+  );
+  const suppliersPreview = sokoSuppliers.length > 0 ? (
+    <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-4 mb-6 lg:mb-0 lg:h-full">
+      <div className="flex items-baseline justify-between mb-2">
+        <h3 className="font-nunito font-extrabold text-[14px]">Recent suppliers</h3>
+        <Link href="/pantry/suppliers" className="text-[11px] font-nunito font-extrabold text-pantry-leaf-dk hover:underline">
+          See all →
+        </Link>
+      </div>
+      <div className="space-y-2">
+        {sokoSuppliers.slice(0, 3).map((s) => (
+          <Link
+            key={s.id}
+            href="/pantry/suppliers"
+            className="flex items-center gap-3 p-2 rounded-hive border border-hive-line bg-hive-cream/30 hover:border-pantry-leaf transition-colors no-underline text-inherit"
+          >
+            <div className="w-9 h-9 rounded-[10px] bg-pantry-leaf-soft text-pantry-leaf-dk flex items-center justify-center font-nunito font-black">
+              {s.name?.[0]?.toUpperCase() || '?'}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-nunito font-extrabold text-[13px] truncate">{s.name}</p>
+              {s.contactName && (
+                <p className="text-[10px] text-hive-muted truncate">{s.contactName}</p>
+              )}
+            </div>
+            {s.phone && (
+              <span className="text-[10px] text-pantry-leaf-dk font-bold">📱</span>
+            )}
+          </Link>
+        ))}
+      </div>
+    </div>
+  ) : null;
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
-      <div className="mb-3">
+    <Page width="wide">
+      <PageHeader actions={guideButton}>
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">
           Pantry · {family?.name ? `${family.name} household` : 'this week'}
         </p>
         <h1 className="font-nunito font-black text-3xl lg:text-[40px] mt-1 leading-tight">
           Run the week 🛒
         </h1>
-      </div>
+      </PageHeader>
 
-      {/* "How it works" guide — plays a quick walk-through of Household. */}
+      {/* "How it works" guide — plays a quick walk-through of Household.
+          Mobile: full-width bar. Desktop: the header pill above. */}
       <button
         type="button"
         onClick={() => openModuleGuide('household')}
-        className="w-full flex items-center gap-2.5 rounded-hive-lg bg-hive-navy text-white px-3.5 py-2.5 mb-4 text-left active:scale-[0.99] transition-transform"
+        className="lg:hidden w-full flex items-center gap-2.5 rounded-hive-lg bg-hive-navy text-white px-3.5 py-2.5 mb-4 text-left active:scale-[0.99] transition-transform"
       >
         <span className="flex h-8 w-8 items-center justify-center rounded-full bg-hive-honey text-white text-sm shrink-0">▶</span>
         <span className="leading-tight">
@@ -132,7 +181,10 @@ export default function PantryHomePage() {
         <span className="ml-auto text-[11px] font-nunito font-extrabold opacity-80">{sw ? 'Tazama →' : 'Watch →'}</span>
       </button>
 
-      {/* Active list card — or "Start a new list" empty state. */}
+      {/* Active list card — or "Start a new list" empty state.
+          Desktop: hero row — card spans 2/3, recent suppliers 1/3. */}
+      <div className={`lg:grid lg:gap-4 lg:mb-6 ${suppliersPreview ? 'lg:grid-cols-3' : ''}`}>
+      <div className={suppliersPreview ? 'lg:col-span-2' : ''}>
       {loading ? (
         <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-6 text-center text-hive-muted text-sm">
           Loading…
@@ -193,6 +245,9 @@ export default function PantryHomePage() {
           {error && <p className="text-hive-rose text-[12px] font-bold mt-2">{error}</p>}
         </div>
       )}
+      </div>
+      {suppliersPreview && <div className="hidden lg:block">{suppliersPreview}</div>}
+      </div>
 
       {/* Quick actions — grouped per v4-final §02 (2026-05-18):
           Request modules · Catalogues & plans · Browse & suppliers.
@@ -206,7 +261,7 @@ export default function PantryHomePage() {
           global More mega-sheet (HELPER_SIDEBAR carries it). Parents
           see the original full grid. */}
       <Divider label="Request modules" />
-      <div className="grid grid-cols-2 gap-3 mb-2">
+      <PageGrid cols={{ base: 2, lg: 4 }} className="gap-3 mb-2">
         {showHouseholdSub('purchase') && (
           <Tile href="/pantry/purchase" emoji="🧾" label="Household Purchase" sub="Request → approve → reconcile"
             tint="bg-pantry-leaf-soft border-pantry-leaf hover:border-pantry-leaf-dk" subColor="text-pantry-leaf-dk"
@@ -235,7 +290,7 @@ export default function PantryHomePage() {
             More mega-sheet so the tile grid stays focused. */}
         {!isHelper && showHouseholdSub('payroll') && (
           <Tile href="/pantry/payroll" emoji="🤝" label="Payroll" sub="Self-service · advances · loans"
-            tint="bg-[#F4EFFB] border-[#C9B8E5] hover:border-[#8A6FBF] col-span-2" subColor="text-[#5E4A8F]"
+            tint="bg-[#F4EFFB] border-[#C9B8E5] hover:border-[#8A6FBF] col-span-2 lg:col-span-1" subColor="text-[#5E4A8F]"
             tooltip="Self-service: each helper requests their own advance / loan / bonus. Private to them."
             badge={openByModule.payroll} />
         )}
@@ -264,12 +319,12 @@ export default function PantryHomePage() {
           <button
             type="button"
             onClick={() => setShowMoreModules((v) => !v)}
-            className="col-span-2 rounded-hive border border-dashed border-hive-line bg-hive-paper py-3 font-nunito font-extrabold text-[12px] text-hive-muted hover:border-hive-navy hover:text-hive-navy transition-colors"
+            className="col-span-2 lg:col-span-4 rounded-hive border border-dashed border-hive-line bg-hive-paper py-3 font-nunito font-extrabold text-[12px] text-hive-muted hover:border-hive-navy hover:text-hive-navy transition-colors"
           >
             {showMoreModules ? '− Show less' : '··· More · Dine Out, Home, Subs, Contribs'}
           </button>
         )}
-      </div>
+      </PageGrid>
 
       {/* ── Catalogues & plans ── */}
       {/* For helpers: just Workplan + Meal Planner + Soko in a single
@@ -279,7 +334,7 @@ export default function PantryHomePage() {
       {isHelper ? (
         <>
           <Divider label="More in Pantry" />
-          <div className="grid grid-cols-2 gap-3 mb-5">
+          <PageGrid cols={{ base: 2, lg: 3 }} className="gap-3 mb-5">
             <Tile href="/pantry/workplan" emoji="📋" label="Workplan" sub="Your day · tasks · meals"
               tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted" compact
               tooltip="Your day's workplan, today's meals, your tasks." />
@@ -288,14 +343,14 @@ export default function PantryHomePage() {
               tooltip="Weekly family meal timetable." />
             <Tile href="/pantry/suppliers" emoji="🏪" label="Soko"
               sub={`${sokoSuppliers.length} supplier${sokoSuppliers.length === 1 ? '' : 's'}`}
-              tint="bg-hive-paper border-hive-line hover:border-pantry-leaf col-span-2" subColor="text-hive-muted" compact
+              tint="bg-hive-paper border-hive-line hover:border-pantry-leaf col-span-2 lg:col-span-1" subColor="text-hive-muted" compact
               tooltip="Family supplier directory + WhatsApp shortcuts." />
-          </div>
+          </PageGrid>
         </>
       ) : (
         <>
           <Divider label="Catalogues & plans" />
-          <div className="grid grid-cols-2 gap-3 mb-2">
+          <PageGrid cols={{ base: 2, lg: 4 }} className="gap-3 mb-2">
             <Tile href="/pantry/staples" emoji="📦" label="Staples" sub={`Your family's Pantry regulars · ${staples.length} item${staples.length === 1 ? '' : 's'}`}
               tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted"
               tooltip="Your family's curated Pantry regulars. Picked from Browse to your list." />
@@ -311,11 +366,11 @@ export default function PantryHomePage() {
             <Tile href="/pantry/workplan" emoji="📋" label="Workplan" sub="Helpers · duties · ＋ assign one-off work"
               tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted"
               tooltip="Helper roster + each helper's daily task list. Add ad-hoc work." />
-          </div>
+          </PageGrid>
 
           {/* ── Browse & suppliers ── (parent only) */}
           <Divider label="Browse & suppliers" />
-          <div className="grid grid-cols-2 gap-3 mb-5">
+          <PageGrid cols={{ base: 2, lg: 4 }} className="gap-3 mb-5">
             <Tile href="/pantry/browse" emoji="🧺" label="Browse Catalogue" sub="Pantry · Foods + Household"
               tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted" compact
               tooltip="The full Pantry library — Foods + Household tabs. Add to your Staples." />
@@ -323,44 +378,14 @@ export default function PantryHomePage() {
               sub={`${sokoSuppliers.length} supplier${sokoSuppliers.length === 1 ? '' : 's'}`}
               tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted" compact
               tooltip="Family supplier directory + WhatsApp shortcuts." />
-          </div>
+          </PageGrid>
         </>
       )}
 
-      {/* Suppliers preview — top 3, tap-through to /pantry/suppliers */}
-      {sokoSuppliers.length > 0 && (
-        <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-4 mb-6">
-          <div className="flex items-baseline justify-between mb-2">
-            <h3 className="font-nunito font-extrabold text-[14px]">Recent suppliers</h3>
-            <Link href="/pantry/suppliers" className="text-[11px] font-nunito font-extrabold text-pantry-leaf-dk hover:underline">
-              See all →
-            </Link>
-          </div>
-          <div className="space-y-2">
-            {sokoSuppliers.slice(0, 3).map((s) => (
-              <Link
-                key={s.id}
-                href="/pantry/suppliers"
-                className="flex items-center gap-3 p-2 rounded-hive border border-hive-line bg-hive-cream/30 hover:border-pantry-leaf transition-colors no-underline text-inherit"
-              >
-                <div className="w-9 h-9 rounded-[10px] bg-pantry-leaf-soft text-pantry-leaf-dk flex items-center justify-center font-nunito font-black">
-                  {s.name?.[0]?.toUpperCase() || '?'}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-nunito font-extrabold text-[13px] truncate">{s.name}</p>
-                  {s.contactName && (
-                    <p className="text-[10px] text-hive-muted truncate">{s.contactName}</p>
-                  )}
-                </div>
-                {s.phone && (
-                  <span className="text-[10px] text-pantry-leaf-dk font-bold">📱</span>
-                )}
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
+      {/* Suppliers preview — top 3, tap-through to /pantry/suppliers.
+          Mobile: here at the bottom (as before). Desktop: in the hero row. */}
+      {suppliersPreview && <div className="lg:hidden">{suppliersPreview}</div>}
+    </Page>
   );
 }
 

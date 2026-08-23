@@ -41,6 +41,7 @@ import { ReconcileTimerChip } from '@/components/pantry/ReconcileTimer';
 import { openModuleGuide } from '@/lib/moduleGuides';
 import { useLocale } from '@/lib/useLocale';
 import { useConfirm } from '@/contexts/ConfirmContext';
+import { Page, PageHeader, PageSplit, DataRows, DATA_ROW, DATA_ROW_HOVER } from '@/components/layout/Page';
 
 // Auto-name now comes from createDraftRequest itself (MOD-NNNN ·
 // DDMMYY + optional context). Pantry has no module-specific context,
@@ -165,38 +166,36 @@ export default function PurchaseHomePage() {
     }
   };
 
-  return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
-      <div className="mb-3">
-        <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">
-          Household · Purchase
-        </p>
-        <h1 className="font-nunito font-black text-2xl lg:text-[34px] tracking-tight mt-0.5">
-          {role === 'parent' ? 'Requests' : (sw ? 'Safari za ununuzi' : 'Shop runs')}
-        </h1>
-        <p className="text-hive-muted text-sm mt-1">
-          {role === 'parent'
-            ? 'Approve, reject, or watch a shop close out.'
-            : (sw
-              ? 'Tengeneza ombi, tuma kwa idhini, kisha linganisha baada ya kununua.'
-              : 'Build a request, send for the nod, then reconcile after the shop.')}
-        </p>
-      </div>
-
-      {/* "How it flows" — step-by-step walk-through of the request loop. */}
+  // Web-Fit (2026-08-23): content tier, main + rail. Desktop: "＋ New
+  // request" + guide pill live in the header; guardrails + templates sit
+  // in the right rail; request piles render as dense rows. Mobile DOM
+  // order is unchanged (rail is `railMobile="first"`, i.e. exactly where
+  // those blocks were before).
+  const headerActions = (
+    <>
       <button
         type="button"
         onClick={() => openModuleGuide('purchases')}
-        className="w-full flex items-center gap-2.5 rounded-hive-lg bg-hive-navy text-white px-3.5 py-2.5 mb-4 text-left active:scale-[0.99] transition-transform"
+        className="inline-flex items-center gap-2 rounded-full bg-hive-navy text-white pl-1.5 pr-4 py-1.5 hover:brightness-110 active:scale-[0.99] transition"
       >
-        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-hive-honey text-white text-sm shrink-0">▶</span>
-        <span className="leading-tight">
-          <span className="block font-nunito font-black text-[13px]">{sw ? 'Jinsi Purchases inavyofanya kazi' : 'How Purchases flows'}</span>
-          <span className="block text-[10.5px] opacity-75">{sw ? 'Hatua kwa hatua: omba → idhinisha → linganisha' : 'Step-by-step: request → approve → reconcile'}</span>
-        </span>
-        <span className="ml-auto text-[11px] font-nunito font-extrabold opacity-80">{sw ? 'Tazama →' : 'Watch →'}</span>
+        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-hive-honey text-white text-[11px] shrink-0">▶</span>
+        <span className="font-nunito font-black text-[12.5px]">{sw ? 'Jinsi Purchases inavyofanya kazi' : 'How Purchases flows'}</span>
       </button>
+      {profile?.familyId && !isGuest && (
+        <button
+          type="button"
+          onClick={startDraft}
+          disabled={creating}
+          className="bg-pantry-leaf text-white rounded-hive h-10 px-5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60 hover:bg-pantry-leaf-dk transition-colors"
+        >
+          {creating ? (sw ? 'Inaanza…' : 'Starting…') : (sw ? '＋ Ombi jipya' : '＋ New request')}
+        </button>
+      )}
+    </>
+  );
 
+  const rail = (
+    <>
       {/* Helper price guardrails — parent-only setup (2026-05-31). Sets
           the ± band a helper can move a price during reconcile, family-wide
           + optional per-module overrides. Collapsed by default. */}
@@ -208,14 +207,14 @@ export default function PurchaseHomePage() {
           ABOVE the actionable piles so it's visible without scrolling
           on long pages. Recycle picker rides alongside so past requests
           are equally discoverable for the "make a new one like that"
-          flow. */}
+          flow. Desktop: the button is in the page header instead. */}
       {profile?.familyId && !isGuest && (
         <div className="mb-4">
           <button
             type="button"
             onClick={startDraft}
             disabled={creating}
-            className="w-full bg-pantry-leaf text-white rounded-hive py-3 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60 mb-2"
+            className="lg:hidden w-full bg-pantry-leaf text-white rounded-hive py-3 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60 mb-2"
           >
             {creating ? (sw ? 'Inaanza…' : 'Starting…') : (sw ? '＋ Ombi jipya' : '＋ New request')}
           </button>
@@ -234,6 +233,43 @@ export default function PurchaseHomePage() {
           />
         </div>
       )}
+    </>
+  );
+
+  return (
+    <Page width="content">
+      <PageHeader actions={headerActions}>
+        <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">
+          Household · Purchase
+        </p>
+        <h1 className="font-nunito font-black text-2xl lg:text-[34px] tracking-tight mt-0.5">
+          {role === 'parent' ? 'Requests' : (sw ? 'Safari za ununuzi' : 'Shop runs')}
+        </h1>
+        <p className="text-hive-muted text-sm mt-1">
+          {role === 'parent'
+            ? 'Approve, reject, or watch a shop close out.'
+            : (sw
+              ? 'Tengeneza ombi, tuma kwa idhini, kisha linganisha baada ya kununua.'
+              : 'Build a request, send for the nod, then reconcile after the shop.')}
+        </p>
+      </PageHeader>
+
+      {/* "How it flows" — step-by-step walk-through of the request loop.
+          Mobile bar; desktop uses the header pill. */}
+      <button
+        type="button"
+        onClick={() => openModuleGuide('purchases')}
+        className="lg:hidden w-full flex items-center gap-2.5 rounded-hive-lg bg-hive-navy text-white px-3.5 py-2.5 mb-4 text-left active:scale-[0.99] transition-transform"
+      >
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-hive-honey text-white text-sm shrink-0">▶</span>
+        <span className="leading-tight">
+          <span className="block font-nunito font-black text-[13px]">{sw ? 'Jinsi Purchases inavyofanya kazi' : 'How Purchases flows'}</span>
+          <span className="block text-[10.5px] opacity-75">{sw ? 'Hatua kwa hatua: omba → idhinisha → linganisha' : 'Step-by-step: request → approve → reconcile'}</span>
+        </span>
+        <span className="ml-auto text-[11px] font-nunito font-extrabold opacity-80">{sw ? 'Tazama →' : 'Watch →'}</span>
+      </button>
+
+      <PageSplit rail={rail} railMobile="first" sticky={false}>
 
       {/* Parent's actionable pile: pending approval */}
       {role === 'parent' && pending.length > 0 && (
@@ -310,7 +346,7 @@ export default function PurchaseHomePage() {
             <button
               type="button"
               onClick={() => setShowAllRecent((v) => !v)}
-              className="w-full bg-hive-paper border border-hive-line rounded-hive py-2 mt-1 text-pantry-leaf-dk font-nunito font-extrabold text-xs"
+              className={`w-full bg-hive-paper border border-hive-line rounded-hive py-2 mt-1 lg:mt-0 text-pantry-leaf-dk font-nunito font-extrabold text-xs ${DATA_ROW}`}
             >
               {showAllRecent
                 ? '▴ Show less'
@@ -323,12 +359,12 @@ export default function PurchaseHomePage() {
       {/* Bottom fallback "+ New request" — kept so the action is also
           reachable after a long scroll. The top block above is the
           primary CTA; this one is convenience. */}
-      <div className="mt-4 mb-32">
+      <div className="mt-4 mb-32 lg:mb-12">
         <button
           type="button"
           onClick={startDraft}
           disabled={creating || isGuest}
-          className="w-full bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60"
+          className="lg:hidden w-full bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60"
         >
           {creating ? 'Starting…' : '＋ New request'}
         </button>
@@ -338,7 +374,8 @@ export default function PurchaseHomePage() {
           </p>
         )}
       </div>
-    </div>
+      </PageSplit>
+    </Page>
   );
 }
 
@@ -357,12 +394,12 @@ function Section({
     : tone === 'leaf' ? 'text-pantry-leaf-dk'
     : 'text-hive-muted';
   return (
-    <div className="mt-5">
+    <div className="mt-5 lg:first:mt-0">
       <div className={`text-[11px] font-nunito font-extrabold uppercase tracking-[2px] mb-2 flex items-center gap-2 ${toneClass}`}>
         <span>{title}</span>
         <span className="bg-hive-paper border border-hive-line rounded-full px-2 py-0.5 text-[10px] text-hive-muted">{count}</span>
       </div>
-      <div className="flex flex-col gap-2">{children}</div>
+      <DataRows tone="hive">{children}</DataRows>
     </div>
   );
 }
@@ -520,10 +557,10 @@ function RequestRow({
   const total = req.actualTotalCents ?? req.estimatedTotalCents;
   const isClosed = req.status === 'closed' || req.status === 'rejected';
   return (
-    <div className={`flex items-stretch gap-1.5 ${dimmed ? 'opacity-70' : ''}`}>
+    <div className={`flex items-stretch gap-1.5 lg:gap-0 ${dimmed ? 'opacity-70' : ''}`}>
       <Link
         href={`/pantry/purchase/${req.id}`}
-        className="flex-1 bg-hive-paper border border-hive-line rounded-hive p-3.5 flex items-center gap-3 no-underline"
+        className={`flex-1 bg-hive-paper border border-hive-line rounded-hive p-3.5 flex items-center gap-3 no-underline lg:px-4 lg:py-3 ${DATA_ROW} ${DATA_ROW_HOVER}`}
       >
         <div className="w-10 h-10 rounded-xl bg-pantry-leaf-soft flex items-center justify-center text-base flex-shrink-0">
           🧾
@@ -553,7 +590,7 @@ function RequestRow({
           type="button"
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); void onRecycle(); }}
           disabled={recycling}
-          className="flex-shrink-0 bg-hive-paper border border-hive-line rounded-hive px-3 text-pantry-leaf-dk font-nunito font-black hover:bg-pantry-leaf-soft hover:border-pantry-leaf disabled:opacity-50"
+          className={`flex-shrink-0 bg-hive-paper border border-hive-line rounded-hive px-3 text-pantry-leaf-dk font-nunito font-black hover:bg-pantry-leaf-soft hover:border-pantry-leaf disabled:opacity-50 lg:border-l ${DATA_ROW}`}
           aria-label="Recycle — re-buy these items"
           title="Recycle · re-buy these items"
         >
@@ -564,7 +601,7 @@ function RequestRow({
         <button
           type="button"
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); void onDelete(); }}
-          className="flex-shrink-0 bg-hive-paper border border-hive-line rounded-hive px-3 text-hive-rose font-nunito font-black hover:bg-hive-rose/10 hover:border-hive-rose"
+          className={`flex-shrink-0 bg-hive-paper border border-hive-line rounded-hive px-3 text-hive-rose font-nunito font-black hover:bg-hive-rose/10 hover:border-hive-rose lg:border-l ${DATA_ROW}`}
           aria-label="Delete this draft"
           title="Delete draft"
         >
