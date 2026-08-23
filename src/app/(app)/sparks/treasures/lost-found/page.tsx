@@ -17,6 +17,7 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { toDisplayDate } from '@/lib/dates';
 import { treasuresApi, markFound, addSighting } from '@/lib/sparks/treasures';
+import { PAGE_WIDTH_CLASS, PageSplit, DATA_ROW } from '@/components/layout/Page';
 
 interface BoardItem {
   id: string;
@@ -58,10 +59,40 @@ export default function LostAndFoundPage() {
     finally { setBusy(false); }
   }
 
+  // Web-Fit (2026-08-23): content tier. Desktop: the missing things as
+  // one divided panel, the rule + "found recently" + errors in a right
+  // rail (railMobile="last" keeps the mobile order). Mobile unchanged.
+  const rail = (
+    <>
+      {/* The rule, said out loud — because the copy is the guardrail. */}
+      <div className="rounded-[12px] border border-[#DDE3EC] bg-[#F1F3F7] p-3 mt-3 lg:mt-0">
+        <p className="text-[11.2px] font-bold text-[#5B6B8C] leading-snug m-0">
+          Kaya never asks who took something. It asks <b>where it was last</b> — because that is
+          what actually finds things.
+        </p>
+      </div>
+
+      {found.length > 0 && (
+        <div className="rounded-[14px] border border-[#BFE3D8] bg-[#F1FAF7] p-3 mt-3">
+          <div className="font-display font-extrabold text-[12.5px] text-[#0E6B5E]">
+            ✅ Found recently
+          </div>
+          {found.map((f, i) => (
+            <p key={`${f.on}-${i}`} className="text-[11px] font-bold text-[#2C4A44] mt-1 m-0">
+              {f.note}
+            </p>
+          ))}
+        </div>
+      )}
+
+      {err && <p className="text-[11.5px] text-[#C0392B] font-bold mt-3">{err}</p>}
+    </>
+  );
+
   return (
     <div className="min-h-screen bg-[#FFFBF5] pb-20">
-      <div className="mx-auto max-w-md sm:max-w-2xl">
-        <div className="px-4 pt-4">
+      <div className={`mx-auto max-w-md sm:max-w-2xl ${PAGE_WIDTH_CLASS.content} lg:px-4`}>
+        <div className="px-4 pt-4 lg:pt-6">
           <Link
             href="/sparks"
             className="inline-flex items-center gap-1.5 pl-2.5 pr-3.5 py-1.5 rounded-full bg-white border border-[#ECE4D3] text-[#0F1F44] font-display font-extrabold text-[12px] no-underline"
@@ -72,12 +103,12 @@ export default function LostAndFoundPage() {
         </div>
 
         <div
-          className="mx-4 mt-3 rounded-[18px] p-4 text-white"
+          className="mx-4 mt-3 rounded-[18px] lg:rounded-[24px] p-4 lg:px-8 lg:py-7 text-white"
           style={{ background: 'linear-gradient(135deg,#0E6B5E 0%,#3FA38F 100%)' }}
         >
-          <div className="text-[10.5px] font-extrabold opacity-85">💎 Treasures · the whole family</div>
-          <div className="font-display text-[19px] font-extrabold mt-0.5">🔍 Lost &amp; Found</div>
-          <div className="text-[11px] opacity-90 mt-1">
+          <div className="text-[10.5px] lg:text-[12px] font-extrabold opacity-85">💎 Treasures · the whole family</div>
+          <div className="font-display text-[19px] lg:text-[30px] font-extrabold mt-0.5">🔍 Lost &amp; Found</div>
+          <div className="text-[11px] lg:text-[13.5px] opacity-90 mt-1">
             {missing === null
               ? 'Looking…'
               : missing.length === 0
@@ -86,7 +117,8 @@ export default function LostAndFoundPage() {
           </div>
         </div>
 
-        <div className="px-4 mt-3">
+        <div className="px-4 mt-3 lg:mt-5">
+          <PageSplit rail={rail} railMobile="last">
           {missing === null && (
             <p className="text-[13px] text-[#5A6488] text-center py-6">Loading the board…</p>
           )}
@@ -103,12 +135,14 @@ export default function LostAndFoundPage() {
             </div>
           )}
 
-          {missing?.map((m) => {
+          {!!missing?.length && (
+          <div className="lg:rounded-[14px] lg:border lg:border-[#ECE4D3] lg:divide-y lg:divide-[#ECE4D3] lg:overflow-hidden">
+          {missing.map((m) => {
             const tone = m.days >= 5 ? 'bad' : 'warn';
             return (
               <div
                 key={m.id}
-                className={`rounded-[14px] border p-3 mb-2.5 ${
+                className={`rounded-[14px] border p-3 mb-2.5 lg:mb-0 lg:px-4 lg:py-3 ${DATA_ROW} ${
                   tone === 'bad'
                     ? 'border-[#F0C9CC] bg-[#FEF6F6]'
                     : 'border-[#F3D3A6] bg-[#FFF9EF]'
@@ -188,29 +222,9 @@ export default function LostAndFoundPage() {
               </div>
             );
           })}
-
-          {/* The rule, said out loud — because the copy is the guardrail. */}
-          <div className="rounded-[12px] border border-[#DDE3EC] bg-[#F1F3F7] p-3 mt-3">
-            <p className="text-[11.2px] font-bold text-[#5B6B8C] leading-snug m-0">
-              Kaya never asks who took something. It asks <b>where it was last</b> — because that is
-              what actually finds things.
-            </p>
           </div>
-
-          {found.length > 0 && (
-            <div className="rounded-[14px] border border-[#BFE3D8] bg-[#F1FAF7] p-3 mt-3">
-              <div className="font-display font-extrabold text-[12.5px] text-[#0E6B5E]">
-                ✅ Found recently
-              </div>
-              {found.map((f, i) => (
-                <p key={`${f.on}-${i}`} className="text-[11px] font-bold text-[#2C4A44] mt-1 m-0">
-                  {f.note}
-                </p>
-              ))}
-            </div>
           )}
-
-          {err && <p className="text-[11.5px] text-[#C0392B] font-bold mt-3">{err}</p>}
+          </PageSplit>
         </div>
       </div>
     </div>
