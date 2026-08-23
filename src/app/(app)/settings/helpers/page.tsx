@@ -25,7 +25,7 @@ import { setPayrollConfig, clearPayrollConfig, payAnchorLabel, payExpectationLab
 import type { HelperPayrollConfig, PayBasis, PayFrequency, PayrollAllowance, PayrollAllowanceType, PayrollAllowanceCadence } from '@/lib/firestore';
 import { useHive } from '@/contexts/HiveContext';
 import { formatCents } from '@/components/pantry/format';
-import { updateFamily, type HelperLink } from '@/lib/firestore';
+import { updateFamily, type HelperLink, type WorkDay, ALL_WORK_DAYS } from '@/lib/firestore';
 
 const SESSION_LENGTH_CHOICES: { days: number; label: string }[] = [
   { days: 7,   label: '7 days' },
@@ -63,6 +63,10 @@ const FREQUENCY_CHOICES: { id: Frequency; label: string; hint: string }[] = [
   { id: 'both',     label: 'Morning + Evening', hint: 'Expected to log both ratings each day' },
   { id: 'flexible', label: 'Flexible',         hint: 'No daily expectation — fills in when relevant' },
 ];
+
+const WORK_DAY_LABEL: Record<WorkDay, string> = {
+  mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun',
+};
 
 const FREQUENCY_LABEL: Record<Frequency, string> = {
   morning: 'Morning only',
@@ -1404,7 +1408,41 @@ function HelperRow({ helper, familyId, familyCode, loginUrl, childOptions, famil
               })}
             </div>
             <p className="text-[10px] text-kaya-sand mt-2">
-              The helper sees this on their dashboard. Performance % will use this in a future build.
+              The helper sees this on their dashboard. Performance (Ratings + Routine fill) expects fills on these slots.
+            </p>
+          </div>
+
+          {/* Work days (HP2 D4, 2026-08-23) — off-days show ⚪ in Routine
+              fill and drop out of the ratings expectation. Mirrors the
+              chips in Settings → Performance → Who's tracked. */}
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-kaya-sand mb-2">Work days</p>
+            <div className="flex flex-wrap gap-1.5">
+              {ALL_WORK_DAYS.map((d) => {
+                const days = helper.workDays && helper.workDays.length > 0 ? helper.workDays : ALL_WORK_DAYS;
+                const on = days.includes(d);
+                return (
+                  <button
+                    key={d}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      const next = on ? days.filter((x) => x !== d) : [...days, d];
+                      if (next.length === 0) return;
+                      save({ workDays: ALL_WORK_DAYS.filter((x) => next.includes(x)) });
+                    }}
+                    className={`text-xs font-bold px-3 py-1.5 rounded-full border disabled:opacity-50 ${on
+                      ? 'bg-kaya-chocolate text-white border-kaya-chocolate'
+                      : 'bg-white border-kaya-warm-dark text-kaya-sand'
+                    }`}
+                  >
+                    {WORK_DAY_LABEL[d]}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-kaya-sand mt-2">
+              Off-days don&apos;t count against {helper.displayName.split(' ')[0]} — they show ⚪ in Routine fill.
             </p>
           </div>
 

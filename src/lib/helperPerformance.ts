@@ -78,6 +78,11 @@ export interface HelperPerformanceWindow {
   ratingCompletion: HelperRatingCompletionWindow;
   // ── Parent feedback metric (v3) ────────────────────────────────
   feedback: FeedbackWindow;
+  // ── Kid review metric (HP2, 2026-08-23) ────────────────────────
+  /** Kids' weekly-review average across kids in the window (0–100),
+   *  or null when none / not supplied. Supplied by the caller (it's
+   *  read through the Admin gateway, not Firestore) via opts. */
+  kidReviewPct: number | null;
   // ── Consolidated score (weighted average, policy-driven) ───────
   /** Final 0–100 score. Weighted average across metrics that have
    *  data and aren't excluded for this helper. Null when EVERY
@@ -97,7 +102,7 @@ export interface HelperPerformanceWindow {
 export async function getHelperPerformance(
   familyId: string,
   helperUid: string,
-  opts: { days?: number; from?: Date; includeToday?: boolean } = {},
+  opts: { days?: number; from?: Date; includeToday?: boolean; kidReviewPct?: number | null } = {},
 ): Promise<HelperPerformanceWindow> {
   const policy = await getPerformancePolicy(familyId);
   const days = opts.days ?? policy.windowDays;
@@ -184,6 +189,8 @@ export async function getHelperPerformance(
   if (budget.scorePct             !== null && weights.budget           > 0) scores.push({ score: budget.scorePct,              weight: weights.budget });
   if (ratingCompletion.scorePct   !== null && weights.ratingCompletion > 0) scores.push({ score: ratingCompletion.scorePct,    weight: weights.ratingCompletion });
   if (feedback.scorePct           !== null && weights.parentFeedback   > 0) scores.push({ score: feedback.scorePct,            weight: weights.parentFeedback });
+  const kidReviewPct = opts.kidReviewPct ?? null;
+  if (kidReviewPct                !== null && (weights.kidReview ?? 0) > 0) scores.push({ score: kidReviewPct,                 weight: weights.kidReview });
   let consolidatedPct: number | null = null;
   if (scores.length > 0) {
     const wSum = scores.reduce((a, s) => a + s.weight, 0);
@@ -195,7 +202,7 @@ export async function getHelperPerformance(
   return {
     days,
     todayPct, avgPct, scheduledDays, activeDays, tasksDone, tasksScheduled,
-    budget, ratingCompletion, feedback,
+    budget, ratingCompletion, feedback, kidReviewPct,
     consolidatedPct, policy, excludedMetrics: excluded,
   };
 }
@@ -322,12 +329,17 @@ export async function getHelperRatingMetric(
   // we default to 1/day + infer kids from actual fills below.
   let perDayExpected = 1;
   let assignedKids = 0;
+  // HP2 D4 — off-days drop out of the expectation (absent = all 7).
+  let workDays: string[] | null = null;
   try {
     const link = await getHelperLink(familyId, helperUid);
     if (link) {
       assignedKids = (link.kidIds ?? []).length;
       if (link.expectedFrequency === 'both') perDayExpected = 2;
       else perDayExpected = 1; // morning / evening / flexible / undefined
+      if (Array.isArray(link.workDays) && link.workDays.length > 0 && link.workDays.length < 7) {
+        workDays = link.workDays;
+      }
     }
   } catch {
     // Soft-fail the link read — fills below can still define expectation.
@@ -409,7 +421,20 @@ export async function getHelperRatingMetric(
     return { scorePct: null, expected: 0, logged: 0, perDayExpected };
   }
 
-  const expected = effectiveKids * perDayExpected * days;
+  // Count only the helper's working days inside the window (D4).
+  let workingDays = days;
+  if (workDays) {
+    const DOW = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+    workingDays = 0;
+    const end = new Date(from);
+    if (!includeToday) end.setDate(end.getDate() - 1);
+    for (let i = 0; i < days; i++) {
+      const d = new Date(end);
+      d.setDate(d.getDate() - i);
+      if (workDays.includes(DOW[d.getDay()])) workingDays++;
+    }
+  }
+  const expected = effectiveKids * perDayExpected * workingDays;
   // Score on the partial-by-checks sum, not the raw slot count, so an
   // incomplete rating (some routines unmarked) earns proportional credit.
   // `logged` stays the raw slot count for the "X / Y logged" display.

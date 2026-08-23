@@ -13,6 +13,7 @@
 import { useEffect, useState } from 'react';
 import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
 import { collection, onSnapshot, doc, getDoc, updateDoc } from 'firebase/firestore';
+import { resolvePerfDigest } from '@/lib/perfDigestPrefs';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { db } from '@/lib/firebase';
@@ -40,33 +41,52 @@ export default function NotificationSettings() {
   // Stored on the user's own doc (users/{uid}.perfDigestEmail), so one
   // parent enabling it doesn't affect the other. A daily Vercel cron
   // (/api/cron/perf-digest) emails opted-in parents each helper's score.
+  // HP2 (2026-08-23, D7 + Q1): one setting, three values —
+  //   users/{uid}.perfDigest: 'off' | 'weekly' | 'daily'
+  // Legacy mapping: perfDigestEmail === true → 'weekly' (they wanted
+  // helper emails), explicit false → 'off' (they turned it off), absent
+  // → 'weekly' (Elia's default: every parent gets the Monday report).
+  // `perfDigestEmail` is still written (true only for 'daily') so the
+  // daily cron keeps working until it reads the new field.
   const isParent = profile?.role === 'parent';
-  const [digestEmail, setDigestEmail] = useState<boolean>(false);
+  type DigestFreq = 'off' | 'weekly' | 'daily';
+  const [digestFreq, setDigestFreq] = useState<DigestFreq>('weekly');
   const [digestBusy, setDigestBusy] = useState(false);
+  const [kidReviewEmail, setKidReviewEmail] = useState<boolean>(true);
   useEffect(() => {
     if (!user?.uid || !isParent) return;
     let cancelled = false;
     (async () => {
       try {
         const snap = await getDoc(doc(db, 'users', user.uid));
-        if (!cancelled) setDigestEmail(snap.exists() && (snap.data() as { perfDigestEmail?: boolean }).perfDigestEmail === true);
-      } catch { /* leave default off */ }
+        if (cancelled) return;
+        const d = (snap.exists() ? snap.data() : {}) as { perfDigest?: string; perfDigestEmail?: boolean; kidReviewEmail?: boolean };
+        setDigestFreq(resolvePerfDigest(d));
+        setKidReviewEmail(d.kidReviewEmail !== false);
+      } catch { /* leave defaults */ }
     })();
     return () => { cancelled = true; };
   }, [user?.uid, isParent]);
 
-  async function toggleDigest() {
-    if (!user?.uid) return;
-    const next = !digestEmail;
-    setDigestEmail(next); // optimistic
+  async function setDigest(next: DigestFreq) {
+    if (!user?.uid || next === digestFreq) return;
+    const prev = digestFreq;
+    setDigestFreq(next); // optimistic
     setDigestBusy(true);
     try {
-      await updateDoc(doc(db, 'users', user.uid), { perfDigestEmail: next });
+      await updateDoc(doc(db, 'users', user.uid), { perfDigest: next, perfDigestEmail: next === 'daily' });
     } catch {
-      setDigestEmail(!next); // revert on failure
+      setDigestFreq(prev); // revert on failure
     } finally {
       setDigestBusy(false);
     }
+  }
+  async function toggleKidReviewEmail() {
+    if (!user?.uid) return;
+    const next = !kidReviewEmail;
+    setKidReviewEmail(next);
+    try { await updateDoc(doc(db, 'users', user.uid), { kidReviewEmail: next }); }
+    catch { setKidReviewEmail(!next); }
   }
 
   // ── Payroll email notifications (2026-06-08) ──────────────────────
@@ -228,7 +248,7 @@ export default function NotificationSettings() {
       remember
       icon="🔔"
       title="Device notifications"
-      summary={`${tokens.length} device${tokens.length === 1 ? '' : 's'}${digestEmail ? ' · digest on' : ''}`}
+      summary={`${tokens.length} device${tokens.length === 1 ? '' : 's'}${digestFreq !== 'off' ? ` · ${digestFreq} helper email` : ''}`}
     >
 
       {status === 'unsupported' && (
@@ -299,31 +319,43 @@ export default function NotificationSettings() {
         </>
       )}
 
-      {/* Daily performance email — per-parent opt-in (2026-05-20). */}
+      {/* Helper performance email — Off / Weekly / Daily (HP2 D7). */}
       {isParent && (
         <div className="mt-4 pt-4 border-t border-kaya-warm-dark/40">
-          <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-2">Email digest</p>
+          <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-1">Helper performance email</p>
+          <p className="text-[11px] text-kaya-sand leading-relaxed mb-2">
+            <strong>Weekly</strong> lands Monday morning with each tracked helper&apos;s score, routine-fill strip and the kids&apos; stars.
+            <strong> Daily</strong> is the short evening summary. Just for you — the other parent decides separately.
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            {(['off', 'weekly', 'daily'] as const).map((f) => (
+              <button
+                key={f}
+                type="button"
+                disabled={digestBusy}
+                onClick={() => setDigest(f)}
+                className={`rounded-kaya py-2 text-[12px] font-bold border disabled:opacity-60 ${
+                  digestFreq === f
+                    ? 'bg-kaya-chocolate text-white border-kaya-chocolate'
+                    : 'bg-white border-kaya-warm-dark text-kaya-chocolate'
+                }`}
+              >
+                {f === 'off' ? 'Off' : f === 'weekly' ? '📊 Weekly' : 'Daily'}
+              </button>
+            ))}
+          </div>
           <button
             type="button"
-            onClick={toggleDigest}
-            disabled={digestBusy}
-            className="w-full flex items-center gap-3 text-left disabled:opacity-60"
+            onClick={toggleKidReviewEmail}
+            className="mt-3 w-full flex items-center gap-3 text-left"
           >
-            <span
-              className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full transition-colors ${
-                digestEmail ? 'bg-kaya-gold' : 'bg-kaya-warm-dark'
-              }`}
-            >
-              <span
-                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                  digestEmail ? 'translate-x-[22px]' : 'translate-x-0.5'
-                }`}
-              />
+            <span className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full transition-colors ${kidReviewEmail ? 'bg-kaya-gold' : 'bg-kaya-warm-dark'}`}>
+              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${kidReviewEmail ? 'translate-x-[22px]' : 'translate-x-0.5'}`} />
             </span>
             <span className="min-w-0">
-              <span className="block text-[13px] font-bold text-kaya-chocolate">Daily helper performance email</span>
+              <span className="block text-[13px] font-bold text-kaya-chocolate">Email me when a kid reviews a helper</span>
               <span className="block text-[11px] text-kaya-sand leading-relaxed mt-0.5">
-                Each evening, get an email summarising every helper&apos;s score. Just for you — the other parent decides separately.
+                The moment a kid sends their weekly review — subject shows who, which helper and the stars.
               </span>
             </span>
           </button>

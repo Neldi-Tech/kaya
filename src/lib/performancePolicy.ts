@@ -12,7 +12,7 @@ import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
 import {
   type PerformancePolicy, type PerformanceMetric,
-  DEFAULT_PERFORMANCE_POLICY,
+  DEFAULT_PERFORMANCE_POLICY, DEFAULT_KID_REVIEW_SETTINGS,
 } from './firestore';
 
 const policyRef = (familyId: string) =>
@@ -83,7 +83,8 @@ export async function updatePerformancePolicy(
 
 /** Weights must sum to 100 and each must be ≥ 0. */
 export function validateWeights(weights: Record<PerformanceMetric, number>): string | null {
-  const sum = Object.values(weights).reduce((a, b) => a + b, 0);
+  // Legacy 4-metric maps (pre-HP2) — treat a missing kidReview as 0.
+  const sum = METRICS.reduce((a, m) => a + (weights[m] ?? 0), 0);
   if (Object.values(weights).some((v) => v < 0)) return 'Weights cannot be negative.';
   if (Math.round(sum) !== 100) return `Weights must sum to 100 (currently ${Math.round(sum)}).`;
   return null;
@@ -108,6 +109,27 @@ export function validateWindow(days: number): string | null {
   return null;
 }
 
+// ── HP2 (2026-08-23) — tracked / kids-review / min-age helpers ───
+
+export const METRICS: PerformanceMetric[] = ['workplan', 'budget', 'ratingCompletion', 'parentFeedback', 'kidReview'];
+
+/** D1 — is this helper's performance tracked at all? Default true. */
+export function isHelperTracked(policy: PerformancePolicy | null | undefined, helperUid: string): boolean {
+  return policy?.helperOverrides?.[helperUid]?.tracked !== false;
+}
+
+/** D9 — are assigned kids asked to review this helper weekly?
+ *  Requires tracked; default true. */
+export function isKidsReviewOn(policy: PerformancePolicy | null | undefined, helperUid: string): boolean {
+  return isHelperTracked(policy, helperUid) && policy?.helperOverrides?.[helperUid]?.kidsReview !== false;
+}
+
+/** Validate the kid-review min age (3–12). */
+export function validateMinAge(age: number): string | null {
+  if (!Number.isInteger(age) || age < 3 || age > 12) return 'Minimum age must be between 3 and 12.';
+  return null;
+}
+
 // ── Helpers used by getHelperPerformance ─────────────────────────
 
 /** Resolve the effective weights for a single helper — applies any
@@ -119,8 +141,11 @@ export function effectiveWeights(
   helperUid: string,
 ): { weights: Record<PerformanceMetric, number>; excluded: PerformanceMetric[] } {
   const excluded = policy.helperOverrides?.[helperUid]?.excludeMetrics ?? [];
-  if (excluded.length === 0) return { weights: { ...policy.weights }, excluded: [] };
-  const adjusted: Record<PerformanceMetric, number> = { ...policy.weights };
+  const base: Record<PerformanceMetric, number> = {
+    ...DEFAULT_PERFORMANCE_POLICY.weights, ...policy.weights,
+  };
+  if (excluded.length === 0) return { weights: base, excluded: [] };
+  const adjusted: Record<PerformanceMetric, number> = { ...base };
   for (const m of excluded) adjusted[m] = 0;
   const sum = Object.values(adjusted).reduce((a, b) => a + b, 0);
   if (sum === 0) {
@@ -146,6 +171,7 @@ function mergeWithDefaults(p: Partial<PerformancePolicy>): PerformancePolicy {
       budget:           p.weights?.budget           ?? DEFAULT_PERFORMANCE_POLICY.weights.budget,
       ratingCompletion: p.weights?.ratingCompletion ?? DEFAULT_PERFORMANCE_POLICY.weights.ratingCompletion,
       parentFeedback:   p.weights?.parentFeedback   ?? DEFAULT_PERFORMANCE_POLICY.weights.parentFeedback,
+      kidReview:        p.weights?.kidReview        ?? DEFAULT_PERFORMANCE_POLICY.weights.kidReview,
     },
     thresholds: {
       excellent: p.thresholds?.excellent ?? DEFAULT_PERFORMANCE_POLICY.thresholds.excellent,
@@ -154,6 +180,11 @@ function mergeWithDefaults(p: Partial<PerformancePolicy>): PerformancePolicy {
     },
     windowDays:      p.windowDays ?? DEFAULT_PERFORMANCE_POLICY.windowDays,
     helperOverrides: p.helperOverrides ?? {},
+    helpersSeeOwnScore: p.helpersSeeOwnScore ?? true,
+    kidReview: {
+      minAge:        p.kidReview?.minAge        ?? DEFAULT_KID_REVIEW_SETTINGS.minAge,
+      emailOnSubmit: p.kidReview?.emailOnSubmit ?? DEFAULT_KID_REVIEW_SETTINGS.emailOnSubmit,
+    },
     updatedAt:       p.updatedAt,
     updatedBy:       p.updatedBy,
   };
