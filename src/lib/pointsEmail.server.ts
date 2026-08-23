@@ -62,7 +62,7 @@ interface FamilyLite {
   pointSystem?: { routines?: { pointsPerHousePoint?: number } };
   externalContacts?: { id: string; name: string; email: string; notifyOnRating?: boolean; notifyOnAward?: boolean }[];
   emailGroups?: { id: string; name: string; memberUids: string[]; externalEmails: string[] }[];
-  pointsEmailAudience?: { rating?: { kidItsAbout?: boolean; groupIds?: string[]; emails?: string[] } };
+  pointsEmailAudience?: { rating?: { kidItsAbout?: boolean; groupIds?: string[]; emails?: string[]; fullEmails?: string[] } };
   /** 🔥 Heat Report (2026-08-23): family-tier report style. Default 'heat'. */
   pointsEmailDetail?: 'heat' | 'totals';
   /** 🧒 Kids see the feedback (R8). All default ON. */
@@ -301,6 +301,10 @@ export async function resolveRatingAudience(
   ]);
   const groupMemberUids = new Set(groups.flatMap((g) => g.memberUids || []));
 
+  // ✉️ custom emails a parent flipped to 🔥 full (their own work inbox,
+  // the other parent's second address…) — parent-declared identity.
+  const fullEmails = new Set<string>((aud.fullEmails || []).map(lower));
+
   const family = new Map<string, { email: string; name: string }>();
   const identity = new Set<string>();  // every address that belongs to a family identity
   for (const m of members) {
@@ -308,6 +312,7 @@ export async function resolveRatingAudience(
     identity.add(e);
     if (m.role === 'kid') continue;
     if (m.uid === raterUid) continue;                       // never mail the rater
+    if (/@helper\.kaya\.app$/i.test(e)) continue;          // helper login stubs — not real inboxes
     const on = m.notifyOnRating !== false;                  // personal toggle (default on)
     if (on || groupMemberUids.has(m.uid) || explicit.has(e)) family.set(e, { email: m.email!, name: m.displayName || e });
   }
@@ -321,6 +326,10 @@ export async function resolveRatingAudience(
   if (aud.kidItsAbout === true) {
     const resolved = await resolveKidEmailAddress(db, familyId, childId, fam as Parameters<typeof resolveKidEmailAddress>[3]);
     if (resolved) kid = { email: resolved.email, name: '', sourceLabel: resolved.sourceLabel };
+  }
+  for (const e of fullEmails) {
+    if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e) && !identity.has(e) && !family.has(e)) family.set(e, { email: e, name: e });
+    identity.add(e);
   }
   // outside = explicit addresses that belong to NO family identity
   const outside = Array.from(explicit).filter((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e) && !identity.has(e) && e !== lower(kid?.email));

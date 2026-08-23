@@ -32,7 +32,9 @@ import { updateFamily, getRecentRatings } from '@/lib/firestore';
 import { auth as fbAuth } from '@/lib/firebase';
 
 type AudienceType = 'rating' | 'award';
-type Audience = { kidItsAbout?: boolean; groupIds?: string[]; emails?: string[] };
+/** fullEmails ⊆ emails — custom addresses a parent flipped to 🔥 full
+ *  (their own work inbox etc.); the rest get ⭐ totals (privacy default). */
+type Audience = { kidItsAbout?: boolean; groupIds?: string[]; emails?: string[]; fullEmails?: string[] };
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
@@ -89,6 +91,7 @@ export default function PointsAudienceRow({ type }: { type: AudienceType }) {
             kidItsAbout: next.kidItsAbout === true,
             groupIds: next.groupIds || [],
             emails: next.emails || [],
+            fullEmails: (next.fullEmails || []).filter((e) => (next.emails || []).includes(e)),
           },
         },
       });
@@ -103,7 +106,12 @@ export default function PointsAudienceRow({ type }: { type: AudienceType }) {
     if (cur.has(id)) cur.delete(id); else cur.add(id);
     save({ ...aud, groupIds: Array.from(cur) });
   };
-  const removeEmail = (e: string) => save({ ...aud, emails: (aud.emails || []).filter((x) => x !== e) });
+  const removeEmail = (e: string) => save({ ...aud, emails: (aud.emails || []).filter((x) => x !== e), fullEmails: (aud.fullEmails || []).filter((x) => x !== e) });
+  const toggleFull = (e: string) => {
+    const cur = new Set(aud.fullEmails || []);
+    if (cur.has(e)) cur.delete(e); else cur.add(e);
+    save({ ...aud, fullEmails: Array.from(cur) });
+  };
   const addEmail = () => {
     const e = draft.trim().toLowerCase();
     if (!EMAIL_RE.test(e)) return;
@@ -133,11 +141,20 @@ export default function PointsAudienceRow({ type }: { type: AudienceType }) {
             {g.emoji || '👥'} {g.name}{(aud.groupIds || []).includes(g.id) ? ' ✓' : ''}
           </button>
         ))}
-        {(aud.emails || []).map((e) => (
-          <button key={e} type="button" disabled={saving} onClick={() => removeEmail(e)} title="Tap to remove" className={chip(true)}>
-            ✉️ {e} <span className="opacity-60 font-normal">×</span>
-          </button>
-        ))}
+        {(aud.emails || []).map((e) => {
+          const full = (aud.fullEmails || []).includes(e);
+          return (
+            <span key={e} className="inline-flex items-stretch rounded-full border-2 border-kaya-chocolate overflow-hidden text-[11.5px] font-extrabold">
+              <span className="inline-flex items-center px-2.5 py-1.5 bg-kaya-chocolate text-kaya-gold-light">✉️ {e}</span>
+              <button type="button" disabled={saving} onClick={() => toggleFull(e)}
+                title={full ? 'Gets the full report — tap for totals only' : 'Gets totals only — tap for the full report'}
+                className={`px-2 py-1.5 border-l-2 border-kaya-chocolate ${full ? 'bg-kaya-gold text-kaya-chocolate' : 'bg-white text-kaya-sand'}`}>
+                {full ? '🔥 full' : '⭐ totals'}
+              </button>
+              <button type="button" disabled={saving} onClick={() => removeEmail(e)} title="Remove" className="px-2 py-1.5 bg-white text-kaya-sand border-l-2 border-kaya-chocolate">×</button>
+            </span>
+          );
+        })}
         {adding ? (
           <span className="inline-flex items-center gap-1">
             <input
@@ -235,7 +252,7 @@ export default function PointsAudienceRow({ type }: { type: AudienceType }) {
 
       <p className="text-[10.5px] text-kaya-sand leading-relaxed mt-2">
         {type === 'rating'
-          ? '🧒 Only the rated kid gets it (not siblings), riding the COPPA kid-email settings — kids without an approved email simply skip. ✉️ Custom emails get first name + points + counts only, no app links.'
+          ? '🧒 Only the rated kid gets it (not siblings), riding the COPPA kid-email settings — kids without an approved email simply skip. ✉️ Custom emails get ⭐ totals (first name + points + counts, no app links) unless you flip one to 🔥 full — e.g. your own work inbox.'
           : '🧒 Rides the existing 🏅 kid reward emails + COPPA settings. ✉️ Custom emails get first name + points only — the award reason stays inside the family.'}
       </p>
     </div>
