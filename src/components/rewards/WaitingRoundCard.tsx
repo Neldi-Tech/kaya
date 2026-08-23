@@ -12,7 +12,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { listRounds, listShineCards, type RecognitionRound, type ShineCard } from '@/lib/shineCards';
-import { openRoundItems, roundStreak } from '@/lib/recognitionDismiss';
+import { openRoundItems, roundStreak, RECOGNITION_CHANGED_EVENT } from '@/lib/recognitionDismiss';
 
 export default function WaitingRoundCard({ className = '' }: { className?: string }) {
   const { profile } = useAuth();
@@ -24,7 +24,7 @@ export default function WaitingRoundCard({ className = '' }: { className?: strin
   useEffect(() => {
     if (!profile?.familyId) return;
     if (profile.role !== 'parent' && profile.role !== 'helper') return;
-    (async () => {
+    const load = async () => {
       try {
         const [rounds, cards] = await Promise.all([
           listRounds(profile.familyId).catch(() => [] as RecognitionRound[]),
@@ -46,7 +46,11 @@ export default function WaitingRoundCard({ className = '' }: { className?: strin
         }
         setState({ waitingKids, streak });
       } catch { setState(null); }
-    })();
+    };
+    void load();
+    const onChange = () => { void load(); };
+    window.addEventListener(RECOGNITION_CHANGED_EVENT, onChange);
+    return () => window.removeEventListener(RECOGNITION_CHANGED_EVENT, onChange);
   }, [profile?.familyId, profile?.uid, profile?.role]);
 
   if (!profile || (profile.role !== 'parent' && profile.role !== 'helper')) return null;

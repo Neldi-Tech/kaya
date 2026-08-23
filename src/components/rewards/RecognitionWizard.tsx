@@ -38,7 +38,7 @@ import { notifyAward } from '@/lib/notify';
 import { dismissRoundItem, undismissRoundItem } from '@/lib/shineCards';
 import {
   DISMISS_REASONS, DISMISS_NOTE_MAX, ROUND_WINDOW_MS, openRoundItems, roundStreak, dismissReason, dismissKey,
-  type DismissCode,
+  emitRecognitionChanged, type DismissCode,
 } from '@/lib/recognitionDismiss';
 
 type Step = 'list' | 'pick' | 'detail' | 'gift' | 'points' | 'preview' | 'done';
@@ -255,6 +255,7 @@ export default function RecognitionWizard() {
         } catch { /* best-effort */ }
       })();
       setStep('done');
+      emitRecognitionChanged();
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Could not complete — try again.');
     }
@@ -288,6 +289,7 @@ export default function RecognitionWizard() {
       setDismissFor(null); setDismissCode(''); setDismissNote('');
       setShowDismissed(false);
       setRefreshTick((t) => t + 1);
+      emitRecognitionChanged();
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Could not dismiss — try again.');
     }
@@ -299,13 +301,16 @@ export default function RecognitionWizard() {
     try {
       await undismissRoundItem(familyId, rowRound.date, it.kidId, it.kind);
       setRefreshTick((t) => t + 1);
+      emitRecognitionChanged();
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Could not undo — the round window may have closed.');
     }
     setBusy(false);
   };
 
-  const dismissedRow = dismissedEntries.length > 0 ? (
+  // Parents only — the reasons are parent-to-parent text (approved design ①:
+  // helpers see the list minus dismissed items, nothing else).
+  const dismissedRow = isParent && dismissedEntries.length > 0 ? (
     <div className="rounded-kaya-sm px-3 py-2 mt-1.5 text-[11px] font-extrabold" style={{ background: 'rgba(0,0,0,.16)', border: '1px dashed rgba(255,255,255,.35)' }}>
       <button type="button" onClick={() => setShowDismissed((v) => !v)} className="w-full text-left">
         ✕ {dismissedEntries.length} dismissed · Kaya learned <span className="opacity-75 font-bold">· {showDismissed ? 'hide ▴' : 'show ▾'}</span>

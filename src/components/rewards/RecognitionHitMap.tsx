@@ -28,7 +28,7 @@ import {
   type ShineCard, type RecognitionRound,
 } from '@/lib/shineCards';
 import { toDisplayDate } from '@/lib/dates';
-import { roundOutcome, roundStreak, dismissReason, dismissKey } from '@/lib/recognitionDismiss';
+import { roundOutcome, roundStreak, dismissReason, dismissKey, RECOGNITION_CHANGED_EVENT } from '@/lib/recognitionDismiss';
 import KayaLearnedLine from '@/components/rewards/RecognitionLearned';
 
 type View = 'week' | 'month' | '3mo' | 'custom' | 'rounds';
@@ -80,7 +80,13 @@ export default function RecognitionHitMap({ showStats = true }: { showStats?: bo
     ]);
     setCards(c); setRounds(r);
   }, [familyId]);
-  useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => {
+    void reload();
+    // 🔄 the wizard fired a dismiss / undo / approve → repaint the map.
+    const onChange = () => { void reload(); };
+    window.addEventListener(RECOGNITION_CHANGED_EVENT, onChange);
+    return () => window.removeEventListener(RECOGNITION_CHANGED_EVENT, onChange);
+  }, [reload]);
 
   // ── Day classification ──────────────────────────────────────────
   const cardsByDay = useMemo(() => {
@@ -413,7 +419,7 @@ export function RecognitionStats() {
   const [stats, setStats] = useState<{ week: number; streak: number; split: string } | null>(null);
   useEffect(() => {
     if (!familyId) return;
-    (async () => {
+    const load = async () => {
       try {
         const [cards, rounds] = await Promise.all([
           listShineCards(familyId).catch(() => [] as ShineCard[]),
@@ -431,7 +437,11 @@ export function RecognitionStats() {
           split: [...byGiver.entries()].map(([nm, ct]) => `${nm} ${ct}`).join(' · ') || '—',
         });
       } catch { setStats(null); }
-    })();
+    };
+    void load();
+    const onChange = () => { void load(); };
+    window.addEventListener(RECOGNITION_CHANGED_EVENT, onChange);
+    return () => window.removeEventListener(RECOGNITION_CHANGED_EVENT, onChange);
   }, [familyId]);
   if (!stats) return null;
   return (
