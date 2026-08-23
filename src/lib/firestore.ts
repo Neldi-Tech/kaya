@@ -678,6 +678,9 @@ export interface Family {
 // Tier B (Neldi-driven OTP) + Tier C (real email) come later; they
 // link a real phone/email onto the same UID via account linking so
 // all HelperLink history is preserved automatically.
+export type WorkDay = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+export const ALL_WORK_DAYS: WorkDay[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
 export interface HelperLink {
   uid: string;
   helperCode: string;                                        // short handle within the family, e.g. "JANE"
@@ -724,6 +727,10 @@ export interface HelperLink {
   //   both     → both morning AND evening expected
   //   flexible → no specific cadence; helper fills when relevant
   expectedFrequency?: 'morning' | 'evening' | 'both' | 'flexible';
+  /** HP2 D4 (2026-08-23) — which weekdays the helper works. Off-days
+   *  show ⚪ in the routine-fill RAG and drop out of the ratings
+   *  expectation (a Sunday off is no longer a red). Absent = all 7. */
+  workDays?: WorkDay[];
   /** Per-helper override of how long they stay signed in before having
    *  to re-enter their codes. When unset, the family-wide
    *  `Family.helperSessionDays` (default 30) applies. Set from the
@@ -1130,7 +1137,8 @@ export type PerformanceMetric =
   | 'workplan'           // % of daily-scheduled tasks completed
   | 'budget'             // shop-cost adherence (under/over estimate)
   | 'ratingCompletion'   // % of expected morning+evening ratings logged
-  | 'parentFeedback';    // aggregated 👍 / 😐 / 👎 from parent in window
+  | 'parentFeedback'     // aggregated 👍 / 😐 / 👎 from parent in window
+  | 'kidReview';         // HP2 (2026-08-23) — kids' weekly review of the helper, averaged across kids
 
 export interface PerformancePolicy {
   /** Weights as percentages — must sum to 100. Default 25 each. */
@@ -1146,16 +1154,40 @@ export interface PerformancePolicy {
   windowDays: number;
   /** Per-helper escape hatch — typically used to exclude a metric
    *  that doesn't apply ("tutor doesn't shop, exclude budget";
-   *  "grandparent doesn't have a workplan, exclude workplan"). */
-  helperOverrides?: Record<string, { excludeMetrics?: PerformanceMetric[] }>;
+   *  "grandparent doesn't have a workplan, exclude workplan").
+   *  HP2 (2026-08-23, D1/D9): `tracked` (default true) — false hides
+   *  EVERY performance surface for that helper (face, %, tabs, emails,
+   *  kid reviews) but leaves the workplan alone; `kidsReview`
+   *  (default true) — whether assigned kids are asked to review them. */
+  helperOverrides?: Record<string, {
+    excludeMetrics?: PerformanceMetric[];
+    tracked?: boolean;
+    kidsReview?: boolean;
+  }>;
+  /** HP2 D2 — helpers may open their own Score / Routine-fill tabs
+   *  (never kids' review answers). Default true (today's behaviour). */
+  helpersSeeOwnScore?: boolean;
+  /** HP2 D9–D13 — kids-review-helpers settings. */
+  kidReview?: {
+    /** Minimum kid age to be asked (default 5). */
+    minAge: number;
+    /** Email parents the moment a kid sends a review (default true). */
+    emailOnSubmit: boolean;
+  };
   updatedAt?: Timestamp;
   updatedBy?: string;
 }
 
+export const DEFAULT_KID_REVIEW_SETTINGS = { minAge: 5, emailOnSubmit: true };
+
 export const DEFAULT_PERFORMANCE_POLICY: PerformancePolicy = {
-  weights: { workplan: 25, budget: 25, ratingCompletion: 25, parentFeedback: 25 },
+  // kidReview starts at 0 (HP2 Q3) — shown beside the score, not inside
+  // it, until a parent dials it in. Existing families' scores don't move.
+  weights: { workplan: 25, budget: 25, ratingCompletion: 25, parentFeedback: 25, kidReview: 0 },
   thresholds: { excellent: 90, good: 70, okay: 50 },
   windowDays: 7,
+  helpersSeeOwnScore: true,
+  kidReview: DEFAULT_KID_REVIEW_SETTINGS,
 };
 
 // ── Parent feedback on a helper (v3 — 2026-05-18) ────────────────

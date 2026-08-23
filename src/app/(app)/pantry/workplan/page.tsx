@@ -46,7 +46,8 @@ import {
   type HelperFeedbackNote, type FeedbackSentiment,
 } from '@/lib/helperFeedback';
 import { todayDateString } from '@/lib/workplan';
-import type { HelperLink } from '@/lib/firestore';
+import { subscribeToPerformancePolicy, isHelperTracked } from '@/lib/performancePolicy';
+import type { HelperLink, PerformancePolicy } from '@/lib/firestore';
 
 // Emoji map per preset — same vocabulary as the role chips in
 // Settings → Helpers add form. Used as the avatar on each row.
@@ -85,6 +86,14 @@ export default function PantryWorkplanPage() {
   // not a hierarchy. Chevron toggles add/remove from this set so a
   // parent can hide a row that's getting in the way.
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+  // HP2 D1/D2 (2026-08-23) — the family's performance policy drives
+  // which helpers show performance surfaces at all (tracked) and
+  // whether a helper may see their own (helpersSeeOwnScore).
+  const [policy, setPolicy] = useState<PerformancePolicy | null>(null);
+  useEffect(() => {
+    if (!family) return;
+    return subscribeToPerformancePolicy(family.id, setPolicy);
+  }, [family]);
   // Day-stepper (2026-05-21) — which calendar day the page is showing.
   // Defaults to today at local midnight; drives the workplan / feedback /
   // completion views inside each helper card. Local time → correct in
@@ -188,6 +197,10 @@ export default function PantryWorkplanPage() {
             helper={h}
             familyId={family.id}
             isParent={profile?.role === 'parent'}
+            showPerf={
+              isHelperTracked(policy, h.uid)
+              && (profile?.role === 'parent' || policy?.helpersSeeOwnScore !== false)
+            }
             selectedDate={selectedDate}
             expanded={!collapsedIds.has(h.uid)}
             onToggle={() => setCollapsedIds((prev) => {
@@ -224,7 +237,7 @@ export default function PantryWorkplanPage() {
 }
 
 // ── Single person row ────────────────────────────────
-function PersonCard({ helper, familyId, expanded, onToggle, isParent, selectedDate }: {
+function PersonCard({ helper, familyId, expanded, onToggle, isParent, showPerf, selectedDate }: {
   helper: HelperLink;
   familyId: string;
   expanded: boolean;
@@ -232,6 +245,9 @@ function PersonCard({ helper, familyId, expanded, onToggle, isParent, selectedDa
   /** Parent-only affordances inside the expanded card (e.g. the
    *  quick feedback strip — helpers can't write feedback on themselves). */
   isParent: boolean;
+  /** HP2 D1/D2 — false hides every performance surface (face, %,
+   *  feedback strip, performance card); the workplan stays. */
+  showPerf: boolean;
   /** Calendar day chosen in the page's day-stepper. */
   selectedDate: Date;
 }) {
@@ -264,10 +280,12 @@ function PersonCard({ helper, familyId, expanded, onToggle, isParent, selectedDa
           </p>
           <p className="text-[12px] text-hive-muted mt-0.5 truncate">
             {PRESET_LABEL[helper.preset]} · code <span className="font-mono font-bold">{helper.helperCode}</span>
+            {!showPerf && isParent && <span className="ml-1.5 text-[10px] uppercase tracking-wider font-nunito font-extrabold text-hive-muted/80">· not tracked</span>}
           </p>
           {/* Always-visible perf strip — face + headline %. Loads
-              independently per row; falls back gracefully if no data. */}
-          <PerfInline familyId={familyId} helperUid={helper.uid} />
+              independently per row; falls back gracefully if no data.
+              Hidden for untracked helpers (HP2 D1). */}
+          {showPerf && <PerfInline familyId={familyId} helperUid={helper.uid} />}
         </div>
         {expanded ? <ChevronUp size={18} className="text-hive-muted flex-shrink-0" /> : <ChevronDown size={18} className="text-hive-muted flex-shrink-0" />}
       </button>
@@ -286,10 +304,10 @@ function PersonCard({ helper, familyId, expanded, onToggle, isParent, selectedDa
                 parentFeedback metric in PerformanceCard).
               · past  → that day's feedback, read-only.
               · future → hidden (handled by the banner above). */}
-          {isParent && dayKind === 'today' && (
+          {isParent && showPerf && dayKind === 'today' && (
             <FeedbackStrip familyId={familyId} helperUid={helper.uid} />
           )}
-          {isParent && dayKind === 'past' && (
+          {isParent && showPerf && dayKind === 'past' && (
             <FeedbackStrip familyId={familyId} helperUid={helper.uid} date={selectedDate} readOnly />
           )}
 
@@ -306,7 +324,7 @@ function PersonCard({ helper, familyId, expanded, onToggle, isParent, selectedDa
           {/* Performance card — full rolling card on today. Off-today the
               slim per-day result lives in the workplan card header
               instead (Decision B, 2026-05-21). */}
-          {dayKind === 'today' && (
+          {showPerf && dayKind === 'today' && (
             <PerformanceCard
               familyId={familyId}
               helperUid={helper.uid}
