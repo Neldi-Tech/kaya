@@ -55,9 +55,13 @@ export async function POST(req: NextRequest) {
   else return NextResponse.json({ ok: true, skipped: 'not-a-celebration' });
 
   const from = award.awardedByName ? ` — from ${award.awardedByName}` : '';
+  // 🎖️ Award emails 2.0 (2026-08-23): bonus-point awards render the E4-kid
+  // card (reason as "<name>'s note" + 💛 Say thanks). Kudos keep the classic.
+  const byFirst = (award.awardedByName || 'Family').split(' ')[0];
   await sendKidRewardEmail(db, familyId, childId, {
     emoji, headline,
     detail: `${award.reason || 'Great work'}${from}`,
+    ...(points > 0 ? { award: { awardId, kind, reason: award.reason || '', byFirst, category: ((award as { category?: string }).category || '').replace(/^diamond-/, '') } } : {}),
   });
 
   return NextResponse.json({ ok: true });

@@ -62,7 +62,10 @@ interface FamilyLite {
   pointSystem?: { routines?: { pointsPerHousePoint?: number } };
   externalContacts?: { id: string; name: string; email: string; notifyOnRating?: boolean; notifyOnAward?: boolean }[];
   emailGroups?: { id: string; name: string; memberUids: string[]; externalEmails: string[] }[];
-  pointsEmailAudience?: { rating?: { kidItsAbout?: boolean; groupIds?: string[]; emails?: string[]; fullEmails?: string[] } };
+  pointsEmailAudience?: {
+    rating?: { kidItsAbout?: boolean; groupIds?: string[]; emails?: string[]; fullEmails?: string[] };
+    award?: { kidItsAbout?: boolean; groupIds?: string[]; emails?: string[]; fullEmails?: string[] };
+  };
   /** 🔥 Heat Report (2026-08-23): family-tier report style. Default 'heat'. */
   pointsEmailDetail?: 'heat' | 'totals';
   /** 🧒 Kids see the feedback (R8). All default ON. */
@@ -290,9 +293,20 @@ export async function composeHeatFacts(
 export async function resolveRatingAudience(
   db: AdminDb, familyId: string, fam: FamilyLite, raterUid: string | undefined, childId: string,
 ): Promise<RatingAudience> {
+  return resolvePointsAudience(db, familyId, fam, raterUid, childId, 'rating');
+}
+
+/** Shared by rating + award emails: the same three tiers, the same
+ *  identity rules; only the family-level audience slot + the personal
+ *  toggle (notifyOnRating / notifyOnAward) differ. */
+export async function resolvePointsAudience(
+  db: AdminDb, familyId: string, fam: FamilyLite, actorUid: string | undefined, childId: string,
+  type: 'rating' | 'award',
+): Promise<RatingAudience> {
+  const raterUid = actorUid;
   const membersSnap = await db.collection('users').where('familyId', '==', familyId).get();
   const members = membersSnap.docs.map((d) => ({ uid: d.id, ...(d.data() as Omit<MemberLite, 'uid'>) }));
-  const aud = fam.pointsEmailAudience?.rating || {};
+  const aud = (fam.pointsEmailAudience as Record<string, { kidItsAbout?: boolean; groupIds?: string[]; emails?: string[]; fullEmails?: string[] } | undefined> | undefined)?.[type] || {};
   const groups = (fam.emailGroups || []).filter((g) => (aud.groupIds || []).includes(g.id));
   const lower = (e?: string) => (e || '').trim().toLowerCase();
   const explicit = new Set<string>([
@@ -313,17 +327,18 @@ export async function resolveRatingAudience(
     if (m.role === 'kid') continue;
     if (m.uid === raterUid) continue;                       // never mail the rater
     if (/@helper\.kaya\.app$/i.test(e)) continue;          // helper login stubs — not real inboxes
-    const on = m.notifyOnRating !== false;                  // personal toggle (default on)
+    const on = (type === 'rating' ? m.notifyOnRating : m.notifyOnAward) !== false; // personal toggle (default on)
     if (on || groupMemberUids.has(m.uid) || explicit.has(e)) family.set(e, { email: m.email!, name: m.displayName || e });
   }
   for (const c of fam.externalContacts || []) {
     const e = lower(c.email); if (!e) continue;
     identity.add(e);
-    if (c.notifyOnRating !== false || explicit.has(e)) family.set(e, { email: c.email, name: c.name || e });
+    if ((type === 'rating' ? c.notifyOnRating : c.notifyOnAward) !== false || explicit.has(e)) family.set(e, { email: c.email, name: c.name || e });
   }
-  // 🧒 kid tier
+  // 🧒 kid tier (awards: the kid tier rides giveAward → /api/kids/reward-email,
+  // so the award gateway never resolves it — no double sends)
   let kid: RatingAudience['kid'] = null;
-  if (aud.kidItsAbout === true) {
+  if (type === 'rating' && aud.kidItsAbout === true) {
     const resolved = await resolveKidEmailAddress(db, familyId, childId, fam as Parameters<typeof resolveKidEmailAddress>[3]);
     if (resolved) kid = { email: resolved.email, name: '', sourceLabel: resolved.sourceLabel };
   }
@@ -655,6 +670,141 @@ export async function processRatingEmail(
         },
       } },
     });
+  }
+  return result;
+}
+
+// ═══ 🎖️ Award emails 2.0 (R11) ═══════════════════════════════════════
+//
+// Family + outside tiers for bonus-point awards, same gateway posture
+// (/api/points/award-email {awardId}). The KID tier keeps riding
+// giveAward → /api/kids/reward-email (every award source covered, no
+// double sends) — that template gained the reason card + 💛 Say thanks.
+
+export interface AwardFacts {
+  awardId: string; childId: string;
+  kidName: string; kidFirst: string; kidEmoji: string;
+  points: number; kind: 'regular' | 'diamond' | 'kudos' | 'reducing' | 'improvement_note';
+  category: string; reason: string;
+  byName: string; byFirst: string; dateLabel: string;
+  week: { emoji: string; label: string; points: number; category: string }[];
+  hp: { balance: number; streak: number };
+}
+
+interface AwardLite {
+  childId?: string; kind?: string; points?: number; reason?: string; category?: string;
+  awardedBy?: string; awardedByName?: string; createdAt?: { toMillis?: () => number; seconds?: number };
+}
+const awardKindOf = (a: AwardLite): AwardFacts['kind'] => {
+  const k = a.kind as AwardFacts['kind'] | undefined;
+  if (k) return k;
+  if ((a.category || '').startsWith('diamond-')) return 'diamond';
+  if ((a.points || 0) < 0) return 'reducing';
+  return 'regular';
+};
+const awardEmojiOf = (k: AwardFacts['kind']) => k === 'diamond' ? '💎' : k === 'kudos' ? '👏' : k === 'reducing' ? '⚠️' : k === 'improvement_note' ? '☝️' : '🎖️';
+const msOf = (c?: { toMillis?: () => number; seconds?: number }) => c?.toMillis ? c.toMillis() : c?.seconds ? c.seconds * 1000 : Date.now();
+const keyOfMs = (ms: number) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+
+export async function composeAwardFacts(db: AdminDb, familyId: string, awardId: string)
+  : Promise<{ facts: AwardFacts; fam: FamilyLite; award: AwardLite } | null> {
+  const famRef = db.collection('families').doc(familyId);
+  const snap = await famRef.collection('awards').doc(awardId).get();
+  if (!snap.exists) return null;
+  const award = snap.data() as AwardLite;
+  if (!award.childId) return null;
+  const [famSnap, childSnap] = await Promise.all([famRef.get(), famRef.collection('children').doc(award.childId).get()]);
+  const fam = (famSnap.data() || {}) as FamilyLite;
+  const child = (childSnap.data() || {}) as ChildLite;
+  const when = msOf(award.createdAt);
+  const dateKey = keyOfMs(when);
+  // This week's awards for the kid (Mon→today) — one range on createdAt.
+  const monday = mondayOf(dateKey);
+  const mondayMs = new Date(`${monday}T00:00:00`).getTime();
+  let week: AwardFacts['week'] = [];
+  try {
+    // Single range on createdAt (no composite index); filter by kid in memory.
+    const ws = await famRef.collection('awards').where('createdAt', '>=', new Date(mondayMs)).get();
+    week = ws.docs.map((d) => d.data() as AwardLite)
+      .filter((a) => a.childId === award.childId && ((a.points || 0) > 0 || a.kind === 'kudos'))
+      .sort((a, b) => msOf(a.createdAt) - msOf(b.createdAt))
+      .map((a) => { const k = awardKindOf(a); return { emoji: awardEmojiOf(k), label: DOW[new Date(msOf(a.createdAt)).getDay()], points: a.points || 0, category: (a.category || '').replace(/^diamond-/, '') }; });
+  } catch { week = []; }
+  const kind = awardKindOf(award);
+  const facts: AwardFacts = {
+    awardId, childId: award.childId,
+    kidName: child.name || 'Kid', kidFirst: first(child.name) || 'Kid', kidEmoji: child.avatarEmoji || '🧒',
+    points: award.points || 0, kind, category: (award.category || '').replace(/^diamond-/, ''), reason: (award.reason || '').trim(),
+    byName: award.awardedByName || 'Family', byFirst: first(award.awardedByName) || 'Family', dateLabel: displayDate(dateKey),
+    week, hp: { balance: child.totalPoints || 0, streak: child.streak || 0 },
+  };
+  return { facts, fam, award };
+}
+
+export function subjectFamilyAward(f: AwardFacts): string {
+  const e = awardEmojiOf(f.kind);
+  const r = f.reason ? ` — “${f.reason.slice(0, 60)}${f.reason.length > 60 ? '…' : ''}”` : '';
+  return `${e} ${f.byFirst} awarded ${f.kidFirst} +${f.points}${r}`.slice(0, 140);
+}
+export function subjectOutsideAward(f: AwardFacts): string {
+  return `${f.byFirst} awarded ${f.kidFirst} +${f.points} pts ${awardEmojiOf(f.kind)}`;
+}
+
+/** E4 — family award email: reason card · kind meaning · this week's trail. */
+export function renderFamilyAward(f: AwardFacts): string {
+  const e = awardEmojiOf(f.kind);
+  const diamond = f.kind === 'diamond';
+  const kindLabel = diamond ? '💎 Diamond award' : f.kind === 'kudos' ? '👏 Kudos' : 'Regular award';
+  const bg = diamond ? 'background:#5B21B6;background-image:linear-gradient(135deg,#7C3AED,#5B21B6)' : 'background:#1E120B;background-image:linear-gradient(135deg,#1E120B,#3D241A)';
+  const muted = diamond ? '#C4B5FD' : '#C4B89A'; const accent = diamond ? '#E9D5FF' : '#F5E6B8';
+  const trail = f.week.length ? f.week.map((w) => `<span style="display:inline-block;font-size:11px;font-weight:800;padding:4px 9px;border-radius:999px;background:${C.ex.bg};color:${C.ex.fg};margin:4px 4px 0 0">${w.emoji} ${esc(w.label)} +${w.points}${w.category ? ` ${esc(w.category)}` : ''}</span>`).join('') : '';
+  const body = `
+    <div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:800;color:#9B8A72">${e} Bonus points · ${esc(f.dateLabel)} · from ${esc(f.byFirst)}</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:10px;${bg};border-radius:14px"><tr>
+      <td style="padding:18px 16px 16px;vertical-align:middle;width:120px"><div style="font-family:'Outfit',Helvetica,Arial,sans-serif;font-size:40px;font-weight:900;line-height:1;color:#fff">+${f.points}</div><div style="font-size:10.5px;color:${muted};text-transform:uppercase;letter-spacing:.14em;font-weight:700;margin-top:4px">bonus points</div></td>
+      <td style="padding:18px 16px 16px 0;vertical-align:middle;text-align:right;font-size:12.5px;color:${accent};line-height:1.5">${esc(f.kidFirst)} · <b>${kindLabel}</b>${f.category ? `<br><span style="color:${muted}">${esc(f.category)}</span>` : ''}</td></tr></table>
+    ${f.reason ? `${h4('🗒️ Why')}${whyCard('ex', `💛 The reason`, `— ${f.byFirst}`, esc(f.reason))}` : ''}
+    ${trail ? `${h4('🏅 This week’s awards', 'Mon → today')}<div>${trail}</div>` : ''}
+    <div style="margin-top:16px">${btn(`${APP_URL}/stats/me?kid=${encodeURIComponent(f.childId)}`, 'Open awards →', 'p')}</div>`;
+  return frame(`${f.kidName} was awarded bonus points`, body, `<a href="${APP_URL}/dashboard" style="color:#D4A017;text-decoration:none;font-weight:600;">Open dashboard →</a><div style="margin-top:8px;color:#C4B89A;">@ourkaya.app · Made with love, by a family.</div>`);
+}
+
+/** Outside award tier — first name + points only (reason stays inside). */
+export function renderOutsideAward(f: AwardFacts, familyName?: string): string {
+  const body = `
+    <p style="margin:0 0 10px;font-family:'Outfit',Helvetica,Arial,sans-serif;font-size:17px;font-weight:800;color:#1A1412;line-height:1.5;">${awardEmojiOf(f.kind)} ${esc(f.kidFirst)} was awarded +${f.points} bonus points today.</p>
+    <p style="margin:14px 0 0;font-size:12px;color:#9B8A72;line-height:1.55;">— Kaya${familyName ? `, for ${esc(familyName)}` : ''} 💛</p>`;
+  return frame(`${f.kidFirst} was awarded bonus points`, body, `<div style="color:#C4B89A;">@ourkaya.app · Made with love, by a family.</div>`);
+}
+
+export interface AwardEmailResult {
+  tiers: { family: string[]; outside: string[] };
+  sent: { family: boolean; outside: boolean };
+}
+export async function processAwardEmail(db: AdminDb, familyId: string, awardId: string, mode: 'send' | 'preview')
+  : Promise<(AwardEmailResult & { html?: { family: string; outside: string }; subjects?: { family: string; outside: string } }) | null> {
+  const composed = await composeAwardFacts(db, familyId, awardId);
+  if (!composed) return null;
+  const { facts, fam, award } = composed;
+  // Only celebrate actual rewards: point-bearing positives. Reducing /
+  // improvement notes / bare kudos are parenting tools, not a blast.
+  if (facts.points <= 0) return { tiers: { family: [], outside: [] }, sent: { family: false, outside: false } };
+  const audience = await resolvePointsAudience(db, familyId, fam, award.awardedBy, facts.childId, 'award');
+  const familyHtml = renderFamilyAward(facts); const familySubject = subjectFamilyAward(facts);
+  const outsideHtml = renderOutsideAward(facts, fam.name); const outsideSubject = subjectOutsideAward(facts);
+  const result: AwardEmailResult = { tiers: { family: audience.family.map((x) => x.email), outside: audience.outside }, sent: { family: false, outside: false } };
+  if (mode === 'preview') return { ...result, html: { family: familyHtml, outside: outsideHtml }, subjects: { family: familySubject, outside: outsideSubject } };
+  const base = { trigger: 'award', childId: facts.childId, childName: facts.kidName, firedAt: Date.now(), awardId };
+  const awardFacts = { kidName: facts.kidName, kidFirst: facts.kidFirst, points: facts.points, kind: facts.kind, category: facts.category, byFirst: facts.byFirst, dateLabel: facts.dateLabel, reason: facts.reason, week: facts.week };
+  if (audience.family.length) {
+    const r = await send(audience.family.map((x) => x.email), familySubject, familyHtml);
+    result.sent.family = r.sent;
+    await log(db, familyId, { kind: 'points_email', tier: 'family', ...base, channels: { email: { on: true, sent: r.sent, ...(r.error ? { error: r.error } : {}), to: audience.family, subject: familySubject, templateVersion: POINTS_EMAIL_TEMPLATE_VERSION, awardFacts } } });
+  }
+  if (audience.outside.length) {
+    const r = await send(audience.outside, outsideSubject, outsideHtml);
+    result.sent.outside = r.sent;
+    await log(db, familyId, { kind: 'points_email', tier: 'outside', ...base, channels: { email: { on: true, sent: r.sent, ...(r.error ? { error: r.error } : {}), to: audience.outside.map((e) => ({ name: e, email: e })), subject: outsideSubject, templateVersion: POINTS_EMAIL_TEMPLATE_VERSION, awardFacts: { ...awardFacts, reason: '', week: [] } } } });
   }
   return result;
 }

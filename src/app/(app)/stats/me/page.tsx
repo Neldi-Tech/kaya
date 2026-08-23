@@ -169,12 +169,14 @@ export default function MyStatsPage() {
   // the full breakdown") and ?reflect=<ratingId> (kid email → 💭 Tell your
   // side → the 📬 Feedback card opens on that rating).
   const [reflectTarget, setReflectTarget] = useState<string | null>(null);
+  const [thanksTarget, setThanksTarget] = useState<string | null>(null);
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const q = new URLSearchParams(window.location.search);
-    const k = q.get('kid'); const r = q.get('reflect');
+    const k = q.get('kid'); const r = q.get('reflect'); const t = q.get('thanks');
     if (k && !isKid) setPickedId(k);
     if (r) setReflectTarget(r);
+    if (t) setThanksTarget(t);
   }, [isKid]);
   const parentPick = pickedId ?? (children.length > 1 ? ALL_KIDS : children[0]?.id ?? null);
   const myChildId = useMemo(() => {
@@ -949,6 +951,12 @@ export default function MyStatsPage() {
                 includeReasons={(family as { kidFeedback?: { includeReasons?: boolean } } | null)?.kidFeedback?.includeReasons !== false}
                 canReflect={statsCfg.reflections && ((family as { kidFeedback?: { askReflection?: boolean } } | null)?.kidFeedback?.askReflection !== false || !isKid)}
                 openRatingId={reflectTarget}
+                openAwardId={thanksTarget}
+                onThanksSaved={(awardId, text) => {
+                  const patch = (a: Award) => a.id === awardId ? { ...a, kidNote: { text, byUid: profile?.uid || '', byName: (profile?.displayName || 'Me').split(' ')[0], at: Date.now() } } : a;
+                  setRawAwards((prev) => prev.map(patch));
+                  setLifeAwards((prev) => prev.map(patch));
+                }}
                 onReflectionSaved={(ratingId, routineId, text) => {
                   const patch = (r: DailyRating) => r.id === ratingId
                     ? { ...r, reflections: { ...(r.reflections || {}), [routineId]: text ? { text, byUid: profile?.uid || '', byName: (profile?.displayName || 'Me').split(' ')[0], at: Date.now() } : null } }

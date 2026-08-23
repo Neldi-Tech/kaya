@@ -33,11 +33,11 @@ const emojiOf = (e: AlertLogEntry): string =>
 
 // 📬 Kid + 🔥 points emails share one row shape; label by kind/trigger.
 const kindEmoji = (e: AlertLogEntry): string =>
-  e.kind === 'points_email' ? '🔥'
+  e.kind === 'points_email' ? (e.trigger === 'award' ? '🎖️' : '🔥')
     : e.kind === 'kid_reward' ? (e.trigger === 'rating' ? '🔥' : '🏅')
       : e.kind === 'kid_statement' ? '🧾' : '🌞';
 const kindLabel = (e: AlertLogEntry): string =>
-  e.kind === 'points_email' ? `${e.tier === 'outside' ? 'outside' : 'family'} rating email`
+  e.kind === 'points_email' ? `${e.tier === 'outside' ? 'outside' : 'family'} ${e.trigger === 'award' ? 'award' : 'rating'} email`
     : e.kind === 'kid_reward' ? (e.trigger === 'rating' ? 'kid Heat Report' : 'reward email')
       : e.kind === 'kid_statement' ? 'Hive statement' : 'morning digest';
 
@@ -325,6 +325,43 @@ function ChanChip({ label, c, count }: { label: string; c?: { on: boolean; sent:
 function EmailTab({ e }: { e: AlertLogEntry }) {
   const em = e.channels?.email;
   if (!em) return <Missing what="email" />;
+  // 🎖️ Award emails 2.0 — family/outside award emails (kind 'points_email',
+  // trigger 'award') + the kid award card (kidFacts.award, template v2).
+  const aw = em.awardFacts;
+  const kidAward = em.kidFacts?.award;
+  if (aw || kidAward) {
+    const diamond = (aw?.kind || kidAward?.kind) === 'diamond';
+    const points = aw ? aw.points : (em.kidFacts?.headline || '').replace(/[^0-9]/g, '');
+    const byFirst = aw?.byFirst || kidAward?.byFirst || '';
+    const reason = aw?.reason || kidAward?.reason || '';
+    return (
+      <div>
+        <div className="rounded-t-xl border border-b-0 border-hive-line bg-hive-cream px-3 py-2 text-[10px] text-hive-muted font-bold leading-relaxed">
+          To: {em.to.length > 0 ? em.to.map((r) => (r.name && r.name !== r.email ? `${r.name} <${r.email}>` : r.email)).join(' · ') : '—'}<br />
+          Subject: {em.subject}<br />
+          {em.sent ? '✅ sent' : `❌ not sent${em.error ? ` · ${em.error}` : ''}`} · template v{em.templateVersion}
+        </div>
+        <div className="rounded-b-xl border border-hive-line bg-white p-3 font-nunito">
+          <div className="rounded-2xl p-4 flex items-center gap-3" style={{ background: diamond ? 'linear-gradient(135deg,#7C3AED,#5B21B6)' : kidAward ? 'linear-gradient(135deg,#F7B733,#F0A32A)' : 'linear-gradient(135deg,#1E120B,#3D241A)', color: kidAward && !diamond ? '#2A1A00' : '#fff' }}>
+            <div><div className="text-3xl font-black leading-none">+{points}</div><div className="text-[9.5px] uppercase tracking-[0.14em] font-bold mt-1" style={{ opacity: .8 }}>bonus points</div></div>
+            <div className="ml-auto text-right text-[12px] font-bold">{kidAward ? `from ${byFirst} 💛` : `${aw?.kidFirst} · ${diamond ? '💎 Diamond' : aw?.kind === 'kudos' ? '👏 Kudos' : 'Regular'}`}{(aw?.category || kidAward?.category) ? <><br /><span style={{ opacity: .8 }}>{aw?.category || kidAward?.category}</span></> : null}</div>
+          </div>
+          {reason ? (
+            <div className="mt-3 pl-2.5 py-1.5 rounded-r-lg" style={{ borderLeft: '3px solid #2E9E5B', background: '#F6FCF8' }}>
+              <p className="text-[11px] font-extrabold">{kidAward ? `${byFirst}’s note` : `💛 The reason — ${byFirst}`}</p>
+              <p className="text-[11px] leading-snug" style={{ color: '#3B3430' }}>“{reason}”</p>
+            </div>
+          ) : <p className="text-[11px] text-hive-muted font-bold mt-3">Outside tier — first name + points only (reason stays inside).</p>}
+          {aw && aw.week.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-3">
+              {aw.week.map((w, i) => <span key={i} className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full" style={{ background: '#E3F5EA', color: '#2E9E5B' }}>{w.emoji} {w.label} +{w.points}{w.category ? ` ${w.category}` : ''}</span>)}
+            </div>
+          )}
+          {kidAward && <p className="text-[10.5px] font-extrabold mt-3" style={{ color: '#1F2A44' }}>💛 Say thanks → · 📊 My Stats</p>}
+        </div>
+      </div>
+    );
+  }
   // 🔥 Points Emails 2.0 — family/outside rating emails (kind 'points_email')
   // + the kid Heat Report (kind 'kid_reward', template v2 with kidFacts.heat).
   const heat = em.heatFacts || em.kidFacts?.heat;
