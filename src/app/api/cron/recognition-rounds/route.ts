@@ -223,7 +223,9 @@ async function handle(req: NextRequest) {
         items.push({
           kidId: covKid.id, kidName: covKid.name, emoji: covKid.emoji, kind: 'coverage',
           ...(giftIdeaFor(covKid.id) ? { giftIdea: giftIdeaFor(covKid.id) } : {}),
-          daysSince: covDays === 999 ? undefined : covDays,
+          // ⚠️ never `undefined` in an Admin write — a never-awarded kid used
+          // to make the WHOLE round write throw (silently: no round, no nudge).
+          ...(covDays === 999 ? {} : { daysSince: covDays }),
           line: covDays === 999
             ? `${covKid.name} — no award on record yet. First shine tonight?`
             : `${covKid.name} — ${covDays} days since the last award. Longest wait in the family.`,

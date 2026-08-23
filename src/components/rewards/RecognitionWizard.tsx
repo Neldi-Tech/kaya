@@ -11,6 +11,11 @@
 //   7 the streak sits on the side
 // Everything still rides the existing award rail — the wizard only
 // orchestrates it.
+//
+// ✕ DL PR-B (23-Aug-2026): each proposed item carries "✕ not right"
+// (parents only) → reason sheet → the item folds into a quiet
+// "N dismissed · Kaya learned" row with undo (any parent, 72h window).
+// Kids never see it; nothing minted, nobody notified.
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -25,11 +30,16 @@ import { formatCents } from '@/components/pantry/format';
 import {
   getWaitingRound, createShineCard, listShineCards, listRounds,
   rememberedTheme, rememberTheme, shineCardSvg,
-  SHINE_THEMES, type ShineCard, type ShineTheme, type WaitingRound,
+  SHINE_THEMES, type ShineCard, type ShineTheme, type WaitingRound, type RecognitionRound,
 } from '@/lib/shineCards';
 import { CardShareRow, postShineCardToMoments } from '@/components/rewards/ShineCards';
 import { markTermCelebrated } from '@/lib/leaderWeek';
 import { notifyAward } from '@/lib/notify';
+import { dismissRoundItem, undismissRoundItem } from '@/lib/shineCards';
+import {
+  DISMISS_REASONS, DISMISS_NOTE_MAX, ROUND_WINDOW_MS, openRoundItems, roundStreak, dismissReason, dismissKey,
+  type DismissCode,
+} from '@/lib/recognitionDismiss';
 
 type Step = 'list' | 'pick' | 'detail' | 'gift' | 'points' | 'preview' | 'done';
 type Item = WaitingRound['round']['items'][number];
@@ -56,12 +66,23 @@ export default function RecognitionWizard() {
 
   const [waiting, setWaiting] = useState<WaitingRound | null>(null);
   const [loaded, setLoaded] = useState(false);
+  // ✕ DL PR-B — the latest round (even when nothing is open) so the
+  // dismissed fold row + undo can render after everything is handled.
+  const [latestRound, setLatestRound] = useState<RecognitionRound | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
   useEffect(() => {
     if (!familyId || !profile) return;
     getWaitingRound(familyId, profile.uid, profile.role)
       .then(setWaiting).catch(() => setWaiting(null))
       .finally(() => setLoaded(true));
-  }, [familyId, profile]);
+  }, [familyId, profile, refreshTick]);
+
+  // ✕ dismiss sheet state
+  const [dismissFor, setDismissFor] = useState<Item | null>(null);
+  const [dismissCode, setDismissCode] = useState<DismissCode | ''>('');
+  const [dismissNote, setDismissNote] = useState('');
+  const [showDismissed, setShowDismissed] = useState(false);
+  const isParent = profile?.role === 'parent';
 
   const [step, setStep] = useState<Step>('list');
   const [item, setItem] = useState<Item | null>(null);
@@ -89,21 +110,14 @@ export default function RecognitionWizard() {
     (async () => {
       try {
         const [cards, rounds] = await Promise.all([listShineCards(familyId), listRounds(familyId)]);
-        const answered = (date: string) => {
-          const start = new Date(`${date}T00:00:00`).getTime();
-          return cards.some((c) => c.at >= start && c.at < start + 72 * 3600_000);
-        };
-        let streak = 0;
-        for (const r of [...rounds].sort((a, b) => b.date.localeCompare(a.date))) {
-          const start = new Date(`${r.date}T00:00:00`).getTime();
-          if (Date.now() < start + 72 * 3600_000 && !answered(r.date)) continue;
-          if (answered(r.date)) streak++; else break;
-        }
+        setLatestRound(rounds[0] || null);
+        // 🔥 handled rounds in a row (answered OR ✕ reviewed).
+        const streak = roundStreak(rounds, cards.map((c) => c.at), Date.now());
         const monday = new Date(); monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7)); monday.setHours(0, 0, 0, 0);
         setSide({ streak, week: cards.filter((c) => c.at >= monday.getTime()).length });
       } catch { setSide(null); }
     })();
-  }, [familyId, step]);
+  }, [familyId, step, refreshTick]);
 
   const kid = item ? children.find((c) => c.id === item.kidId) : null;
   const detailLine = item
@@ -250,7 +264,107 @@ export default function RecognitionWizard() {
   if (!profile || !loaded) return null;
 
   const celebrated = new Set(waiting?.celebratedKidIds || []);
-  const items = waiting ? waiting.round.items.filter((i) => !celebrated.has(i.kidId)) : [];
+  const items = waiting ? openRoundItems(waiting.round, celebrated) : [];
+
+  // ✕ the dismissed fold row — from the waiting round, else the latest
+  // round while its 72h window is still open (so undo stays reachable).
+  const rowRound = waiting?.round || latestRound;
+  const rowWindowOpen = !!rowRound && Date.now() < new Date(`${rowRound.date}T00:00:00`).getTime() + ROUND_WINDOW_MS;
+  const dismissedEntries = rowRound && rowWindowOpen
+    ? rowRound.items
+      .map((it) => ({ it, d: rowRound.dismissed?.[dismissKey(it.kidId, it.kind)] }))
+      .filter((x): x is { it: Item; d: NonNullable<typeof x.d> } => !!x.d)
+      .sort((a, b) => a.d.at - b.d.at)
+    : [];
+
+  const submitDismiss = async () => {
+    if (!dismissFor || !rowRound || !dismissCode) return;
+    const reason = dismissReason(dismissCode);
+    const note = dismissNote.trim();
+    if (reason.noteRequired && !note) { setErr('Tell Kaya in your words — a short note is required for “Other”.'); return; }
+    setBusy(true); setErr('');
+    try {
+      await dismissRoundItem(familyId, rowRound.date, dismissFor.kidId, dismissFor.kind, dismissCode, note || undefined);
+      setDismissFor(null); setDismissCode(''); setDismissNote('');
+      setShowDismissed(false);
+      setRefreshTick((t) => t + 1);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not dismiss — try again.');
+    }
+    setBusy(false);
+  };
+  const undo = async (it: Item) => {
+    if (!rowRound) return;
+    setBusy(true); setErr('');
+    try {
+      await undismissRoundItem(familyId, rowRound.date, it.kidId, it.kind);
+      setRefreshTick((t) => t + 1);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not undo — the round window may have closed.');
+    }
+    setBusy(false);
+  };
+
+  const dismissedRow = dismissedEntries.length > 0 ? (
+    <div className="rounded-kaya-sm px-3 py-2 mt-1.5 text-[11px] font-extrabold" style={{ background: 'rgba(0,0,0,.16)', border: '1px dashed rgba(255,255,255,.35)' }}>
+      <button type="button" onClick={() => setShowDismissed((v) => !v)} className="w-full text-left">
+        ✕ {dismissedEntries.length} dismissed · Kaya learned <span className="opacity-75 font-bold">· {showDismissed ? 'hide ▴' : 'show ▾'}</span>
+      </button>
+      {showDismissed && dismissedEntries.map(({ it, d }) => {
+        const r = dismissReason(d.code);
+        const t = new Date(d.at);
+        return (
+          <div key={`${it.kidId}-${it.kind}`} className="flex gap-2 items-start pt-1.5 mt-1.5 font-semibold opacity-95" style={{ borderTop: '1px dashed rgba(255,255,255,.25)' }}>
+            <span>{r.emoji}</span>
+            <span className="flex-1">
+              {it.emoji} {it.kidName} — <i>{r.label}</i>{d.note ? ` · “${d.note}”` : ''} · by {d.byName}, {String(t.getHours()).padStart(2, '0')}:{String(t.getMinutes()).padStart(2, '0')}
+            </span>
+            {isParent && (
+              <button type="button" disabled={busy} onClick={() => undo(it)} className="text-[10px] font-black underline shrink-0 disabled:opacity-50">undo</button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  ) : null;
+
+  // ✕ the dismiss sheet (inside the purple shell, white card).
+  const dismissSheet = dismissFor ? (
+    <div className="rounded-kaya bg-white text-kaya-chocolate p-3.5 mt-2.5" style={{ border: '1.5px solid #E8E0D4' }}>
+      <p className="text-[13.5px] font-black">Why isn&apos;t this right?</p>
+      <p className="text-[11.5px] text-[#5c5245] mb-2.5">Kaya keeps your reason and adjusts what it proposes next. Kids never see this.</p>
+      <div className="space-y-1.5">
+        {DISMISS_REASONS.map((r) => {
+          const on = dismissCode === r.code;
+          return (
+            <button key={r.code} type="button" onClick={() => setDismissCode(r.code)}
+              className="w-full text-left flex gap-2.5 items-start rounded-kaya-sm px-2.5 py-2 transition-colors"
+              style={{ border: `1.5px solid ${on ? '#6B3FE0' : '#E8E0D4'}`, background: on ? '#F3EEFF' : '#fff' }}>
+              <span className="text-[16px] leading-tight">{r.emoji}</span>
+              <span className="flex-1">
+                <span className="block text-[12.5px] font-black">{r.label}</span>
+                <span className="block text-[10.5px] text-[#5c5245]">{r.sub}</span>
+                <span className="block text-[10px] font-extrabold mt-0.5" style={{ color: '#6B3FE0' }}>→ Kaya {r.effect}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <textarea value={dismissNote} onChange={(e) => setDismissNote(e.target.value.slice(0, DISMISS_NOTE_MAX))}
+        placeholder={dismissCode === 'other' ? 'Tell Kaya in your words (required)…' : 'Optional note for the other parent…'}
+        className="w-full mt-2.5 rounded-kaya-sm px-2.5 py-2 text-[12px] font-semibold resize-none h-[54px] focus:outline-none"
+        style={{ border: '1.5px solid #E8E0D4' }} />
+      <p className="text-[10px] text-kaya-sand font-bold text-right mb-2">{dismissCode === 'other' ? 'required' : 'optional'} · {dismissNote.length} / {DISMISS_NOTE_MAX}</p>
+      <div className="flex gap-2">
+        <button type="button" onClick={() => { setDismissFor(null); setDismissCode(''); setDismissNote(''); setErr(''); }}
+          className="px-3.5 h-10 rounded-kaya-sm text-[12.5px] font-black text-kaya-sand" style={{ border: '1.5px solid #E8E0D4' }}>Cancel</button>
+        <button type="button" disabled={busy || !dismissCode || (dismissCode === 'other' && !dismissNote.trim())} onClick={submitDismiss}
+          className="flex-1 h-10 rounded-kaya-sm bg-kaya-chocolate text-white text-[12.5px] font-black disabled:opacity-50">
+          {busy ? 'Saving…' : '✕ Dismiss — Kaya will learn'}
+        </button>
+      </div>
+    </div>
+  ) : null;
 
   // ── Shell ─────────────────────────────────────────────────────────
   const shell = (content: React.ReactNode, backTo?: Step) => (
@@ -267,11 +381,20 @@ export default function RecognitionWizard() {
   if (step === 'list') {
     if (items.length === 0) {
       return (
-        <div className="rounded-kaya border border-kaya-warm-dark bg-white px-4 py-3 mb-5">
-          <p className="text-[12.5px] font-bold">✅ Nothing waiting — every round is answered.</p>
-          <button type="button" onClick={() => setStep('pick')} className="text-[11px] font-bold text-kaya-gold mt-0.5 hover:underline">
-            ✨ Spotted something shine-worthy anyway? Recognize someone →
-          </button>
+        <div className="mb-5">
+          <div className="rounded-kaya border border-kaya-warm-dark bg-white px-4 py-3">
+            <p className="text-[12.5px] font-bold">✅ Nothing waiting — every round is handled.</p>
+            <button type="button" onClick={() => setStep('pick')} className="text-[11px] font-bold text-kaya-gold mt-0.5 hover:underline">
+              ✨ Spotted something shine-worthy anyway? Recognize someone →
+            </button>
+          </div>
+          {dismissedRow && (
+            <div className="rounded-kaya px-3 py-2 mt-2 text-white" style={{ background: 'linear-gradient(130deg,#6B3FE0,#9b6bff)' }}>
+              <p className="text-[9.5px] uppercase tracking-[0.14em] font-bold opacity-85">🌟 Round of {rowRound!.date.slice(8)}/{rowRound!.date.slice(5, 7)} · reviewed</p>
+              {dismissedRow}
+              {err && <p className="text-[12px] font-bold mt-2 bg-white/20 rounded-kaya-sm px-3 py-1.5">⚠️ {err}</p>}
+            </div>
+          )}
         </div>
       );
     }
@@ -283,19 +406,34 @@ export default function RecognitionWizard() {
         <div className="space-y-1.5">
           {items.map((it) => {
             const prop = PROPOSAL[it.kind] || PROPOSAL.coverage;
+            const isDismissing = dismissFor?.kidId === it.kidId && dismissFor?.kind === it.kind;
             return (
-              <button key={`${it.kidId}-${it.kind}`} type="button" onClick={() => openItem(it)}
-                className="w-full text-left rounded-kaya-sm px-3 py-2.5 transition-colors hover:bg-white/25"
-                style={{ background: 'rgba(255,255,255,.13)', border: '1px solid rgba(255,255,255,.25)' }}>
-                <p className="text-[12.5px] font-bold">{it.emoji} {it.line}</p>
-                <p className="text-[10.5px] font-black mt-1">
-                  <span className="px-2 py-0.5 rounded-full" style={{ background: 'rgba(255,255,255,.25)' }}>proposed: {prop.chip}</span>
-                  {it.giftIdea && <span className="ml-1.5 px-2 py-0.5 rounded-full" style={{ background: 'rgba(255,255,255,.25)' }}>🎁 idea: {it.giftIdea.label}</span>}
-                </p>
-              </button>
+              <div key={`${it.kidId}-${it.kind}`} className="relative">
+                <button type="button" onClick={() => openItem(it)}
+                  className={`w-full text-left rounded-kaya-sm px-3 py-2.5 transition-colors hover:bg-white/25 ${isParent ? 'pr-10' : ''}`}
+                  style={{ background: isDismissing ? 'rgba(255,255,255,.28)' : 'rgba(255,255,255,.13)', border: '1px solid rgba(255,255,255,.25)' }}>
+                  <p className="text-[12.5px] font-bold">{it.emoji} {it.line}</p>
+                  <p className="text-[10.5px] font-black mt-1">
+                    <span className="px-2 py-0.5 rounded-full" style={{ background: 'rgba(255,255,255,.25)' }}>proposed: {prop.chip}</span>
+                    {it.giftIdea && <span className="ml-1.5 px-2 py-0.5 rounded-full" style={{ background: 'rgba(255,255,255,.25)' }}>🎁 idea: {it.giftIdea.label}</span>}
+                  </p>
+                </button>
+                {/* ✕ DL PR-B — parents only: "this proposal isn't right". */}
+                {isParent && (
+                  <button type="button" aria-label={`Not right — dismiss ${it.kidName}`}
+                    onClick={() => { setDismissFor(isDismissing ? null : it); setDismissCode(''); setDismissNote(''); setErr(''); }}
+                    className="absolute top-1.5 right-1.5 flex flex-col items-center">
+                    <span className="w-[26px] h-[26px] rounded-full flex items-center justify-center text-[12px] font-black"
+                      style={{ background: 'rgba(255,255,255,.18)', border: '1px solid rgba(255,255,255,.4)' }}>✕</span>
+                    <span className="text-[8px] font-extrabold opacity-80 mt-0.5 leading-none">not right</span>
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>
+        {dismissSheet}
+        {dismissedRow}
         <button type="button" onClick={() => setStep('pick')}
           className="mt-2.5 text-[11px] font-black opacity-85 underline">
           ✨ or recognize someone else spontaneously
@@ -515,7 +653,7 @@ export default function RecognitionWizard() {
               <>
                 <div className="rounded-kaya-sm px-3 py-2.5 text-center" style={{ background: 'rgba(255,255,255,.15)' }}>
                   <p className="font-black text-xl">🔥 {side.streak}</p>
-                  <p className="text-[9px] uppercase tracking-wider font-bold opacity-80">Rounds in a row</p>
+                  <p className="text-[9px] uppercase tracking-wider font-bold opacity-80">Rounds handled in a row</p>
                 </div>
                 <div className="rounded-kaya-sm px-3 py-2.5 text-center" style={{ background: 'rgba(255,255,255,.15)' }}>
                   <p className="font-black text-xl">{side.week}</p>
