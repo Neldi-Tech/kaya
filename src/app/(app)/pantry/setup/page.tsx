@@ -20,6 +20,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { subscribeToVehicles } from '@/lib/vehicles';
 import { subscribeToMeters } from '@/lib/utilityMeters';
+import { Page, PageHeader } from '@/components/layout/Page';
 import { readPurchaseConfig, readDriversConfig } from '@/lib/purchase';
 import {
   readFamilyUnits, setFamilyUnits,
@@ -109,8 +110,13 @@ export default function HouseholdSetupHub() {
     { href: '/settings', emoji: '✅', title: 'Approval mode', sub: approvalLabel },
   ];
 
+  // Web-Fit (2026-08-23): wide tier. Desktop: two columns — the setup
+  // rows list on the left (spans the column), Units / Alert emails /
+  // Kids' email cards stacked on the right. Mobile markup/order unchanged
+  // (the grid wrapper is a plain block below `lg`).
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="wide" className="pb-32">
+      <PageHeader className="">
       <Link href="/pantry" className="text-pantry-leaf-dk font-nunito font-extrabold text-xs">
         ← Household
       </Link>
@@ -123,8 +129,10 @@ export default function HouseholdSetupHub() {
       <p className="text-hive-muted text-sm mt-1 mb-4">
         Everything in one place. Parents only.
       </p>
+      </PageHeader>
 
-      <div className="bg-hive-paper border border-hive-line rounded-hive overflow-hidden mb-3">
+      <div className="lg:grid lg:grid-cols-2 lg:gap-x-6 lg:gap-y-3 lg:items-start">
+      <div className="bg-hive-paper border border-hive-line rounded-hive overflow-hidden mb-3 lg:mb-0 lg:col-start-1 lg:row-start-1 lg:row-span-3">
         {rows.map((r, i) => (
           <Link
             key={r.href}
@@ -144,7 +152,7 @@ export default function HouseholdSetupHub() {
       </div>
 
       {/* Units & formats — inline, per the approved Screen E. */}
-      <div className="bg-hive-paper border border-hive-line rounded-hive p-4">
+      <div className="bg-hive-paper border border-hive-line rounded-hive p-4 lg:col-start-2">
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted mb-2">
           📏 Units & formats
         </p>
@@ -193,15 +201,16 @@ export default function HouseholdSetupHub() {
       {/* 🔔 Alert emails — the Global → Category cascade (VIS PR3).
           Per-item overrides live on the item's own editor (VIS PR4). */}
       {profile?.familyId && (
-        <AlertEmailsCard familyId={profile.familyId} cfg={family?.alertEmails} />
+        <div className="lg:col-start-2"><AlertEmailsCard familyId={profile.familyId} cfg={family?.alertEmails} /></div>
       )}
 
       {/* 📬 Kids' email updates (KID PR1) — selection from what's already
           registered, never re-entry; everything defaults OFF (COPPA). */}
       {profile?.familyId && (
-        <KidEmailUpdatesCard familyId={profile.familyId} cfg={family?.kidEmailUpdates} contacts={family?.externalContacts} />
+        <div className="lg:col-start-2"><KidEmailUpdatesCard familyId={profile.familyId} cfg={family?.kidEmailUpdates} contacts={family?.externalContacts} /></div>
       )}
-    </div>
+      </div>
+    </Page>
   );
 }
 

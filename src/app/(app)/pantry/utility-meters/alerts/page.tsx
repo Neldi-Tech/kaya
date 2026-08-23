@@ -18,6 +18,7 @@ import { fetchAlertLog, type AlertLogEntry } from '@/lib/alertLog';
 import { relativeDayLabel, toDisplayDate } from '@/lib/dates';
 import { meterEmoji, type UtilityMeterType } from '@/lib/utilityMeters';
 import { formatCents } from '@/components/pantry/format';
+import { Page, PageHeader } from '@/components/layout/Page';
 
 type Tab = 'email' | 'chat' | 'inapp';
 
@@ -85,9 +86,11 @@ export default function AlertLogPage() {
     return rel === disp ? disp : `${rel} · ${disp}`;
   };
 
+  // Web-Fit (2026-08-23): content tier (log list). Rows keep their own
+  // per-row spacing so mobile stays identical; only the container widens.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
-      <div className="mb-4">
+    <Page width="content" className="pb-32">
+      <PageHeader className="mb-4">
         <Link href="/pantry/utility-meters" className="text-[12px] text-pantry-leaf-dk font-bold no-underline hover:underline inline-block mb-2">
           ← Manage meters
         </Link>
@@ -98,7 +101,7 @@ export default function AlertLogPage() {
         <p className="text-hive-muted text-sm mt-1">
           Every low-balance alarm Kaya raised — open one to see exactly what was sent, and to whom.
         </p>
-      </div>
+      </PageHeader>
 
       {loading && <p className="text-sm text-hive-muted font-bold">Loading…</p>}
       {!loading && entries.length === 0 && (
@@ -303,7 +306,7 @@ export default function AlertLogPage() {
           </div>
         </>
       )}
-    </div>
+    </Page>
   );
 }
 

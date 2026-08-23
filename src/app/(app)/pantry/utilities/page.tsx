@@ -30,6 +30,7 @@ import SupplierBadge from '@/components/pantry/SupplierBadge';
 import NumberInput from '@/components/ui/NumberInput';
 import BackButton from '@/components/ui/BackButton';
 import BillsActivity from '@/components/pantry/BillsActivity';
+import { Page, PageSplit } from '@/components/layout/Page';
 
 type Filter = 'all' | UtilityCategory;
 
@@ -136,8 +137,53 @@ export default function UtilitiesPage() {
     setTimeout(() => setPackToast(''), 4000);
   };
 
+  // Web-Fit (2026-08-23): wide tier, main + rail. Desktop: the monthly
+  // roll-up + filter chips sit in the right rail; starter packs, the add
+  // form and the bills list stay in the main column. Mobile DOM order
+  // unchanged (rail is `railMobile="first"`).
+  const rail = (
+    <>
+      {/* Monthly roll-up — expected vs paid so far this month. */}
+      {utilities.length > 0 && (
+        <div className="bg-gradient-to-br from-pantry-leaf-soft to-white border border-pantry-leaf rounded-hive-lg p-4 mb-4">
+          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pantry-leaf-dk">
+            Expected this month
+          </p>
+          <p className="font-nunito font-black text-3xl mt-0.5">
+            {formatCents(monthlyExpected, currency)}
+          </p>
+          <div className="flex items-baseline justify-between gap-3 mt-2 text-[11px] font-nunito font-extrabold">
+            <span className="text-pantry-leaf-dk">
+              ✓ Paid {formatCents(paidCents, currency)}
+              <span className="text-hive-muted font-bold"> · {paidCount}/{activeCount} bills</span>
+            </span>
+            <span className={outstanding > 0 ? 'text-hive-rose' : 'text-pantry-leaf-dk'}>
+              {outstanding > 0
+                ? `Outstanding ${formatCents(outstanding, currency)} · ${outstandingCount} bill${outstandingCount === 1 ? '' : 's'}`
+                : 'Nothing overdue 🎉'}
+            </span>
+          </div>
+          <p className="text-[10px] text-hive-muted mt-2 leading-relaxed">
+            <strong>Expected</strong> is the budgeted monthly figure (non-monthly cadences normalised). <strong>Outstanding</strong> counts only fixed-amount bills past their due day — amount-less bills inform the budget only. Payments record via the <strong>Utility request flow</strong>.
+          </p>
+        </div>
+      )}
+
+      {/* Filter chips */}
+      <div className="flex gap-1.5 overflow-x-auto pb-1 mb-3 lg:flex-wrap lg:overflow-visible">
+        <Chip active={filter === 'all'} onClick={() => setFilter('all')}>All</Chip>
+        {VISIBLE_UTILITY_CATEGORIES.map((c) => (
+          <Chip key={c.id} active={filter === c.id} onClick={() => setFilter(c.id)}>
+            {c.emoji} {c.label}
+          </Chip>
+        ))}
+      </div>
+
+    </>
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="wide" className="pb-32">
       <div className="lg:hidden"><BackButton /></div>
       <Link href="/pantry/utility/setup" className="text-[12px] text-hive-honey-dk font-bold no-underline hover:underline inline-block mb-2">
         ← Utilities setup
@@ -168,41 +214,7 @@ export default function UtilitiesPage() {
         )}
       </div>
 
-      {/* Monthly roll-up — expected vs paid so far this month. */}
-      {utilities.length > 0 && (
-        <div className="bg-gradient-to-br from-pantry-leaf-soft to-white border border-pantry-leaf rounded-hive-lg p-4 mb-4">
-          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pantry-leaf-dk">
-            Expected this month
-          </p>
-          <p className="font-nunito font-black text-3xl mt-0.5">
-            {formatCents(monthlyExpected, currency)}
-          </p>
-          <div className="flex items-baseline justify-between gap-3 mt-2 text-[11px] font-nunito font-extrabold">
-            <span className="text-pantry-leaf-dk">
-              ✓ Paid {formatCents(paidCents, currency)}
-              <span className="text-hive-muted font-bold"> · {paidCount}/{activeCount} bills</span>
-            </span>
-            <span className={outstanding > 0 ? 'text-hive-rose' : 'text-pantry-leaf-dk'}>
-              {outstanding > 0
-                ? `Outstanding ${formatCents(outstanding, currency)} · ${outstandingCount} bill${outstandingCount === 1 ? '' : 's'}`
-                : 'Nothing overdue 🎉'}
-            </span>
-          </div>
-          <p className="text-[10px] text-hive-muted mt-2 leading-relaxed">
-            <strong>Expected</strong> is the budgeted monthly figure (non-monthly cadences normalised). <strong>Outstanding</strong> counts only fixed-amount bills past their due day — amount-less bills inform the budget only. Payments record via the <strong>Utility request flow</strong>.
-          </p>
-        </div>
-      )}
-
-      {/* Filter chips */}
-      <div className="flex gap-1.5 overflow-x-auto pb-1 mb-3">
-        <Chip active={filter === 'all'} onClick={() => setFilter('all')}>All</Chip>
-        {VISIBLE_UTILITY_CATEGORIES.map((c) => (
-          <Chip key={c.id} active={filter === c.id} onClick={() => setFilter(c.id)}>
-            {c.emoji} {c.label}
-          </Chip>
-        ))}
-      </div>
+      <PageSplit rail={rail} railMobile="first">
 
       {/* Starter packs — one-tap bulk-seed by household size, mirroring
           the Directory's quick-start. Hidden for guests since the demo
@@ -326,7 +338,8 @@ export default function UtilitiesPage() {
       <p className="text-center text-[11px] text-hive-muted mt-4 leading-relaxed">
         <Link href="/pantry" className="text-pantry-leaf-dk font-bold hover:underline">← Back to Pantry</Link>
       </p>
-    </div>
+      </PageSplit>
+    </Page>
   );
 }
 

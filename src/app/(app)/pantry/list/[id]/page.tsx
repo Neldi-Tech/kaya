@@ -26,6 +26,7 @@ import { currencyAllowsDecimals } from '@/lib/hive';
 import WhatsAppSendButton from '@/components/pantry/WhatsAppSendButton';
 import NumberInput from '@/components/ui/NumberInput';
 import BackButton from '@/components/ui/BackButton';
+import { Page, PageHeader, BTN_INLINE_LG } from '@/components/layout/Page';
 
 export default function ListPage() {
   const router = useRouter();
@@ -98,13 +99,16 @@ export default function ListPage() {
     );
   }
 
+  // Web-Fit (2026-08-23): content tier. The Food / Consumables grid was
+  // already 2-up at lg; the close-run button goes inline on desktop.
+  // Mobile markup unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="content">
       <div className="lg:hidden"><BackButton /></div>
-      <div className="mb-3">
+      <PageHeader>
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">Pantry · List</p>
         <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1">{list.name} 📝</h1>
-      </div>
+      </PageHeader>
 
       {/* Status strip */}
       <div className="rounded-hive bg-pantry-leaf-soft px-4 py-3 mb-3 flex items-baseline justify-between">
@@ -209,7 +213,7 @@ export default function ListPage() {
 
       {/* Close-list footer */}
       {items.length > 0 && !isGuest && (
-        <div className="mt-6 mb-2">
+        <div className="mt-6 mb-2 lg:flex lg:justify-end">
           <button
             onClick={async () => {
               if (!profile?.familyId || !listId) return;
@@ -222,13 +226,13 @@ export default function ListPage() {
               await closeList(profile.familyId, listId);
               router.push('/pantry');
             }}
-            className="w-full h-11 rounded-hive-pill border border-hive-line bg-hive-paper text-hive-muted font-nunito font-extrabold text-[12px]"
+            className={`w-full h-11 rounded-hive-pill border border-hive-line bg-hive-paper text-hive-muted font-nunito font-extrabold text-[12px] ${BTN_INLINE_LG}`}
           >
             Close this run
           </button>
         </div>
       )}
-    </div>
+    </Page>
   );
 }
 

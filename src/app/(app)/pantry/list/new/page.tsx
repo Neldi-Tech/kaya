@@ -25,6 +25,7 @@ import {
 } from '@/lib/listGenerator';
 import type { Region } from '@/lib/pantryDirectory';
 import type { Cadence } from '@/lib/pantry';
+import { Page, PageHeader, BTN_INLINE_LG } from '@/components/layout/Page';
 
 type Door = 'smart' | 'templates' | 'blank';
 
@@ -37,9 +38,11 @@ export default function NewListPage() {
   const [door, setDoor] = useState<Door | null>(null);
   const kidCount = kids?.length || 0;
 
+  // Web-Fit (2026-08-23): narrow tier (wizard); submit buttons go inline
+  // on desktop. Mobile unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32 lg:pb-12">
-      <div className="mb-4">
+    <Page width="narrow" className="pb-32 lg:pb-12">
+      <PageHeader className="mb-4">
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">
           Pantry · New list
         </p>
@@ -49,7 +52,7 @@ export default function NewListPage() {
         <p className="text-[12px] lg:text-[13px] text-hive-muted mt-1">
           How would you like to start? Pick a door — you can edit before the list is saved.
         </p>
-      </div>
+      </PageHeader>
 
       {/* Three doors */}
       <div className="space-y-3 mb-4">
@@ -115,7 +118,7 @@ export default function NewListPage() {
           onCreated={(id) => router.push(`/pantry/list/${id}`)}
         />
       )}
-    </div>
+    </Page>
   );
 }
 
@@ -290,14 +293,16 @@ function SmartStartForm({
 
       {error && <p className="text-hive-rose text-[12px] font-bold">{error}</p>}
 
+      <div className="lg:flex lg:justify-end">
       <button
         type="button"
         onClick={submit}
         disabled={busy || isGuest}
-        className="w-full h-12 rounded-hive-pill bg-pantry-leaf hover:bg-pantry-leaf-dk text-white font-nunito font-black text-[14px] disabled:opacity-50 shadow-[0_8px_20px_-8px_rgba(91,168,140,0.5)]"
+        className={`w-full h-12 rounded-hive-pill bg-pantry-leaf hover:bg-pantry-leaf-dk text-white font-nunito font-black text-[14px] disabled:opacity-50 shadow-[0_8px_20px_-8px_rgba(91,168,140,0.5)] ${BTN_INLINE_LG}`}
       >
         {busy ? 'Generating your list…' : '✨ Generate my list'}
       </button>
+      </div>
 
       <p className="text-[10px] text-hive-muted text-center leading-relaxed">
         We'll create the list right away — you can edit any item before sending it to a supplier.
@@ -382,7 +387,7 @@ function BlankStartCard({
         type="button"
         onClick={start}
         disabled={busy || isGuest}
-        className="w-full h-12 rounded-hive-pill bg-pantry-leaf hover:bg-pantry-leaf-dk text-white font-nunito font-black text-[13px] disabled:opacity-50"
+        className={`w-full h-12 rounded-hive-pill bg-pantry-leaf hover:bg-pantry-leaf-dk text-white font-nunito font-black text-[13px] disabled:opacity-50 ${BTN_INLINE_LG}`}
       >
         {busy ? 'Creating…' : 'Open a blank list →'}
       </button>

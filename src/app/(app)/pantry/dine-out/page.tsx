@@ -32,6 +32,7 @@ import BackButton from '@/components/ui/BackButton';
 import VenueSheet from '@/components/pantry/VenueSheet';
 import ReceiptScanModal from '@/components/pantry/ReceiptScanModal';
 import type { ScanResult } from '@/lib/receiptScan';
+import { Page, PageHeader, PageSplit, DataRows, DATA_ROW, DATA_ROW_HOVER } from '@/components/layout/Page';
 
 const DINE = '#C2562E';
 const MAX_PHOTOS = 6;
@@ -272,15 +273,93 @@ export default function DineOutPage() {
 
   if (profile && profile.role !== 'parent') return null;
 
+  // Web-Fit (2026-08-23): content tier. Desktop: the log-a-meal card is
+  // the main column and "Places to go" sits in the right rail as dense
+  // rows. Mobile DOM order unchanged (rail is `railMobile="last"`, i.e.
+  // exactly where Places already was).
+  const placesRail = (
+      <div className="mt-6 lg:mt-0">
+        <div className="flex items-baseline justify-between gap-2 mb-2 px-0.5">
+          <h2 className="font-nunito font-black text-[15px]">📍 Places to go</h2>
+          {venues.length > 0 && <span className="text-[11px] text-hive-muted">{venues.length} saved</span>}
+        </div>
+        {venues.length === 0 ? (
+          <div className="bg-hive-paper border border-dashed border-hive-line rounded-hive p-5 text-center">
+            <div className="text-2xl mb-1">📍</div>
+            <p className="text-[13px] text-hive-muted font-bold">
+              Log a meal above with a <strong>venue name</strong> and it’ll appear here — your filterable list of places, with ★ ratings, 💎 Diamond picks and photos.
+            </p>
+          </div>
+        ) : (
+          <>
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {[
+              { id: 'all', label: 'All' },
+              { id: 'diamond', label: '💎 Diamond' },
+              { id: 'top', label: '★ 4+' },
+              ...DINE_OUT_CATEGORIES.map((c) => ({ id: c.id, label: `${c.emoji} ${c.label}` })),
+            ].map((f) => (
+              <button
+                key={f.id} type="button" onClick={() => setPlacesFilter(f.id as typeof placesFilter)}
+                className={`px-3 py-1 rounded-full text-[11px] font-bold border transition-colors ${
+                  placesFilter === f.id ? 'text-white border-transparent' : 'border-hive-line bg-white text-hive-muted hover:border-[#C2562E]'
+                }`}
+                style={placesFilter === f.id ? { background: DINE } : undefined}
+              >{f.label}</button>
+            ))}
+          </div>
+          <DataRows tone="hive">
+            {filteredVenues.map((v) => (
+              <button
+                key={v.id} type="button" onClick={() => setSheetVenue(v)}
+                className={`bg-hive-paper border border-hive-line rounded-hive p-3 hover:border-[#C2562E] transition-colors text-left w-full ${DATA_ROW} ${DATA_ROW_HOVER}`}
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl flex-shrink-0">{v.emoji || '🍽️'}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-nunito font-extrabold text-sm text-hive-navy truncate flex items-center gap-1.5">
+                      {v.name}
+                      {v.diamond && <span title="Family Diamond — both parents' top pick">💎</span>}
+                    </div>
+                    <div className="text-[11px] text-hive-muted mt-0.5 truncate">
+                      {v.avgStars > 0 && <span className="font-bold" style={{ color: '#B8860B' }}>★ {v.avgStars}</span>}
+                      {v.avgStars > 0 && ' · '}{v.count} visit{v.count === 1 ? '' : 's'}
+                      {v.count > 0 && ` · ~${formatCents(Math.round(v.totalSpentCents / v.count), currency)}`}
+                      {v.highlights.length > 0 && ` · ${v.highlights.slice(0, 2).join(', ')}`}
+                      {v.photos && v.photos.length > 0 && ` · 📷 ${v.photos.length}`}
+                    </div>
+                  </div>
+                  <span className="text-[11px] font-nunito font-extrabold flex-shrink-0" style={{ color: DINE }}>Open →</span>
+                </div>
+                {v.photos && v.photos.length > 0 && (
+                  <div className="mt-2 flex gap-1.5 overflow-x-auto pb-0.5">
+                    {v.photos.slice(0, 8).map((p) => (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img key={p.id} src={p.thumbUrl} alt="" loading="lazy" className="w-14 h-14 rounded-lg object-cover border border-hive-line flex-shrink-0" />
+                    ))}
+                  </div>
+                )}
+              </button>
+            ))}
+            {filteredVenues.length === 0 && (
+              <p className="text-[12px] text-hive-muted italic text-center py-3">No places match this filter.</p>
+            )}
+          </DataRows>
+          </>
+        )}
+      </div>
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="content" className="pb-32">
       <div className="lg:hidden"><BackButton /></div>
-      <div className="mb-3">
+      <PageHeader>
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px]" style={{ color: DINE }}>Household · Dine Out</p>
         <h1 className="font-nunito font-black text-2xl lg:text-[34px] tracking-tight mt-0.5">Log a meal out</h1>
         <p className="text-hive-muted text-sm mt-1">Where you ate, the amount, and a quick rating — it counts toward your Dine Out budget and builds your Places to go.</p>
-      </div>
+      </PageHeader>
 
+      <PageSplit rail={placesRail} railMobile="last" railWidth={360} sticky={false}>
       <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-4 lg:p-5">
         {/* Venue + AI search */}
         <label className="block">
@@ -464,77 +543,7 @@ export default function DineOutPage() {
         {isGuest && <p className="text-center text-xs text-hive-muted mt-2">Guest mode — sign in to log spend.</p>}
       </div>
 
-      {/* ── Places to go ───────────────────────────────────────── */}
-      <div className="mt-6">
-        <div className="flex items-baseline justify-between gap-2 mb-2 px-0.5">
-          <h2 className="font-nunito font-black text-[15px]">📍 Places to go</h2>
-          {venues.length > 0 && <span className="text-[11px] text-hive-muted">{venues.length} saved</span>}
-        </div>
-        {venues.length === 0 ? (
-          <div className="bg-hive-paper border border-dashed border-hive-line rounded-hive p-5 text-center">
-            <div className="text-2xl mb-1">📍</div>
-            <p className="text-[13px] text-hive-muted font-bold">
-              Log a meal above with a <strong>venue name</strong> and it’ll appear here — your filterable list of places, with ★ ratings, 💎 Diamond picks and photos.
-            </p>
-          </div>
-        ) : (
-          <>
-          <div className="flex flex-wrap gap-1.5 mb-3">
-            {[
-              { id: 'all', label: 'All' },
-              { id: 'diamond', label: '💎 Diamond' },
-              { id: 'top', label: '★ 4+' },
-              ...DINE_OUT_CATEGORIES.map((c) => ({ id: c.id, label: `${c.emoji} ${c.label}` })),
-            ].map((f) => (
-              <button
-                key={f.id} type="button" onClick={() => setPlacesFilter(f.id as typeof placesFilter)}
-                className={`px-3 py-1 rounded-full text-[11px] font-bold border transition-colors ${
-                  placesFilter === f.id ? 'text-white border-transparent' : 'border-hive-line bg-white text-hive-muted hover:border-[#C2562E]'
-                }`}
-                style={placesFilter === f.id ? { background: DINE } : undefined}
-              >{f.label}</button>
-            ))}
-          </div>
-          <div className="flex flex-col gap-2">
-            {filteredVenues.map((v) => (
-              <button
-                key={v.id} type="button" onClick={() => setSheetVenue(v)}
-                className="bg-hive-paper border border-hive-line rounded-hive p-3 hover:border-[#C2562E] transition-colors text-left w-full"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl flex-shrink-0">{v.emoji || '🍽️'}</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-nunito font-extrabold text-sm text-hive-navy truncate flex items-center gap-1.5">
-                      {v.name}
-                      {v.diamond && <span title="Family Diamond — both parents' top pick">💎</span>}
-                    </div>
-                    <div className="text-[11px] text-hive-muted mt-0.5 truncate">
-                      {v.avgStars > 0 && <span className="font-bold" style={{ color: '#B8860B' }}>★ {v.avgStars}</span>}
-                      {v.avgStars > 0 && ' · '}{v.count} visit{v.count === 1 ? '' : 's'}
-                      {v.count > 0 && ` · ~${formatCents(Math.round(v.totalSpentCents / v.count), currency)}`}
-                      {v.highlights.length > 0 && ` · ${v.highlights.slice(0, 2).join(', ')}`}
-                      {v.photos && v.photos.length > 0 && ` · 📷 ${v.photos.length}`}
-                    </div>
-                  </div>
-                  <span className="text-[11px] font-nunito font-extrabold flex-shrink-0" style={{ color: DINE }}>Open →</span>
-                </div>
-                {v.photos && v.photos.length > 0 && (
-                  <div className="mt-2 flex gap-1.5 overflow-x-auto pb-0.5">
-                    {v.photos.slice(0, 8).map((p) => (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img key={p.id} src={p.thumbUrl} alt="" loading="lazy" className="w-14 h-14 rounded-lg object-cover border border-hive-line flex-shrink-0" />
-                    ))}
-                  </div>
-                )}
-              </button>
-            ))}
-            {filteredVenues.length === 0 && (
-              <p className="text-[12px] text-hive-muted italic text-center py-3">No places match this filter.</p>
-            )}
-          </div>
-          </>
-        )}
-      </div>
+      </PageSplit>
 
       {/* Venue detail sheet — open & browse the history before re-using */}
       {sheetVenue && (
@@ -557,6 +566,6 @@ export default function DineOutPage() {
           onClose={() => setScanFile(null)}
         />
       )}
-    </div>
+    </Page>
   );
 }

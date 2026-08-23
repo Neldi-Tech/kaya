@@ -40,6 +40,7 @@ import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import TemplatePicker from '@/components/pantry/TemplatePicker';
 import { ReconcileTimerChip } from '@/components/pantry/ReconcileTimer';
 import { useConfirm } from '@/contexts/ConfirmContext';
+import { Page, PageHeader, PageSplit, DataRows, DATA_ROW, DATA_ROW_HOVER } from '@/components/layout/Page';
 
 // Auto-name comes from createDraftRequest (`UTL-NNNN · DDMMYY`).
 // Meter label is passed as the context suffix when a meter is pinned:
@@ -267,38 +268,23 @@ export default function UtilityHomePage() {
     else setShowPicker(true);
   };
 
-  return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
-      <div className="mb-3">
-        <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">
-          Household · Utility
-        </p>
-        <h1 className="font-nunito font-black text-2xl lg:text-[34px] tracking-tight mt-0.5">
-          {role === 'parent' ? 'Utility requests' : 'Utility runs'}
-        </h1>
-        <p className="text-hive-muted text-sm mt-1">
-          {role === 'parent'
-            ? 'Top-ups + bill payments for electricity, water, internet, gas, TV, security, rent.'
-            : 'Request a top-up or bill payment, send for the nod, then reconcile after.'}
-        </p>
-        {/* One clear entry to BOTH config categories (recurring bills +
-            regular top-ups). Replaces the old two scattered deep-links.
-            (Utilities v2, 2026-05-20) */}
-        {role === 'parent' && (
-          <Link
-            href="/pantry/utility/setup"
-            className="mt-3 inline-flex items-center gap-1.5 rounded-hive-pill border border-hive-honey bg-[#FFF3D9] px-3.5 py-2 text-[12px] font-nunito font-extrabold text-hive-honey-dk no-underline"
-          >
-            ⚙ Set up utilities →
-          </Link>
-        )}
-        {role === 'parent' && meters.length > 0 && (
-          <p className="text-[11px] text-hive-honey-dk mt-2 font-bold">
-            🔌 {meters.length} meter{meters.length === 1 ? '' : 's'} registered.
-          </p>
-        )}
-      </div>
+  // Web-Fit (2026-08-23): content tier, main + rail. Desktop: "＋ New
+  // utility request" lives in the header; the outstanding-bills banner +
+  // CTA/templates block sit in the right rail; request piles render as
+  // dense rows. Mobile DOM order unchanged (rail is `railMobile="first"`).
+  const headerActions = profile?.familyId && !isGuest ? (
+    <button
+      type="button"
+      onClick={startDraft}
+      disabled={creating}
+      className="bg-pantry-leaf text-white rounded-hive h-10 px-5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60 hover:bg-pantry-leaf-dk transition-colors"
+    >
+      {creating ? 'Starting…' : '＋ New utility request'}
+    </button>
+  ) : undefined;
 
+  const rail = (
+    <>
       {/* Outstanding banner — recurring bills past their due day + not
           yet paid this period. Parent-only. (Utilities v2, 2026-05-20) */}
       {role === 'parent' && outstanding.length > 0 && (
@@ -340,14 +326,15 @@ export default function UtilityHomePage() {
         </div>
       )}
 
-      {/* Top CTA: visible without scrolling (2026-05-19). */}
+      {/* Top CTA: visible without scrolling (2026-05-19). Desktop: the
+          button is in the page header instead. */}
       {profile?.familyId && !isGuest && (
         <div className="mb-4">
           <button
             type="button"
             onClick={startDraft}
             disabled={creating}
-            className="w-full bg-pantry-leaf text-white rounded-hive py-3 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60 mb-2"
+            className="lg:hidden w-full bg-pantry-leaf text-white rounded-hive py-3 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60 mb-2"
           >
             {creating ? 'Starting…' : '＋ New utility request'}
           </button>
@@ -363,6 +350,43 @@ export default function UtilityHomePage() {
           />
         </div>
       )}
+
+    </>
+  );
+
+  return (
+    <Page width="content">
+      <PageHeader actions={headerActions}>
+        <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">
+          Household · Utility
+        </p>
+        <h1 className="font-nunito font-black text-2xl lg:text-[34px] tracking-tight mt-0.5">
+          {role === 'parent' ? 'Utility requests' : 'Utility runs'}
+        </h1>
+        <p className="text-hive-muted text-sm mt-1">
+          {role === 'parent'
+            ? 'Top-ups + bill payments for electricity, water, internet, gas, TV, security, rent.'
+            : 'Request a top-up or bill payment, send for the nod, then reconcile after.'}
+        </p>
+        {/* One clear entry to BOTH config categories (recurring bills +
+            regular top-ups). Replaces the old two scattered deep-links.
+            (Utilities v2, 2026-05-20) */}
+        {role === 'parent' && (
+          <Link
+            href="/pantry/utility/setup"
+            className="mt-3 inline-flex items-center gap-1.5 rounded-hive-pill border border-hive-honey bg-[#FFF3D9] px-3.5 py-2 text-[12px] font-nunito font-extrabold text-hive-honey-dk no-underline"
+          >
+            ⚙ Set up utilities →
+          </Link>
+        )}
+        {role === 'parent' && meters.length > 0 && (
+          <p className="text-[11px] text-hive-honey-dk mt-2 font-bold">
+            🔌 {meters.length} meter{meters.length === 1 ? '' : 's'} registered.
+          </p>
+        )}
+      </PageHeader>
+
+      <PageSplit rail={rail} railMobile="first" sticky={false}>
 
       {role === 'parent' && pending.length > 0 && (
         <Section title="Awaiting your nod" tone="amber" count={pending.length}>
@@ -428,7 +452,7 @@ export default function UtilityHomePage() {
             <button
               type="button"
               onClick={() => setShowAllRecent((v) => !v)}
-              className="w-full bg-hive-paper border border-hive-line rounded-hive py-2 mt-1 text-hive-honey-dk font-nunito font-extrabold text-xs"
+              className={`w-full bg-hive-paper border border-hive-line rounded-hive py-2 mt-1 lg:mt-0 text-hive-honey-dk font-nunito font-extrabold text-xs ${DATA_ROW}`}
             >
               {showAllRecent
                 ? '▴ Show less'
@@ -439,12 +463,12 @@ export default function UtilityHomePage() {
       )}
 
       {/* Bottom fallback CTA — convenience after scroll. */}
-      <div className="mt-4 mb-32">
+      <div className="mt-4 mb-32 lg:mb-12">
         <button
           type="button"
           onClick={startDraft}
           disabled={creating || isGuest}
-          className="w-full bg-hive-honey text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-hive-honey/30 disabled:opacity-60"
+          className="lg:hidden w-full bg-hive-honey text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-hive-honey/30 disabled:opacity-60"
         >
           {creating ? 'Starting…' : meters.length === 0 ? '＋ New utility request' : '＋ New utility request · pick a meter'}
         </button>
@@ -454,6 +478,7 @@ export default function UtilityHomePage() {
           </p>
         )}
       </div>
+      </PageSplit>
 
       {/* Meter picker sheet */}
       {showPicker && (
@@ -517,7 +542,7 @@ export default function UtilityHomePage() {
           </div>
         </>
       )}
-    </div>
+    </Page>
   );
 }
 
@@ -536,12 +561,12 @@ function Section({
     : tone === 'leaf' ? 'text-pantry-leaf-dk'
     : 'text-hive-muted';
   return (
-    <div className="mt-5">
+    <div className="mt-5 lg:first:mt-0">
       <div className={`text-[11px] font-nunito font-extrabold uppercase tracking-[2px] mb-2 flex items-center gap-2 ${toneClass}`}>
         <span>{title}</span>
         <span className="bg-hive-paper border border-hive-line rounded-full px-2 py-0.5 text-[10px] text-hive-muted">{count}</span>
       </div>
-      <div className="flex flex-col gap-2">{children}</div>
+      <DataRows tone="hive">{children}</DataRows>
     </div>
   );
 }
@@ -564,10 +589,10 @@ function RequestRow({
   const total = req.actualTotalCents ?? req.estimatedTotalCents;
   const isClosed = req.status === 'closed' || req.status === 'rejected';
   return (
-    <div className={`flex items-stretch gap-1.5 min-w-0 ${dimmed ? 'opacity-70' : ''}`}>
+    <div className={`flex items-stretch gap-1.5 lg:gap-0 min-w-0 ${dimmed ? 'opacity-70' : ''}`}>
       <Link
         href={`/pantry/purchase/${req.id}`}
-        className="flex-1 min-w-0 bg-hive-paper border border-hive-line rounded-hive p-3.5 flex items-center gap-3 no-underline"
+        className={`flex-1 min-w-0 bg-hive-paper border border-hive-line rounded-hive p-3.5 flex items-center gap-3 no-underline lg:px-4 lg:py-3 ${DATA_ROW} ${DATA_ROW_HOVER}`}
       >
         <div className="w-10 h-10 rounded-xl bg-[#FFF3D9] flex items-center justify-center text-base flex-shrink-0">
           ⚡
@@ -597,7 +622,7 @@ function RequestRow({
           type="button"
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); void onRecycle(); }}
           disabled={recycling}
-          className="flex-shrink-0 bg-hive-paper border border-hive-line rounded-hive px-3 text-pantry-leaf-dk font-nunito font-black hover:bg-pantry-leaf-soft hover:border-pantry-leaf disabled:opacity-50"
+          className={`flex-shrink-0 bg-hive-paper border border-hive-line rounded-hive px-3 text-pantry-leaf-dk font-nunito font-black hover:bg-pantry-leaf-soft hover:border-pantry-leaf disabled:opacity-50 lg:border-l ${DATA_ROW}`}
           aria-label="Recycle — re-buy these items"
           title="Recycle · re-buy these items"
         >
@@ -608,7 +633,7 @@ function RequestRow({
         <button
           type="button"
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); void onDelete(); }}
-          className="flex-shrink-0 bg-hive-paper border border-hive-line rounded-hive px-3 text-hive-rose font-nunito font-black hover:bg-hive-rose/10 hover:border-hive-rose"
+          className={`flex-shrink-0 bg-hive-paper border border-hive-line rounded-hive px-3 text-hive-rose font-nunito font-black hover:bg-hive-rose/10 hover:border-hive-rose lg:border-l ${DATA_ROW}`}
           aria-label="Delete this draft"
           title="Delete draft"
         >
