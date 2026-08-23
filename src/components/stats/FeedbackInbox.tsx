@@ -35,7 +35,10 @@ interface Props {
   includeReasons: boolean;
   canReflect: boolean;
   openRatingId?: string | null;
+  /** ?thanks=<awardId> from the kid award email — opens that award card. */
+  openAwardId?: string | null;
   onReflectionSaved?: (ratingId: string, routineId: string, text: string) => void;
+  onThanksSaved?: (awardId: string, text: string) => void;
 }
 
 const TONE = {
@@ -60,7 +63,10 @@ export default function FeedbackInbox(p: Props) {
   const showNumbers = !p.isKid || p.pointsMode === 'full';
   const showReasons = !p.isKid || p.includeReasons;
 
-  const [open, setOpen] = useState<string | null>(p.openRatingId || null);
+  const [open, setOpen] = useState<string | null>(p.openRatingId || p.openAwardId || null);
+  const [thanksDraft, setThanksDraft] = useState('');
+  const [thanksBusy, setThanksBusy] = useState(false);
+  const [thanksMsg, setThanksMsg] = useState('');
   const [seenAt, setSeenAt] = useState<number>(0);
   const [showAll, setShowAll] = useState(false);
   const [draft, setDraft] = useState('');
@@ -78,12 +84,14 @@ export default function FeedbackInbox(p: Props) {
     try { localStorage.setItem(seenKey(p.childId), String(now)); } catch { /* ignore */ }
   };
   useEffect(() => { if (p.openRatingId) setOpen(p.openRatingId); }, [p.openRatingId]);
+  useEffect(() => { if (p.openAwardId) setOpen(p.openAwardId); }, [p.openAwardId]);
   // Scroll the deep-linked card into view once it exists.
   useEffect(() => {
-    if (!p.openRatingId) return;
-    const el = document.getElementById(`feedback-${p.openRatingId}`);
+    const target = p.openRatingId || p.openAwardId;
+    if (!target) return;
+    const el = document.getElementById(`feedback-${target}`);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [p.openRatingId, p.ratings.length]);
+  }, [p.openRatingId, p.openAwardId, p.ratings.length, p.awards.length]);
 
   const items: Item[] = useMemo(() => {
     const tsOf = (x: { createdAt?: unknown }, fallbackDate?: string): number => {
@@ -131,6 +139,21 @@ export default function FeedbackInbox(p: Props) {
     finally { setBusy(false); }
   }
 
+  async function saveThanks(awardId: string) {
+    setThanksBusy(true); setThanksMsg('');
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch('/api/points/award-thanks', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ awardId, text: thanksDraft }),
+      });
+      if (!res.ok) setThanksMsg('Could not send — try again.');
+      else { setThanksMsg('💛 Sent — they’ll see it in their bell.'); p.onThanksSaved?.(awardId, thanksDraft); }
+    } catch { setThanksMsg('Could not send — try again.'); }
+    finally { setThanksBusy(false); }
+  }
+
   return (
     <section className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-4">
       <div className="flex items-center gap-2 mb-2.5">
@@ -147,12 +170,37 @@ export default function FeedbackInbox(p: Props) {
           if (it.kind === 'award') {
             const a = it.a;
             const diamond = a.kind === 'diamond';
+            const byFirst = (a.awardedByName || 'family').split(' ')[0];
             return (
-              <div key={it.id} id={`feedback-${it.id}`} className="relative border border-kaya-warm-dark rounded-kaya-sm p-2.5">
+              <div key={it.id} id={`feedback-${it.id}`} className={`relative border rounded-kaya-sm p-2.5 ${isOpen ? 'border-kaya-gold bg-kaya-gold/5' : 'border-kaya-warm-dark'}`}>
                 {fresh && <span className="absolute top-2 right-2 w-2 h-2 rounded-full" style={{ background: '#E06A7B' }} />}
-                <p className="text-[12.5px] font-extrabold">{diamond ? '💎' : a.kind === 'kudos' ? '👏' : '🎖️'} {a.kind === 'kudos' ? 'Kudos' : `+${a.points} bonus`}{a.category ? ` · ${a.category}` : ''}</p>
-                <p className="text-[10.5px] text-kaya-sand font-bold">from {(a.awardedByName || 'family').split(' ')[0]} · {toDisplayDate(new Date(it.at).toISOString().slice(0, 10))}</p>
-                {a.reason && showReasons && <p className="text-[11.5px] mt-1 leading-snug" style={{ color: '#3B3430' }}>“{a.reason}”</p>}
+                <button type="button" className="w-full text-left" onClick={() => { setOpen(isOpen ? null : it.id); setThanksMsg(''); setThanksDraft(a.kidNote?.text || ''); }}>
+                  <p className="text-[12.5px] font-extrabold pr-4">{diamond ? '💎' : a.kind === 'kudos' ? '👏' : '🎖️'} {a.kind === 'kudos' ? 'Kudos' : `+${a.points} bonus`}{a.category ? ` · ${a.category.replace(/^diamond-/, '')}` : ''}</p>
+                  <p className="text-[10.5px] text-kaya-sand font-bold">from {byFirst} · {toDisplayDate(new Date(it.at).toISOString().slice(0, 10))}{a.kidNote ? ' · 💛 thanked' : ''}</p>
+                  {a.reason && showReasons && <p className="text-[11.5px] mt-1 leading-snug" style={{ color: '#3B3430' }}>“{a.reason}”</p>}
+                </button>
+                {isOpen && (
+                  <div className="mt-2">
+                    {a.kidNote && (
+                      <p className="text-[11px] leading-snug" style={{ color: '#3B3430' }}>💛 <b>{a.kidNote.byName}:</b> “{a.kidNote.text}”</p>
+                    )}
+                    {p.isKid && (
+                      <div className="mt-2 rounded-xl p-2.5" style={{ background: '#FFF7E6', border: '1px solid #F1DD98' }}>
+                        <p className="text-[9.5px] font-black uppercase tracking-wider" style={{ color: '#9A7300' }}>💛 Say thanks to {byFirst}</p>
+                        <textarea value={thanksDraft} onChange={(e) => setThanksDraft(e.target.value)} rows={2} maxLength={300}
+                          placeholder="Thank you for noticing… / what I'll keep doing…"
+                          className="mt-1.5 w-full text-[12px] p-2 rounded-lg border border-kaya-warm-dark bg-white focus:outline-none focus:ring-2 focus:ring-kaya-gold/40" />
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <button type="button" disabled={thanksBusy || !thanksDraft.trim()} onClick={() => void saveThanks(a.id)}
+                            className="px-3 py-1.5 rounded-full text-[11px] font-black bg-kaya-gold text-kaya-chocolate disabled:opacity-50">
+                            {thanksBusy ? 'Sending…' : 'Send 💛'}
+                          </button>
+                          {thanksMsg && <span className="text-[10.5px] font-bold text-kaya-sand">{thanksMsg}</span>}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           }

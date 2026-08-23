@@ -29,6 +29,8 @@ export interface KidRewardEmailFacts {
   /** 🔥 Kid Heat Report (Points Emails 2.0, template v2) — present on
    *  rating sends; the trace renders the heat view when it's there. */
   heat?: HeatEmailFacts & { includeReasons?: boolean; askReflection?: boolean };
+  /** 🎖️ Award emails 2.0 — kid award card extras (template v2). */
+  award?: { awardId: string; kind: string; reason: string; byFirst: string; category?: string };
 }
 
 /** 🔥 Heat Report facts (Points Emails 2.0, 2026-08-23) — compact copy of
@@ -69,6 +71,8 @@ export interface AlertLogChannels {
     kidDigestFacts?: KidDigestEmailFacts;
     /** 🔥 Family/outside rating emails (kind 'points_email'). */
     heatFacts?: HeatEmailFacts;
+    /** 🎖️ Family/outside award emails (kind 'points_email', trigger 'award'). */
+    awardFacts?: { kidName: string; kidFirst: string; points: number; kind: string; category: string; byFirst: string; dateLabel: string; reason: string; week: { emoji: string; label: string; points: number; category: string }[] };
     detail?: 'heat' | 'totals';
   };
   inapp?: {
@@ -94,6 +98,7 @@ export interface AlertLogEntry {
   /** 🔥 Points Emails 2.0 — which audience tier a 'points_email' row was. */
   tier?: 'family' | 'outside';
   ratingId?: string;
+  awardId?: string;
   // ── meter fields (kinds 'alert' / 'recovered') ──
   meterId?: string;
   meterLabel?: string;

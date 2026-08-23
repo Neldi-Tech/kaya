@@ -1287,6 +1287,10 @@ export interface Award {
   // idempotent and the bulk can be cleaned up if needed. Live UI writes
   // omit this field.
   importSource?: string;
+  /** 💛 Award emails 2.0 (2026-08-23) — the kid's "thanks" on this award,
+   *  written via /api/points/award-thanks (Admin). Parents see it in the
+   *  📬 Feedback card + the 🔔 bell. */
+  kidNote?: { text: string; byUid: string; byName: string; at: number };
 }
 
 // Family-configurable rules for the point system. Persisted partial on the

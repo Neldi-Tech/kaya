@@ -6,11 +6,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import CoachMark from '@/components/ui/CoachMark';
 import NextUp from '@/components/ui/NextUp';
-import { giveAward, importAward, getFamilyMembers, getFamily, readPointSystemConfig, AwardKind } from '@/lib/firestore';
+import { giveAward, importAward, readPointSystemConfig, AwardKind } from '@/lib/firestore';
 import { rewardsFloorFor, type FamilyRewardsSlice } from '@/lib/hive';
 import { Timestamp } from 'firebase/firestore';
 import { DEFAULT_EARNING_METHODS } from '@/lib/earningMethods';
-import { notifyAward } from '@/lib/notify';
+import { auth as fbAuth } from '@/lib/firebase';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
 
@@ -220,59 +220,25 @@ export default function AwardPage() {
     setSaving(false);
 
 
-    // Fire-and-forget email notification per kid (so each kid's parents/helpers
-    // see the awardee name in the email subject). Includes external contacts
-    // opted in for award notifications. Skip for 0-point kinds — those are
-    // low-stakes recognition and don't need an email blast.
-    if (finalPoints !== 0) {
-      (async () => {
-        if (selectedKidObjs.length === 0) return;
-        const [members, fam] = await Promise.all([
-          getFamilyMembers(profile.familyId),
-          getFamily(profile.familyId),
-        ]);
-        const familyEmails = members
-          .filter((m) => m.uid !== profile.uid && m.email && m.role !== 'kid')
-          .filter((m) => m.notifyOnAward !== false) // default true
-          .map((m) => m.email);
-        const externalEmails = (fam?.externalContacts || [])
-          .filter((c) => c.notifyOnAward !== false)
-          .map((c) => c.email);
-        const recipients = Array.from(new Set([...familyEmails, ...externalEmails]));
-        // 📮 Points Audience (2026-08-09) — the family's EXTRA recipients.
-        // (🧒 kid emails ride the existing giveAward → reward-email path,
-        // whose gate now also honours the family-level audience switch.)
-        const aud = fam?.pointsEmailAudience?.award;
-        const audGroups = (fam?.emailGroups || []).filter((g) => (aud?.groupIds || []).includes(g.id));
-        const groupMemberEmails = audGroups.flatMap((g) =>
-          members.filter((m) => g.memberUids.includes(m.uid) && m.email).map((m) => m.email));
-        const fullExtra = Array.from(new Set(groupMemberEmails)).filter((e) => !recipients.includes(e));
-        const trimmedTo = Array.from(new Set([
-          ...audGroups.flatMap((g) => g.externalEmails || []),
-          ...(aud?.emails || []),
-        ])).filter((e) => !recipients.includes(e) && !fullExtra.includes(e));
-        for (const c of selectedKidObjs) {
-          notifyAward({
-            to: recipients,
-            childName: c.name,
-            actorName: profile.displayName,
-            points: finalPoints,
-            reason: reason.trim(),
-            isDiamond,
-          });
-          if (fullExtra.length > 0) {
-            notifyAward({ to: fullExtra, childName: c.name, actorName: profile.displayName, points: finalPoints, reason: reason.trim(), isDiamond });
+    // 🎖️ Award emails 2.0 (approved 23-Aug-2026) — ONE server gateway
+    // composes the family + outside emails from each award doc (reason
+    // card · kind · this week's trail). The kid tier rides giveAward's
+    // existing reward-email ping. Fire-and-forget; 0-point kinds skip.
+    if (finalPoints > 0) {
+      const ids = results.map((r) => r?.id).filter((id): id is string => !!id && id !== 'guest-award');
+      if (ids.length > 0) {
+        fbAuth.currentUser?.getIdToken().then((token) => {
+          if (!token) return;
+          for (const awardId of ids) {
+            void fetch('/api/points/award-email', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ awardId }),
+              keepalive: true,
+            }).catch(() => {});
           }
-          if (trimmedTo.length > 0) {
-            // Privacy-trimmed: first name + points only — the reason can be
-            // personal, it stays inside the family.
-            notifyAward({
-              to: trimmedTo, childName: c.name.split(' ')[0], actorName: profile.displayName,
-              points: finalPoints, reason: '', isDiamond, trimmed: true, familyName: fam?.name,
-            });
-          }
-        }
-      })();
+        }).catch(() => { /* delight only — never blocks */ });
+      }
     }
 
     setTimeout(() => {

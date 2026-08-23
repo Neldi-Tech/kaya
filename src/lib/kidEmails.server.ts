@@ -87,13 +87,18 @@ export interface KidRewardFacts {
   detail: string;     // "Clean your room — from Dad"
   balance?: number;   // HP after the reward
   streak?: number;
+  /** 🎖️ Award emails 2.0 (template v2, 2026-08-23): when the reward is a
+   *  bonus-point award, the kid card shows the reason as "<name>'s note"
+   *  + a 💛 Say thanks button (→ /stats/me?thanks=<awardId>). */
+  award?: { awardId: string; kind: string; reason: string; byFirst: string; category?: string };
 }
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function renderKidRewardEmail(f: KidRewardFacts): string {
+export function renderKidRewardEmail(f: KidRewardFacts): string {
+  if (f.award) return renderKidAwardEmail(f);
   return `
   <div style="font-family:Nunito,Arial,sans-serif;max-width:480px;margin:0 auto;padding:14px">
     <div style="border-radius:18px;overflow:hidden;border:1px solid #EFE4CC">
@@ -116,6 +121,43 @@ function renderKidRewardEmail(f: KidRewardFacts): string {
   </div>`;
 }
 
+/** E4-kid — "Someone noticed you": honey hero · the reason as a note ·
+ *  💛 Say thanks · balance/streak. */
+function renderKidAwardEmail(f: KidRewardFacts): string {
+  const a = f.award!;
+  const diamond = a.kind === 'diamond';
+  const kindLabel = diamond ? '💎 Diamond award' : a.kind === 'kudos' ? '👏 Kudos' : 'Regular award';
+  return `
+  <div style="font-family:Nunito,Arial,sans-serif;max-width:480px;margin:0 auto;padding:14px">
+    <div style="border-radius:18px;overflow:hidden;border:1px solid #EFE4CC;background:#fff">
+      <div style="background:${diamond ? 'linear-gradient(135deg,#7C3AED,#5B21B6)' : 'linear-gradient(135deg,#F7B733,#F0A32A)'};padding:20px 16px;color:${diamond ? '#fff' : '#2A1A00'}">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td style="vertical-align:middle"><div style="font-size:38px;font-weight:900;line-height:1">${esc(f.headline.replace(' House Points!', '').replace('!', ''))}</div><div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.14em;font-weight:700;margin-top:4px;opacity:.85">bonus points</div></td>
+          <td style="vertical-align:middle;text-align:right;font-size:12.5px;line-height:1.5">from ${esc(a.byFirst)} 💛<br><b>${kindLabel}${a.category ? ` · ${esc(a.category)}` : ''}</b></td></tr></table>
+      </div>
+      <div style="padding:16px">
+        <div style="font-size:12.5px;font-weight:800;margin-bottom:8px">💛 What ${esc(a.byFirst)} saw</div>
+        <div style="border-left:4px solid #2E9E5B;border-radius:0 10px 10px 0;padding:9px 12px;background:#F6FCF8">
+          <div style="font-size:12.5px;font-weight:800;color:#1A1412">${esc(a.byFirst)}’s note</div>
+          <div style="font-size:12.5px;line-height:1.55;margin-top:3px;color:#3B3430">“${esc(a.reason || 'Great work')}”</div>
+        </div>
+        <div style="background:#FBF4E4;border-radius:14px 14px 14px 3px;padding:10px 13px;font-size:13px;line-height:1.6;margin-top:12px">That’s the kind of thing nobody has to ask for. Want to say something back?</div>
+        <div style="margin-top:12px">
+          <a href="${APP_URL}/stats/me?thanks=${encodeURIComponent(a.awardId)}" style="display:inline-block;background:#1F2A44;color:#fff;font-weight:800;font-size:13px;border-radius:10px;padding:10px 16px;text-decoration:none;margin:0 6px 6px 0">💛 Say thanks →</a>
+          <a href="${APP_URL}/stats/me" style="display:inline-block;background:#fff;color:#1A1412;border:1px solid #E8E0D4;font-weight:800;font-size:13px;border-radius:10px;padding:10px 16px;text-decoration:none;margin:0 6px 6px 0">📊 My Stats</a>
+        </div>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:10px"><tr>
+          ${f.balance != null ? `<td style="padding:3px"><div style="background:#FBF4E4;border-radius:10px;padding:8px;text-align:center"><div style="font-size:10px;color:#8A8471;font-weight:800">HOUSE POINTS</div><div style="font-size:16px;font-weight:900;color:#C77E0A">${f.balance.toLocaleString('en-US')}</div></div></td>` : ''}
+          ${f.streak && f.streak > 1 ? `<td style="padding:3px"><div style="background:#FBF4E4;border-radius:10px;padding:8px;text-align:center"><div style="font-size:10px;color:#8A8471;font-weight:800">STREAK</div><div style="font-size:16px;font-weight:900;color:#C77E0A">🔥 ${f.streak}</div></div></td>` : ''}
+        </tr></table>
+      </div>
+      <div style="padding:9px 12px;font-size:10px;color:#8A8471;background:#FFFDF7;border-top:1px solid #EFE4CC">
+        Sent because your parent switched on Reward emails · parents manage this in Household Setup.
+      </div>
+    </div>
+  </div>`;
+}
+
 async function writeKidAlertLog(db: AdminDb, familyId: string, entry: Record<string, unknown>) {
   try {
     await db.collection('families').doc(familyId).collection('alertLog').add(entry);
@@ -128,7 +170,7 @@ export async function sendKidRewardEmail(
   db: AdminDb,
   familyId: string,
   childId: string,
-  reward: { emoji: string; headline: string; detail: string },
+  reward: { emoji: string; headline: string; detail: string; award?: KidRewardFacts['award'] },
 ): Promise<void> {
   try {
     const famData = (await db.collection('families').doc(familyId).get()).data() as
@@ -152,8 +194,11 @@ export async function sendKidRewardEmail(
       detail: reward.detail,
       ...(kid?.totalPoints != null ? { balance: kid.totalPoints } : {}),
       ...(kid?.streak ? { streak: kid.streak } : {}),
+      ...(reward.award ? { award: reward.award } : {}),
     };
-    const subject = `${reward.emoji} ${reward.headline} — ${reward.detail}`.slice(0, 140);
+    const subject = reward.award
+      ? `${reward.emoji} Someone noticed you, ${(kid?.name || 'you').split(' ')[0]} — ${reward.headline.replace(' House Points!', '')}!`.slice(0, 140)
+      : `${reward.emoji} ${reward.headline} — ${reward.detail}`.slice(0, 140);
 
     let sent = false; let error: string | undefined;
     if (!resend) { error = 'resend-not-configured'; }
