@@ -18,6 +18,8 @@ import { Trophy, CheckCircle2, Wallet, ShoppingCart, Star, ThumbsUp } from 'luci
 import { getHelperPerformance, perfFace, type HelperPerformanceWindow } from '@/lib/helperPerformance';
 import { formatCents } from '@/components/pantry/format';
 import { useHive } from '@/contexts/HiveContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { auth } from '@/lib/firebase';
 
 export default function PerformanceCard({
   familyId, helperUid, name, compact = false, days,
@@ -33,6 +35,27 @@ export default function PerformanceCard({
   const [perf, setPerf] = useState<HelperPerformanceWindow | null>(null);
   const { config } = useHive();
   const currency = config.currency;
+  // HP2 — this week's kids' review average (parents only; Admin gateway).
+  // Feeds the consolidated score when the family weights Kid review > 0
+  // and shows as a "Kids say" line either way.
+  const { profile } = useAuth();
+  const isParent = profile?.role === 'parent';
+  const [kidReview, setKidReview] = useState<{ pct: number | null; count: number; eligible: number } | null>(null);
+  useEffect(() => {
+    if (!isParent) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        if (!token) return;
+        const res = await fetch(`/api/helpers/kid-review?helperUid=${encodeURIComponent(helperUid)}&summary=1`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) return;
+        const j = (await res.json()) as { pct: number | null; count: number; eligible: number };
+        if (!cancelled) setKidReview({ pct: j.pct ?? null, count: j.count ?? 0, eligible: j.eligible ?? 0 });
+      } catch { /* quiet — the card works without it */ }
+    })();
+    return () => { cancelled = true; };
+  }, [helperUid, isParent]);
 
   // Period filter (2026-05-20) — scope the metrics to a defined window.
   // "Today" includes the live in-progress day (so today's ratings/tasks
@@ -57,7 +80,7 @@ export default function PerformanceCard({
     let cancelled = false;
     (async () => {
       try {
-        const p = await getHelperPerformance(familyId, helperUid, { days: periodDays, includeToday });
+        const p = await getHelperPerformance(familyId, helperUid, { days: periodDays, includeToday, kidReviewPct: kidReview?.pct ?? null });
         if (!cancelled) setPerf(p);
       } catch {
         // Best-effort: a perf card that can't load shouldn't break
@@ -65,7 +88,7 @@ export default function PerformanceCard({
       }
     })();
     return () => { cancelled = true; };
-  }, [familyId, helperUid, periodDays, includeToday]);
+  }, [familyId, helperUid, periodDays, includeToday, kidReview?.pct]);
 
   if (!perf) {
     return (
@@ -198,6 +221,22 @@ export default function PerformanceCard({
           weight={perf.policy.weights.parentFeedback}
         />
       </div>
+
+      {/* HP2 · Kids say — parents only; this ISO week's average across the
+          kids who reviewed. Weight 0 by default → beside the score. */}
+      {isParent && kidReview && (kidReview.eligible > 0 || kidReview.count > 0) && (
+        <div className="mt-3 pt-3 border-t border-kaya-warm-dark/30 flex items-baseline gap-2 flex-wrap">
+          <p className="text-[10px] uppercase tracking-wider text-kaya-sand font-bold">👧 Kids say</p>
+          {kidReview.pct === null ? (
+            <p className="text-[11px] text-kaya-sand">no reviews this week yet · kids are asked Fri–Sun</p>
+          ) : (
+            <p className="text-[12px] font-bold">
+              {'⭐'.repeat(Math.max(1, Math.min(5, Math.round(kidReview.pct / 20))))} <span className="text-[#5A3CB8]">{kidReview.pct}%</span>
+              <span className="text-[11px] text-kaya-sand font-normal ml-1">· {kidReview.count} of {kidReview.eligible || kidReview.count} review{kidReview.count === 1 ? '' : 's'}{(perf.policy.weights.kidReview ?? 0) > 0 ? ` · ${perf.policy.weights.kidReview}% of the score` : ' · beside the score'}</span>
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Budget block — stays full-width below the grid because the
           variance line needs more room than the other metrics. */}

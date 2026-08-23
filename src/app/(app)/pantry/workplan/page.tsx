@@ -36,6 +36,7 @@ import PerformanceCard from '@/components/helpers/PerformanceCard';
 import TodaysWorkplanCard from '@/components/helpers/TodaysWorkplanCard';
 import RoutineFillTab from '@/components/helpers/RoutineFillTab';
 import ScoreTab from '@/components/helpers/ScoreTab';
+import KidReviewsTab from '@/components/helpers/KidReviewsTab';
 import DayStepper from '@/components/helpers/DayStepper';
 import { listHelpers, getHelperLink } from '@/lib/helpers';
 import { getHelperPerformance, perfFace, type HelperPerformanceWindow } from '@/lib/helperPerformance';
@@ -319,6 +320,9 @@ function PersonCard({ helper, familyId, expanded, onToggle, isParent, showPerf, 
           {activeTab === 'score' && (
             <ScoreTab familyId={familyId} helper={helper} isParent={isParent} />
           )}
+          {activeTab === 'reviews' && isParent && (
+            <KidReviewsTab helper={helper} />
+          )}
 
           {activeTab === 'today' && <>
           {/* Future preview banner — nothing's happened yet (2026-05-21). */}
@@ -402,7 +406,7 @@ const HELPER_TABS: { id: HelperTab; label: string; parentOnly?: boolean; soon?: 
   { id: 'today',   label: 'Today' },
   { id: 'fill',    label: 'Routine fill' },
   { id: 'score',   label: 'Score' },
-  { id: 'reviews', label: 'Kid reviews', parentOnly: true, soon: true },
+  { id: 'reviews', label: 'Kid reviews', parentOnly: true },
 ];
 function HelperTabs({ tab, onChange, isParent }: { tab: HelperTab; onChange: (t: HelperTab) => void; isParent: boolean }) {
   const tabs = HELPER_TABS.filter((t) => !t.parentOnly || isParent);
