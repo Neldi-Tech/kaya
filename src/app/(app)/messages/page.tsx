@@ -16,6 +16,7 @@ import {
 } from '@/lib/messaging';
 import { subscribeToKidRequests, type ApprovalRequest } from '@/lib/hive';
 import type { Timestamp } from 'firebase/firestore';
+import { Page, DataRows, DATA_ROW, DATA_ROW_HOVER } from '@/components/layout/Page';
 
 function relTime(t?: Timestamp): string {
   const m = (t as Timestamp | undefined)?.toMillis?.();
@@ -103,7 +104,7 @@ export default function MessagesPage() {
     const isCustomGroup = thread.kind === 'group' && !isFamily;
     return (
       <button type="button" onClick={() => router.push(`/messages/${thread.id}`)}
-        className={`w-full flex items-center gap-3 p-3 rounded-kaya border text-left transition-colors ${
+        className={`w-full flex items-center gap-3 p-3 rounded-kaya border text-left transition-colors lg:px-4 lg:py-3 ${DATA_ROW} ${DATA_ROW_HOVER} ${
           isFamily ? 'border-kaya-gold bg-kaya-gold-light/40' : 'border-kaya-warm-dark/50 bg-white hover:bg-kaya-warm'
         }`}>
         <Avatar value={avatar} />
@@ -129,7 +130,7 @@ export default function MessagesPage() {
   // open (the thread doesn't exist yet). Drops as soon as the parent approves
   // (the new thread shows up via subscribeThreads) or rejects.
   const PendingGroupTile = ({ req }: { req: ApprovalRequest }) => (
-    <div className="w-full flex items-center gap-3 p-3 rounded-kaya border border-dashed border-kaya-gold bg-kaya-gold-light/30">
+    <div className={`w-full flex items-center gap-3 p-3 rounded-kaya border border-dashed border-kaya-gold bg-kaya-gold-light/30 lg:px-4 lg:py-3 ${DATA_ROW}`}>
       <Avatar value="⏳" />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
@@ -141,8 +142,11 @@ export default function MessagesPage() {
     </div>
   );
 
+  // Web-Fit (2026-08-23): content tier; the header already reads
+  // title-left / actions-right, so it stays as-is. Thread cards become
+  // dense divided rows at lg (DataRows). Mobile markup/order unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="content">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="font-display font-extrabold text-[20px] flex items-center gap-2">💬 Messages</h1>
@@ -194,22 +198,22 @@ export default function MessagesPage() {
         </div>
       )}
 
-      <div className="space-y-2">
+      <DataRows tone="kaya">
         {group && <Row thread={group} />}
         {/* Kid's own pending group-creation requests — drop as the parent decides. */}
         {pendingGroupRequests.map((r) => <PendingGroupTile key={r.id} req={r} />)}
         {customGroups.length > 0 && (
-          <div className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand pt-3 pb-1 px-1">Groups</div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand pt-3 pb-1 px-1 lg:px-4 lg:bg-kaya-warm/40">Groups</div>
         )}
         {customGroups.map((t) => <Row key={t.id} thread={t} />)}
         {directs.length > 0 && (
-          <div className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand pt-3 pb-1 px-1">Direct messages</div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand pt-3 pb-1 px-1 lg:px-4 lg:bg-kaya-warm/40">Direct messages</div>
         )}
         {directs.map((t) => <Row key={t.id} thread={t} />)}
         {!group && directs.length === 0 && customGroups.length === 0 && pendingGroupRequests.length === 0 && (
           <p className="text-[13px] text-kaya-sand text-center py-10">No chats yet — tap <b>＋ New</b> to message a family member.</p>
         )}
-      </div>
-    </div>
+      </DataRows>
+    </Page>
   );
 }

@@ -27,6 +27,7 @@ import {
   processPhotoForUpload, processVideoForUpload, ProcessedPhoto, MAX_PHOTO_BYTES,
 } from '@/lib/photoUpload';
 import EventTagPicker from '@/components/moments/EventTagPicker';
+import { Page, PageHeader } from '@/components/layout/Page';
 import { getFamilyMembers, UserProfile } from '@/lib/firestore';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
@@ -352,16 +353,18 @@ export default function ComposeMomentPage() {
     }
   };
 
+  // Web-Fit (2026-08-23): narrow tier (composer = form); the sticky
+  // submit bar right-aligns its buttons at lg. Mobile unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="narrow" className="pb-32">
       <div className="lg:hidden"><BackButton /></div>
-      <div className="mb-5 lg:mb-7">
+      <PageHeader className="mb-5 lg:mb-7">
         <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-sand">Moments</p>
         <h1 className="font-display text-2xl lg:text-[34px] font-black tracking-tight">Share a moment</h1>
         <p className="text-sm text-kaya-sand mt-1">
           Up to {MAX_PHOTOS} photos or videos. The whole family sees it on the feed.
         </p>
-      </div>
+      </PageHeader>
 
       {/* ── Picker / preview grid ────────────────────────────── */}
       <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 mb-4">
@@ -562,11 +565,11 @@ export default function ComposeMomentPage() {
         </div>
       )}
 
-      <div className="sticky bottom-24 lg:bottom-4 flex items-center gap-2 bg-kaya-cream/95 backdrop-blur-sm py-2 -mx-4 px-4 lg:mx-0 lg:px-0">
+      <div className="sticky bottom-24 lg:bottom-4 flex items-center gap-2 lg:flex-row-reverse lg:justify-start bg-kaya-cream/95 backdrop-blur-sm py-2 -mx-4 px-4 lg:mx-0 lg:px-0">
         <button
           onClick={submit}
           disabled={!canSubmit}
-          className="flex-1 h-12 bg-kaya-gold text-white rounded-kaya font-bold text-sm disabled:opacity-40"
+          className="flex-1 lg:flex-none lg:px-8 h-12 bg-kaya-gold text-white rounded-kaya font-bold text-sm disabled:opacity-40"
         >
           {uploading ? 'Uploading…' : 'Share to family'}
         </button>
@@ -578,6 +581,6 @@ export default function ComposeMomentPage() {
           Cancel
         </button>
       </div>
-    </div>
+    </Page>
   );
 }

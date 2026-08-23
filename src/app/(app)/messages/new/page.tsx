@@ -17,6 +17,7 @@ import {
   createGroupThread, messageableMembers, selfMember,
 } from '@/lib/messaging';
 import { requestCreateGroupChat } from '@/lib/hive';
+import { Page } from '@/components/layout/Page';
 
 function Avatar({ value, size = 'w-9 h-9' }: { value: string; size?: string }) {
   const isImg = value.startsWith('http') || value.startsWith('data:');
@@ -97,7 +98,7 @@ export default function NewGroupPage() {
   };
 
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="narrow">
       <div className="flex items-center gap-3 mb-3">
         <div className="w-10 h-10 rounded-[12px] bg-kaya-gold-light flex items-center justify-center text-xl">✨</div>
         <div>
@@ -147,16 +148,16 @@ export default function NewGroupPage() {
 
       {error && <p className="text-hive-rose text-[12.5px] font-bold mb-2">{error}</p>}
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 lg:justify-end lg:pb-8">
         <button type="button" onClick={() => router.push('/messages')} disabled={busy}
           className="h-11 px-4 rounded-kaya-sm bg-white border border-kaya-warm-dark/50 text-kaya-chocolate font-display font-bold text-[13px] hover:bg-kaya-warm transition disabled:opacity-50">
           Cancel
         </button>
         <button type="button" onClick={submit} disabled={!canSubmit}
-          className="flex-1 h-11 rounded-kaya-sm bg-kaya-chocolate text-white font-display font-bold text-[13px] hover:brightness-110 transition disabled:opacity-50">
+          className="flex-1 lg:flex-none lg:px-8 h-11 rounded-kaya-sm bg-kaya-chocolate text-white font-display font-bold text-[13px] hover:brightness-110 transition disabled:opacity-50">
           {busy ? (isKid ? 'Sending…' : 'Creating…') : (isKid ? 'Ask a parent ✨' : 'Create group')}
         </button>
       </div>
-    </div>
+    </Page>
   );
 }

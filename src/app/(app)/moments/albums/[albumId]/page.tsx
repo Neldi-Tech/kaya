@@ -22,6 +22,7 @@ import BackButton from '@/components/ui/BackButton';
 import SubAlbumStrip from '@/components/moments/SubAlbumStrip';
 import AlbumPhotoGrid from '@/components/moments/AlbumPhotoGrid';
 import UpgradeCard from '@/components/moments/UpgradeCard';
+import { Page } from '@/components/layout/Page';
 
 export default function AlbumDetailPage() {
   const params = useParams<{ albumId: string }>();
@@ -115,19 +116,19 @@ export default function AlbumDetailPage() {
 
   if (!loaded) {
     return (
-      <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+      <Page width="content" className="pb-32">
         <BackButton />
         <div className="text-center py-12">
           <p className="text-3xl mb-2">⏳</p>
           <p className="text-kaya-sand text-sm">Loading album…</p>
         </div>
-      </div>
+      </Page>
     );
   }
 
   if (denied || !album) {
     return (
-      <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+      <Page width="content" className="pb-32">
         <BackButton />
         <div className="bg-white border border-kaya-warm-dark rounded-kaya p-8 text-center">
           <p className="text-5xl mb-3">🔒</p>
@@ -140,7 +141,7 @@ export default function AlbumDetailPage() {
             Back to Albums
           </button>
         </div>
-      </div>
+      </Page>
     );
   }
 
@@ -150,8 +151,10 @@ export default function AlbumDetailPage() {
     ? '👨‍👩‍👧 Whole family'
     : isParentsOnly ? '🔒 Parents only' : `+${album.accessList.length} members`;
 
+  // Web-Fit (2026-08-23): content tier (detail). Photo tiles 5-up at xl
+  // via AlbumPhotoGrid. Mobile markup/order unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32 relative">
+    <Page width="content" className="pb-32 relative">
       <div className="flex items-center justify-between mb-3">
         <BackButton />
         <div className="flex items-center gap-2">
@@ -249,6 +252,6 @@ export default function AlbumDetailPage() {
           />
         </div>
       )}
-    </div>
+    </Page>
   );
 }

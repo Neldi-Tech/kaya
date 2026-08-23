@@ -12,6 +12,7 @@ import RecognitionWizard from '@/components/rewards/RecognitionWizard';
 import { ShineWall, GiftRegister } from '@/components/rewards/ShineCards';
 import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
 import BackButton from '@/components/ui/BackButton';
+import { Page } from '@/components/layout/Page';
 
 export default function RecognitionPage() {
   const { profile } = useAuth();
@@ -27,8 +28,11 @@ export default function RecognitionPage() {
     );
   }
 
+  // Web-Fit (2026-08-23): wide tier. Desktop hero row — wizard spans
+  // 2/3, the counters sit beside it; the collapsible record sections
+  // run full width below. Mobile markup/order unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="wide">
       <div className="lg:hidden"><BackButton /></div>
       <div className="mb-5 flex items-baseline justify-between gap-3">
         <div>
@@ -44,10 +48,12 @@ export default function RecognitionPage() {
 
       {/* 🌟 FX PR-4 — Elia's 7-step wizard: pick → detail → gift/🎲 →
           points? → card → approve (rail+Moments+emails+📤) → streak. */}
-      <RecognitionWizard />
+      <div className="lg:grid lg:grid-cols-3 lg:gap-6 lg:items-start">
+        <div className="lg:col-span-2"><RecognitionWizard /></div>
 
-      {/* 📌 FX PR-8 — the counters live on TOP, always in good order. */}
-      <RecognitionStats />
+        {/* 📌 FX PR-8 — the counters live on TOP, always in good order. */}
+        <div><RecognitionStats /></div>
+      </div>
 
       {/* 🗓️ FX PR-7 — everything below the wizard collapses so the page
           never overstacks as the record grows. */}
@@ -70,6 +76,6 @@ export default function RecognitionPage() {
           <ShineWall familyId={profile.familyId} title="🌟 Recognition history" bare filterable />
         </CollapsibleSection>
       </div>
-    </div>
+    </Page>
   );
 }

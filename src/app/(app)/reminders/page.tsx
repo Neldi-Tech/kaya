@@ -29,6 +29,7 @@ import { listCards, cardIdFor, type GreetingCard } from '@/lib/greetingCards';
 import GiftBrain from '@/components/reminders/GiftBrain';
 import CatchUpBoard from '@/components/catchup/CatchUpBoard';
 import TimeCapsule from '@/components/reminders/TimeCapsule';
+import { PAGE_WIDTH_CLASS, PageSplit, DataRows, DATA_ROW, DATA_ROW_HOVER } from '@/components/layout/Page';
 
 // Reminders accent (the approved indigo from the v3 mock). Scoped to this
 // module via arbitrary values so it never touches the kaya-* palette.
@@ -323,44 +324,13 @@ export default function RemindersPage() {
     await load();
   }
 
-  return (
-    <div className={`px-4 lg:px-8 py-6 mx-auto pb-24 ${tab === 'catchup' ? 'max-w-5xl' : 'max-w-3xl'}`}>
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3 mb-5">
-        <div>
-          <h1 className="text-2xl font-display font-extrabold text-kaya-chocolate flex items-center gap-2">
-            <span>🔔</span> Reminders
-          </h1>
-          <p className="text-sm text-kaya-sand mt-1">
-            Birthdays, anniversaries, appointments &amp; special days — private or shared with the family.
-          </p>
-        </div>
-        <button
-          onClick={openNew}
-          className="shrink-0 rounded-kaya px-4 py-2.5 text-white font-bold text-sm shadow-sm"
-          style={{ background: CAL }}
-        >
-          + New
-        </button>
-      </div>
-
-      {/* R2-2 · Tabs — reminders material vs the Catch-Up Board. */}
-      {role === 'parent' && (
-        <div className="flex gap-1.5 bg-kaya-warm rounded-full p-1 w-fit mb-5">
-          {([['reminders', '🔔 Reminders'], ['catchup', '⏰ Catch-Up Board']] as const).map(([key, label]) => (
-            <button key={key} type="button" onClick={() => setTab(key)}
-              aria-pressed={tab === key}
-              className={`px-4 py-2 rounded-full text-[12.5px] font-black transition-colors ${
-                tab === key ? 'bg-kaya-chocolate text-kaya-gold-light' : 'text-kaya-sand hover:text-kaya-chocolate'
-              }`}>{label}</button>
-          ))}
-        </div>
-      )}
-
-      {tab === 'catchup' && role === 'parent' ? (
-        <CatchUpBoard />
-      ) : (
-      <>
+  // Web-Fit (2026-08-23): wide tier. The wrapper keeps its own mobile
+  // classes (no max-w-md scaffold here) and only gains the lg tier width.
+  // Desktop: share/card requests + Gift Brain sit in the right rail
+  // (railMobile="first" = exactly where they sat on mobile); Today /
+  // Coming up / All reminders take the main column as dense rows.
+  const rail = (
+    <>
       {/* Parent approvals */}
       {pending.length > 0 && (
         <div className="rounded-kaya border border-dashed p-4 mb-5" style={{ borderColor: CAL, background: CAL_SOFT }}>
@@ -403,8 +373,48 @@ export default function RemindersPage() {
 
       {/* 🎁 Gift Brain — parents only (never spoil the surprise). */}
       {role === 'parent' && <GiftBrain occurrences={occurrences} children={children} />}
+    </>
+  );
 
+  return (
+    <div className={`px-4 lg:px-8 py-6 mx-auto pb-24 ${tab === 'catchup' ? 'max-w-5xl' : 'max-w-3xl'} ${PAGE_WIDTH_CLASS.wide}`}>
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3 mb-5">
+        <div>
+          <h1 className="text-2xl font-display font-extrabold text-kaya-chocolate flex items-center gap-2">
+            <span>🔔</span> Reminders
+          </h1>
+          <p className="text-sm text-kaya-sand mt-1">
+            Birthdays, anniversaries, appointments &amp; special days — private or shared with the family.
+          </p>
+        </div>
+        <button
+          onClick={openNew}
+          className="shrink-0 rounded-kaya px-4 py-2.5 text-white font-bold text-sm shadow-sm"
+          style={{ background: CAL }}
+        >
+          + New
+        </button>
+      </div>
 
+      {/* R2-2 · Tabs — reminders material vs the Catch-Up Board. */}
+      {role === 'parent' && (
+        <div className="flex gap-1.5 bg-kaya-warm rounded-full p-1 w-fit mb-5">
+          {([['reminders', '🔔 Reminders'], ['catchup', '⏰ Catch-Up Board']] as const).map(([key, label]) => (
+            <button key={key} type="button" onClick={() => setTab(key)}
+              aria-pressed={tab === key}
+              className={`px-4 py-2 rounded-full text-[12.5px] font-black transition-colors ${
+                tab === key ? 'bg-kaya-chocolate text-kaya-gold-light' : 'text-kaya-sand hover:text-kaya-chocolate'
+              }`}>{label}</button>
+          ))}
+        </div>
+      )}
+
+      {tab === 'catchup' && role === 'parent' ? (
+        <CatchUpBoard />
+      ) : (
+      <>
+      <PageSplit rail={rail} railMobile="first" railWidth={360} sticky={false}>
       {loading ? (
         <div className="text-center text-kaya-sand py-16 text-sm">Loading your reminders…</div>
       ) : (
@@ -412,7 +422,7 @@ export default function RemindersPage() {
           {/* Today */}
           {todays.length > 0 && (
             <Section label="Today">
-              {todays.map((o) => <Row key={`${o.event.id}-${o.dateKey}`} o={o} onTap={() => openEdit(o.event)} card={cards[cardIdFor(o.event.id, o.dateKey)] || null} onCard={cardEligible({ type: o.event.type, greetTo: honoreeForAuto(o.event) }) ? () => openStudio(o.event, o.dateKey) : undefined} />)}
+              {todays.map((o) => <Row key={`${o.event.id}-${o.dateKey}`} o={o} dense onTap={() => openEdit(o.event)} card={cards[cardIdFor(o.event.id, o.dateKey)] || null} onCard={cardEligible({ type: o.event.type, greetTo: honoreeForAuto(o.event) }) ? () => openStudio(o.event, o.dateKey) : undefined} />)}
             </Section>
           )}
 
@@ -423,7 +433,7 @@ export default function RemindersPage() {
             ) : upcoming.length === 0 ? (
               <div className="text-sm text-kaya-sand px-1 py-2">Nothing else on the horizon. 🌤️</div>
             ) : (
-              upcoming.map((o) => <Row key={`${o.event.id}-${o.dateKey}`} o={o} onTap={() => openEdit(o.event)} card={cards[cardIdFor(o.event.id, o.dateKey)] || null} onCard={cardEligible({ type: o.event.type, greetTo: honoreeForAuto(o.event) }) ? () => openStudio(o.event, o.dateKey) : undefined} />)
+              upcoming.map((o) => <Row key={`${o.event.id}-${o.dateKey}`} o={o} dense onTap={() => openEdit(o.event)} card={cards[cardIdFor(o.event.id, o.dateKey)] || null} onCard={cardEligible({ type: o.event.type, greetTo: honoreeForAuto(o.event) }) ? () => openStudio(o.event, o.dateKey) : undefined} />)
             )}
           </Section>
 
@@ -484,6 +494,7 @@ export default function RemindersPage() {
           )}
         </>
       )}
+      </PageSplit>
 
       {/* 📮 Time Capsule — everyone can seal a future message. Sits BELOW
           the reminders material now so Coming Up stays on top (R2-2). */}
@@ -528,17 +539,19 @@ function Section({ label, children }: { label: string; children: React.ReactNode
   return (
     <div className="mb-5">
       <div className="text-[11px] font-extrabold uppercase tracking-wider text-kaya-sand mb-2 px-1">{label}</div>
-      <div className="space-y-2">{children}</div>
+      <DataRows tone="kaya">{children}</DataRows>
     </div>
   );
 }
 
-function Row({ o, onTap, card, onCard }: {
+function Row({ o, onTap, card, onCard, dense }: {
   o: ReturnType<typeof occurrencesInRange>[number];
   onTap: () => void;
   /** ✉️ 2.0 — the greeting card for this occurrence (if any) + opener. */
   card?: GreetingCard | null;
   onCard?: () => void;
+  /** Web-Fit: inside a <DataRows> Section — dense divided row at lg (mobile unchanged). */
+  dense?: boolean;
 }) {
   const ev = o.event;
   const meta = typeMeta(ev.type);
@@ -555,7 +568,7 @@ function Row({ o, onTap, card, onCard }: {
   const cardLabel = cardState === 'sent' ? '✅' : cardState === 'ready' ? '✉️✓' : cardState === 'pending' ? '⏳' : cardState === 'draft' ? '✏️' : '✉️';
   const cardTitle = cardState === 'sent' ? 'Card sent' : cardState === 'ready' ? 'Card ready' : cardState === 'pending' ? 'Card awaiting a parent' : cardState === 'draft' ? 'Card drafted' : 'Make a greeting card';
   return (
-    <div className="w-full flex items-center gap-2 bg-white rounded-kaya border border-kaya-warm-dark px-3 py-2.5 hover:border-[#5B6CC8]">
+    <div className={`w-full flex items-center gap-2 bg-white rounded-kaya border border-kaya-warm-dark px-3 py-2.5 hover:border-[#5B6CC8] ${dense ? `lg:px-4 lg:py-3 ${DATA_ROW} ${DATA_ROW_HOVER}` : ''}`}>
       <button onClick={onTap} className="flex-1 min-w-0 text-left flex items-center gap-3">
         <span className="w-9 h-9 rounded-kaya-sm flex items-center justify-center text-lg shrink-0" style={{ background: CAL_SOFT }}>{meta.icon}</span>
         <div className="flex-1 min-w-0">

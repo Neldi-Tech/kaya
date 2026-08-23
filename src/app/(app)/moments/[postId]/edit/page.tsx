@@ -26,6 +26,7 @@ import {
 import EventTagPicker from '@/components/moments/EventTagPicker';
 import { getFamilyMembers, UserProfile } from '@/lib/firestore';
 import BackButton from '@/components/ui/BackButton';
+import { Page, PageHeader, BTN_INLINE_LG } from '@/components/layout/Page';
 import KidAvatar from '@/components/ui/KidAvatar';
 
 const MAX_PHOTOS = 10;
@@ -371,16 +372,18 @@ export default function EditMomentPage() {
     }
   };
 
+  // Web-Fit (2026-08-23): narrow tier (form); sticky action bar
+  // right-aligns at lg; danger-zone button inline at lg. Mobile unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="narrow" className="pb-32">
       <div className="lg:hidden"><BackButton /></div>
-      <div className="mb-5 lg:mb-7">
+      <PageHeader className="mb-5 lg:mb-7">
         <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-sand">Moments</p>
         <h1 className="font-display text-2xl lg:text-[34px] font-black tracking-tight">Edit moment</h1>
         <p className="text-sm text-kaya-sand mt-1">
           Update photos, the caption, who&apos;s tagged, or the event chip.
         </p>
-      </div>
+      </PageHeader>
 
       {/* ── Photos (add / remove / reorder) ─────────────────── */}
       <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 mb-4">
@@ -581,11 +584,11 @@ export default function EditMomentPage() {
         </div>
       )}
 
-      <div className="sticky bottom-24 lg:bottom-4 flex items-center gap-2 bg-kaya-cream/95 backdrop-blur-sm py-2 -mx-4 px-4 lg:mx-0 lg:px-0">
+      <div className="sticky bottom-24 lg:bottom-4 flex items-center gap-2 lg:flex-row-reverse lg:justify-start bg-kaya-cream/95 backdrop-blur-sm py-2 -mx-4 px-4 lg:mx-0 lg:px-0">
         <button
           onClick={onSave}
           disabled={saving || deleting || processing || slots.length === 0}
-          className="flex-1 h-12 bg-kaya-gold text-white rounded-kaya font-bold text-sm disabled:opacity-40"
+          className="flex-1 lg:flex-none lg:px-8 h-12 bg-kaya-gold text-white rounded-kaya font-bold text-sm disabled:opacity-40"
         >
           {saving ? 'Saving…' : 'Save changes'}
         </button>
@@ -604,14 +607,14 @@ export default function EditMomentPage() {
         <button
           onClick={onDelete}
           disabled={saving || deleting}
-          className="w-full h-11 bg-white border border-red-200 text-red-600 rounded-kaya-sm font-bold text-sm hover:bg-red-50 transition-colors disabled:opacity-40"
+          className={`w-full h-11 bg-white border border-red-200 text-red-600 rounded-kaya-sm font-bold text-sm hover:bg-red-50 transition-colors disabled:opacity-40 ${BTN_INLINE_LG}`}
         >
           {deleting ? 'Deleting…' : 'Delete this moment'}
         </button>
-        <p className="text-[10px] text-kaya-sand-light mt-1.5 text-center">
+        <p className="text-[10px] text-kaya-sand-light mt-1.5 text-center lg:text-left">
           Photos, comments, and reactions will be removed.
         </p>
       </div>
-    </div>
+    </Page>
   );
 }

@@ -21,6 +21,7 @@ import MomentsTabs from '@/components/moments/MomentsTabs';
 import AlbumCard from '@/components/moments/AlbumCard';
 import UpgradeCard from '@/components/moments/UpgradeCard';
 import BackButton from '@/components/ui/BackButton';
+import { Page, PageGrid } from '@/components/layout/Page';
 
 type Filter = 'all' | 'mine' | 'shared' | 'private';
 
@@ -70,8 +71,10 @@ export default function AlbumsGridPage() {
   const myTopLevelCount = albums.filter((a) => a.createdBy === profile?.uid).length;
   const createGate = canCreateTopLevelAlbum(plan, myTopLevelCount);
 
+  // Web-Fit (2026-08-23): content tier; header already title-left /
+  // action-right. Album grid 2-up (mobile, unchanged) → 3-up lg → 4-up xl.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="content" className="pb-32">
       <div className="lg:hidden"><BackButton /></div>
 
       <div className="mb-4 lg:mb-6 flex items-end justify-between gap-3">
@@ -129,11 +132,11 @@ export default function AlbumsGridPage() {
       )}
 
       {visibleAlbums.length > 0 && (
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+        <PageGrid cols={{ base: 2, lg: 3, xl: 4 }} className="gap-3">
           {visibleAlbums.map((a) => (
             <AlbumCard key={a.id} album={a} href={`/moments/albums/${a.id}`} />
           ))}
-        </div>
+        </PageGrid>
       )}
 
       {/* Free-tier upgrade card — visible whenever they're hitting
@@ -156,7 +159,7 @@ export default function AlbumsGridPage() {
           />
         </div>
       )}
-    </div>
+    </Page>
   );
 }
 

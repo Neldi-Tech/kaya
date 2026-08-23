@@ -35,6 +35,7 @@ import TodaysSongCard from '@/components/meetings/TodaysSongCard';
 import RateClosingSongCard from '@/components/meetings/RateClosingSongCard';
 import MeetingMeterCard from '@/components/meetings/MeetingMeterCard';
 import { PauseCircle } from 'lucide-react';
+import { Page, PageSplit } from '@/components/layout/Page';
 
 export default function WorkplanPage() {
   const router = useRouter();
@@ -202,8 +203,22 @@ function ParentWorkplan({ familyId, parentUid }: { familyId: string; parentUid: 
   const selected = children.find((c) => c.id === selectedId) ?? null;
   const childRefs = useMemo(() => children.map((c) => ({ id: c.id, name: c.name })), [children]);
 
+  // Web-Fit (2026-08-23): wide tier. Desktop: proof-mode / pause /
+  // proofs-to-review cards move to the right rail (railMobile="first" =
+  // exactly where they sat on mobile), the child picker + editor take
+  // the main column. Mobile markup/order unchanged.
+  const setupRail = (
+    <>
+      {/* Proof for points — A/B mode + review feed */}
+      <ProofModeToggle familyId={familyId} family={family} />
+      {/* All-kids holidays / pause (PR C) */}
+      <FamilyPauseCard familyId={familyId} family={family} parentUid={parentUid} />
+      <ProofsToReview familyId={familyId} parentUid={parentUid} children={childRefs} />
+    </>
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="wide" className="pb-32">
       <div className="lg:hidden"><BackButton /></div>
       <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk mb-1">Kids · Workplan</p>
       <h1 className="font-display text-2xl lg:text-[32px] font-black tracking-tight">Kids&apos; Workplan</h1>
@@ -224,13 +239,7 @@ function ParentWorkplan({ familyId, parentUid }: { familyId: string; parentUid: 
           <p className="text-[12px] text-hive-muted mt-1">Add a child first, then build their workplan here.</p>
         </div>
       ) : (
-        <>
-          {/* Proof for points — A/B mode + review feed */}
-          <ProofModeToggle familyId={familyId} family={family} />
-          {/* All-kids holidays / pause (PR C) */}
-          <FamilyPauseCard familyId={familyId} family={family} parentUid={parentUid} />
-          <ProofsToReview familyId={familyId} parentUid={parentUid} children={childRefs} />
-
+        <PageSplit rail={setupRail} railMobile="first" sticky={false}>
           {/* Child picker */}
           <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1 mb-4">
             {children.map((c) => {
@@ -255,9 +264,9 @@ function ParentWorkplan({ familyId, parentUid }: { familyId: string; parentUid: 
               allChildren={children.map((c) => ({ id: c.id, name: c.name }))}
             />
           )}
-        </>
+        </PageSplit>
       )}
-    </div>
+    </Page>
   );
 }
 
