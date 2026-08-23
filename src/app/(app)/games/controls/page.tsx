@@ -11,6 +11,7 @@ import {
   MIND_GAME_IDS, type GamesConfig,
 } from '@/lib/games';
 import { GAME_WORLDS, gamesByWorld, getGame } from '@/lib/gamesCatalog';
+import { Page, PageSplit, BTN_INLINE_LG } from '@/components/layout/Page';
 
 function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -218,9 +219,14 @@ export default function GamesControlsPage() {
     }
   };
 
+  // Web-Fit (2026-08-23): content tier, main + rail. Desktop: the
+  // "how games earn" explainer sits in the right rail next to the
+  // settings cards; Save goes inline (right-aligned). Mobile markup/order
+  // unchanged — the explainer is `railMobile="first"`, exactly where it
+  // sat before.
   return (
     <div className="min-h-screen bg-gradient-to-b from-games-bg to-transparent">
-      <div className="mx-auto max-w-md w-full px-4 pt-4 pb-28">
+      <Page width="content" className="pb-28">
         <Link href="/games" className="text-sm font-bold text-games-ink-soft">&larr; Games</Link>
 
         {!isParent ? (
@@ -238,16 +244,21 @@ export default function GamesControlsPage() {
               <p className="text-xs opacity-90">Set the limits — they&rsquo;re enforced for every kid in your family.</p>
             </div>
 
-            {/* How games earn — the approval-gated model in one card. */}
-            <div className="bg-games-violet/8 border border-games-violet/20 rounded-kaya p-4 mb-4">
-              <p className="text-sm font-extrabold text-games-violet-deep mb-1">🍯 Games start at 0 — you decide their worth</p>
-              <p className="text-[12px] text-games-ink-soft leading-snug">
-                House Points are real value, so every game is worth <strong>0 pts</strong> until you set one below.
-                When a kid wins a valued game, it waits in your{' '}
-                <Link href="/games/approvals" className="font-bold text-games-violet underline">approvals queue</Link>{' '}
-                — points only land once you tap ✓.
-              </p>
-            </div>
+            <PageSplit
+              railMobile="first"
+              rail={(
+                /* How games earn — the approval-gated model in one card. */
+                <div className="bg-games-violet/8 border border-games-violet/20 rounded-kaya p-4 mb-4 lg:mb-0">
+                  <p className="text-sm font-extrabold text-games-violet-deep mb-1">🍯 Games start at 0 — you decide their worth</p>
+                  <p className="text-[12px] text-games-ink-soft leading-snug">
+                    House Points are real value, so every game is worth <strong>0 pts</strong> until you set one below.
+                    When a kid wins a valued game, it waits in your{' '}
+                    <Link href="/games/approvals" className="font-bold text-games-violet underline">approvals queue</Link>{' '}
+                    — points only land once you tap ✓.
+                  </p>
+                </div>
+              )}
+            >
 
             <div className="bg-games-card rounded-kaya p-4 mb-4">
               <p className="text-[11px] font-bold uppercase tracking-wider text-games-ink-soft mb-1">Earning caps</p>
@@ -347,17 +358,20 @@ export default function GamesControlsPage() {
               <p className="text-[11px] text-games-ink-soft mt-2">Off = playable any time. (Windows show in the kid&rsquo;s app; full lock-out lands with the next update.)</p>
             </div>
 
+            <div className="lg:flex lg:justify-end">
             <button
               type="button"
               onClick={save}
               disabled={saving}
-              className="w-full bg-games-violet text-white font-extrabold py-3.5 rounded-full disabled:opacity-60"
+              className={`w-full bg-games-violet text-white font-extrabold py-3.5 rounded-full disabled:opacity-60 ${BTN_INLINE_LG}`}
             >
               {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save controls'}
             </button>
+            </div>
+            </PageSplit>
           </>
         )}
-      </div>
+      </Page>
     </div>
   );
 }

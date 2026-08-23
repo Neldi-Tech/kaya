@@ -9,6 +9,7 @@ import { getGame } from '@/lib/gamesCatalog';
 import { awardGame } from '@/lib/gamesClient';
 import MultiDeviceRoom from '@/components/games/MultiDeviceRoom';
 import type { GameOutcome } from '@/components/games/types';
+import { Page } from '@/components/layout/Page';
 
 // Deep-link join (shared to family chat as /games/join/CODE). Resolves the
 // code to its game, then drops the kid straight into the room (auto-join).
@@ -48,9 +49,11 @@ export default function JoinGamePage() {
 
   const game = gameId ? getGame(gameId) : undefined;
 
+  // Web-Fit (2026-08-23): narrow tier — the room keeps its own centred
+  // width; only the desktop container changes. Mobile unchanged.
   return (
     <div className="min-h-screen bg-gradient-to-b from-games-bg to-transparent">
-      <div className="mx-auto max-w-md w-full px-4 pt-4 pb-28">
+      <Page width="narrow" className="pb-28">
         <Link href="/games" className="text-sm font-bold text-games-ink-soft">&larr; Games</Link>
         {doneMsg ? (
           <div className="text-center py-16">
@@ -72,7 +75,7 @@ export default function JoinGamePage() {
             <MultiDeviceRoom game={game} onComplete={onComplete} joinCode={code} />
           </div>
         )}
-      </div>
+      </Page>
     </div>
   );
 }

@@ -10,6 +10,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { subscribeToPendingGameApprovals } from '@/lib/gamesApprovals';
 import GameApprovalCard from '@/components/games/GameApprovalCard';
 import type { GamePlay } from '@/lib/games';
+import { Page } from '@/components/layout/Page';
 
 export default function GamesApprovalsPage() {
   const { profile } = useAuth();
@@ -24,9 +25,12 @@ export default function GamesApprovalsPage() {
     return () => unsub();
   }, [familyId, isParent]);
 
+  // Web-Fit (2026-08-23): content tier. Desktop lays the approval cards
+  // out 2-up (each card carries its own note + decision buttons, so it
+  // stays a card rather than a dense row). Mobile markup/order unchanged.
   return (
     <div className="min-h-screen bg-gradient-to-b from-games-bg to-transparent">
-      <div className="mx-auto max-w-md w-full px-4 pt-4 pb-28">
+      <Page width="content" className="pb-28">
         <div className="flex items-center justify-between">
           <Link href="/games" className="text-sm font-bold text-games-ink-soft">&larr; Games</Link>
           <Link href="/games/controls" className="text-[12px] font-extrabold text-games-violet hover:underline">Controls →</Link>
@@ -59,7 +63,7 @@ export default function GamesApprovalsPage() {
                 </Link>
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-3 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-3 lg:items-start">
                 {plays.map((p) => (
                   <GameApprovalCard key={p.id} play={p} />
                 ))}
@@ -67,7 +71,7 @@ export default function GamesApprovalsPage() {
             )}
           </>
         )}
-      </div>
+      </Page>
     </div>
   );
 }

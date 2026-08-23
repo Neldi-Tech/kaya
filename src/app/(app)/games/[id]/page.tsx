@@ -30,6 +30,7 @@ import BubblePop from '@/components/games/BubblePop';
 import ReactionTap from '@/components/games/ReactionTap';
 import MazeQuest from '@/components/games/MazeQuest';
 import TycoonEntry from '@/components/games/tycoon/TycoonEntry';
+import { Page } from '@/components/layout/Page';
 
 // Registry of live games. The catalog says which ids are `built`; this maps
 // each to its component. A built id with no component here falls back to the
@@ -239,10 +240,13 @@ function ResultOverlay({
   );
 }
 
+// Web-Fit (2026-08-23): content tier. Every game component centres
+// itself at ~320–340px, so the wider desktop container just gives the
+// runner breathing room. Mobile unchanged.
 function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-gradient-to-b from-games-bg to-transparent">
-      <div className="mx-auto max-w-md w-full px-4 pt-4 pb-28">{children}</div>
+      <Page width="content" className="pb-28">{children}</Page>
     </div>
   );
 }

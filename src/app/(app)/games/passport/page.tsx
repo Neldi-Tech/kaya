@@ -7,6 +7,7 @@ import { readPassport } from '@/lib/triviaPassport';
 import { readExplorers, levelFor, levelTitle, levelProgress, type Explorer } from '@/lib/triviaExplorers';
 import { readTriviaSeen } from '@/lib/triviaSeen';
 import { COUNTRIES, countryByCode } from '@/lib/countries';
+import { Page } from '@/components/layout/Page';
 
 // Kaya World Passport & Progress — countries explored in Local Trivia (stamps +
 // a world strip), each player's Explorer Level, and milestone badges.
@@ -49,9 +50,12 @@ export default function PassportPage() {
     { icon: '🌟', name: 'World Master', got: maxLevel >= 13 || got.size >= 20, hint: 'Level 13 / 20 lands' },
   ];
 
+  // Web-Fit (2026-08-23): content tier. Desktop: Explorer levels +
+  // Badges side by side, stamps 8-up, world strip fills the width.
+  // Wrappers are plain blocks below `lg` — mobile markup/order unchanged.
   return (
     <div className="min-h-screen bg-gradient-to-b from-games-bg to-transparent">
-      <div className="mx-auto max-w-md w-full px-4 pt-4 pb-28">
+      <Page width="content" className="pb-28">
         <Link href="/games" className="text-sm font-bold text-games-ink-soft">&larr; Games</Link>
 
         <div className="rounded-kaya-lg p-5 my-4 text-white text-center" style={{ background: 'linear-gradient(160deg,#1A2A5E,#24388A)' }}>
@@ -64,9 +68,10 @@ export default function PassportPage() {
           <p className="text-center text-sm text-games-ink-soft py-10">Loading…</p>
         ) : (
           <>
+            <div className="lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start lg:mb-4">
             {/* Explorer levels */}
             {players.length > 0 && (
-              <div className="bg-games-card rounded-kaya p-4 mb-4 shadow-[0_4px_12px_rgba(26,18,64,0.06)]">
+              <div className="bg-games-card rounded-kaya p-4 mb-4 lg:mb-0 shadow-[0_4px_12px_rgba(26,18,64,0.06)]">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-games-ink-soft mb-2">📈 Explorer levels</p>
                 <div className="flex flex-col gap-2.5">
                   {players.map((p) => (
@@ -88,9 +93,9 @@ export default function PassportPage() {
             )}
 
             {/* Badges */}
-            <div className="bg-games-card rounded-kaya p-4 mb-4 shadow-[0_4px_12px_rgba(26,18,64,0.06)]">
+            <div className={`bg-games-card rounded-kaya p-4 mb-4 lg:mb-0 shadow-[0_4px_12px_rgba(26,18,64,0.06)] ${players.length > 0 ? '' : 'lg:col-span-2'}`}>
               <p className="text-[11px] font-bold uppercase tracking-wider text-games-ink-soft mb-2">🏅 Badges</p>
-              <div className="grid grid-cols-3 gap-2.5">
+              <div className={`grid grid-cols-3 gap-2.5 ${players.length > 0 ? '' : 'lg:grid-cols-6'}`}>
                 {badges.map((b) => (
                   <div key={b.name} className={`rounded-kaya p-2.5 text-center ${b.got ? 'bg-games-bg' : 'opacity-45'}`} title={b.hint}>
                     <div className="text-2xl" style={{ filter: b.got ? 'none' : 'grayscale(1)' }}>{b.icon}</div>
@@ -100,12 +105,13 @@ export default function PassportPage() {
                 ))}
               </div>
             </div>
+            </div>
 
             {/* Stamps */}
             {stamps.length > 0 && (
               <div className="rounded-kaya-lg p-4 mb-4" style={{ background: 'linear-gradient(160deg,#1A2A5E,#24388A)' }}>
                 <p className="text-[10px] font-black tracking-[0.1em] text-white/80 mb-3">STAMPS COLLECTED</p>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-3 gap-3 lg:grid-cols-8">
                   {stamps.map((c) => (
                     <div key={c.code} className="aspect-square rounded-full flex flex-col items-center justify-center text-2xl text-white"
                       style={{ border: '2px solid #FFC93C', background: 'rgba(255,201,60,0.12)', transform: 'rotate(-7deg)' }}>
@@ -137,7 +143,7 @@ export default function PassportPage() {
             </div>
           </>
         )}
-      </div>
+      </Page>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { GAMES } from '@/lib/gamesCatalog';
 import { rateBetaGame, ratedCount, hasTesterBadge, TESTER_BADGE_AT, type LabRatings } from '@/lib/gamesLab';
+import { Page } from '@/components/layout/Page';
 
 const BETA = GAMES.filter((g) => g.beta);
 const COMING_SOON = [
@@ -36,9 +37,12 @@ export default function KayaLabPage() {
   const badge = hasTesterBadge(ratings);
   const toGo = Math.max(0, TESTER_BADGE_AT - count);
 
+  // Web-Fit (2026-08-23): content tier. Desktop: beta cards 2-up,
+  // coming-soon 3-up (wrappers are plain blocks below `lg`, so mobile
+  // markup/order/spacing are unchanged).
   return (
     <div className="min-h-screen bg-gradient-to-b from-games-bg to-transparent">
-      <div className="mx-auto max-w-md w-full px-4 pt-4 pb-28">
+      <Page width="content" className="pb-28">
         <Link href="/games" className="text-sm font-bold text-games-ink-soft">&larr; Games</Link>
 
         <div className="rounded-kaya-lg p-5 my-4 text-games-ink text-center bg-gradient-to-br from-games-gold to-games-pink">
@@ -57,10 +61,11 @@ export default function KayaLabPage() {
           )}
         </div>
 
+        <div className="lg:grid lg:grid-cols-2 lg:gap-3 lg:items-start">
         {BETA.map((g) => {
           const r = ratings[g.id];
           return (
-            <div key={g.id} className={`bg-games-card rounded-kaya p-4 mb-3 ${CARD}`}>
+            <div key={g.id} className={`bg-games-card rounded-kaya p-4 mb-3 lg:mb-0 ${CARD}`}>
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-11 h-11 rounded-xl bg-games-bg text-2xl flex items-center justify-center shrink-0">{g.icon}</div>
                 <div className="flex-1 min-w-0">
@@ -86,16 +91,19 @@ export default function KayaLabPage() {
             </div>
           );
         })}
+        </div>
 
         <p className="text-[11px] font-bold uppercase tracking-wide text-games-ink-soft mt-5 mb-2">Coming soon · new drops Fridays</p>
+        <div className="lg:grid lg:grid-cols-3 lg:gap-2">
         {COMING_SOON.map((c) => (
-          <div key={c.name} className="bg-games-bg rounded-kaya p-3 mb-2 flex items-center gap-3">
+          <div key={c.name} className="bg-games-bg rounded-kaya p-3 mb-2 lg:mb-0 flex items-center gap-3">
             <span className="text-xl">{c.icon}</span>
             <span className="flex-1 font-bold text-games-ink text-sm">{c.name}</span>
             <span className="text-[11px] font-bold text-games-ink-soft">🔜 soon</span>
           </div>
         ))}
-      </div>
+        </div>
+      </Page>
     </div>
   );
 }
