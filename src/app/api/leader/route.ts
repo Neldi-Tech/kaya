@@ -270,7 +270,11 @@ export async function POST(req: NextRequest) {
     const mine = terms.filter((t) => t.childId === child.id);
     const avg = averageTraits(mine);
     const others = children.filter((c) => c.id !== child.id);
-    const mission = config.missionsOn ? pickMission(avg, mine.length, others.length) : null;
+    const picked = config.missionsOn ? pickMission(avg, mine.length, others.length) : null;
+    // Coverage missions scale to the real sibling count ("everyone" = all of them).
+    const mission = picked
+      ? { ...picked, target: picked.metric === 'coverage' ? Math.max(1, picked.id === 'two-siblings' ? Math.min(2, others.length) : others.length) : picked.target }
+      : null;
     // 👀 quiet one = sibling with the fewest approved notes about them so far.
     let quietOneId: string | undefined;
     if (mission?.id === 'quiet-one' && others.length) {

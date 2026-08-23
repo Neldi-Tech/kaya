@@ -45,11 +45,11 @@ export default function LeaderCrownChip({ className = '' }: { className?: string
         <span className="text-2xl" aria-hidden>{hl.emoji || '👑'}</span>
         <span className="flex-1 min-w-0">
           <span className="block text-[10px] font-nunito font-black uppercase tracking-[1.5px]" style={{ color: '#B8860B' }}>👑 Leader of the Week</span>
-          <span className="block text-[13.5px] font-nunito font-black text-[#4a3a18] leading-snug">
+          <span className="block text-[13.5px] font-nunito font-black text-[#4a3a18] leading-snug truncate">
             {first} is leading this week · day {Math.min(day, 7)}{week > 1 ? ` · week ${week}` : ''}{ledTimes && ledTimes > 1 ? ` · led ${ledTimes}×` : ''}
           </span>
         </span>
-        <span className="text-[11px] font-black shrink-0 text-right" style={{ color: '#B8860B' }}>{profile?.role === 'kid' ? 'how can I help? →' : 'guide →'}</span>
+        <span className="text-[11px] font-black" style={{ color: '#B8860B' }}>{profile?.role === 'kid' ? 'how can I help? →' : 'guide →'}</span>
       </button>
       <LeaderGuideSheet open={guide} onClose={() => setGuide(false)} isLeader={false} leaderName={hl.name} />
     </>
