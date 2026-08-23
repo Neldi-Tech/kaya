@@ -28,6 +28,7 @@ import { subscribeToPendingGameApprovals } from '@/lib/gamesApprovals';
 import type { GamePlay } from '@/lib/games';
 import { formatCents } from '@/components/pantry/format';
 import { updateUserProfile } from '@/lib/firestore';
+import { listLeaderNotes, type LeaderNote } from '@/lib/leaderWeek';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 
@@ -38,6 +39,8 @@ const AGING_URGENT_DAYS = 7;
 // system extends the moment one lands.
 const CATEGORIES: Array<{ id: string; emoji: string; label: string }> = [
   { id: 'kidpoints', emoji: '🎮', label: 'Kid points' },
+  // 👑 LW PR-L3 — the Leader of the Week's Notebook proposals (⭐/📝).
+  { id: 'leader',    emoji: '👑', label: 'Leader notes' },
   { id: 'kidfunds',  emoji: '🪙', label: 'Kid fund requests' },
   { id: 'redeems',   emoji: '🎁', label: 'Reward redeems' },
   { id: 'business',  emoji: '🌳', label: 'Kid business' },
@@ -94,12 +97,27 @@ export default function PendingApprovalsBanner() {
 
   const [purchaseOpen, setPurchaseOpen] = useState<PurchaseRequest[]>([]);
   const [gamePlays, setGamePlays] = useState<GamePlay[]>([]);
+  const [leaderNotes, setLeaderNotes] = useState<LeaderNote[]>([]);
   useEffect(() => {
     if (!family) return;
     const unsub = subscribeToOpenRequests(family.id, setPurchaseOpen);
     const unsub2 = subscribeToPendingGameApprovals(family.id, setGamePlays);
     return () => { unsub(); unsub2(); };
   }, [family]);
+  // 👑 Leader notes — gateway read (no client rules for leaderNotes); a
+  // light poll keeps the count honest while the deck is open.
+  useEffect(() => {
+    if (!family || profile?.role !== 'parent') return;
+    let alive = true;
+    const tick = () => {
+      listLeaderNotes(family.id, { status: 'pending' })
+        .then((r) => { if (alive) setLeaderNotes(r.notes); })
+        .catch(() => {});
+    };
+    tick();
+    const t = setInterval(tick, 90_000);
+    return () => { alive = false; clearInterval(t); };
+  }, [family, profile?.role]);
 
   // ── Per-parent urgency choices + per-device view state ──────────
   const [urgentCats, setUrgentCats] = useState<string[]>(DEFAULT_URGENT);
@@ -198,9 +216,22 @@ export default function PendingApprovalsBanner() {
         href: '/games/approvals',
       });
     }
+    for (const n of leaderNotes) {
+      const who = n.targetChildId === n.leaderChildId ? 'themselves' : (n.targetName || 'a sibling').split(' ')[0];
+      out.push({
+        key: `l:${n.id}`,
+        category: 'leader',
+        chipEmoji: '👑',
+        chipLabel: 'Leader note',
+        title: `${n.kind === 'shoutout' ? '⭐' : '📝'} ${(n.leaderName || 'Leader').split(' ')[0]} noted ${who} · ${n.proposedPoints > 0 ? `+${n.proposedPoints}` : n.proposedPoints === 0 ? 'note only' : n.proposedPoints}`,
+        subtitle: n.reason,
+        createdAtMs: n.createdAt || 0,
+        href: '/parent/leader',
+      });
+    }
     out.sort((a, b) => b.createdAtMs - a.createdAtMs);
     return out;
-  }, [purchaseOpen, hivePending, gamePlays, children, currency]);
+  }, [purchaseOpen, hivePending, gamePlays, leaderNotes, children, currency]);
 
   if (rows.length === 0) return null;
 

@@ -27,6 +27,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import CatchUpStrip from '@/components/catchup/CatchUpStrip';
+import LeadershipCard from '@/components/leader/LeadershipCard';
+import { readLeaderConfig } from '@/lib/leaderWeek.shared';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { auth } from '@/lib/firebase';
@@ -1281,6 +1283,22 @@ export default function MyStatsPage() {
           {myChildId && (
             <div className="order-3 lg:col-span-2">
               <CatchUpStrip childId={myChildId} showFamilyScores />
+            </div>
+          )}
+
+          {/* 👑 LW PR-L4 — the kid's OWN Leadership card (radar + style +
+              counters + one-line reasons); parents see it per kid here too.
+              Hidden for kids when the family switches kidSeesTraits off. */}
+          {myChildId && profile?.familyId && (profile.role !== 'kid' || readLeaderConfig(family).kidSeesTraits) && (
+            <div className="order-4 lg:col-span-2">
+              <LeadershipCard
+                familyId={profile.familyId}
+                childId={myChildId}
+                childName={children.find((c) => c.id === myChildId)?.name || 'Me'}
+                childEmoji={children.find((c) => c.id === myChildId)?.avatarEmoji}
+                viewer={profile.role === 'kid' ? 'kid' : 'parent'}
+                familyName={family?.name}
+              />
             </div>
           )}
 

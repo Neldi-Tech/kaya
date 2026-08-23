@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
+import LeaderCrownChip from '@/components/leader/LeaderCrownChip';
 import BackButton from '@/components/ui/BackButton';
 import WaitingRoundCard from '@/components/rewards/WaitingRoundCard';
 import TodaysWorkplanCard from '@/components/helpers/TodaysWorkplanCard';
@@ -309,6 +310,7 @@ function MyDayKid({ familyId, childId, userUid, name, avatarEmoji }: {
       {/* "You're leading next meeting" card — Sunday-Meeting v2 (b1).
           Renders only when this kid is queued. */}
       <LeadingNextCard meId={childId} />
+      <LeaderCrownChip className="mb-4" />
 
       {/* 🌟 Question of the Day — one shared daily question for the whole family. */}
       <QuestionOfDayCard meId={userUid} />
@@ -599,6 +601,7 @@ function MyDayHelper({ familyId, uid, name }: { familyId: string; uid: string; n
       {/* Forward-compatible: helpers aren't in the default wheel pool,
           but if a parent later approves one in, the card already works. */}
       <LeadingNextCard meId={uid} />
+      <LeaderCrownChip className="mb-4" />
 
       {/* 🌟 Question of the Day — daily question for the whole family. */}
       <QuestionOfDayCard meId={uid} />
@@ -694,6 +697,7 @@ function MyDayParent({ familyId, parentUid, name, kids, currency }: {
 
       {/* "You're leading next meeting" card — Sunday-Meeting v2 (b1). */}
       <LeadingNextCard meId={parentUid} />
+      <LeaderCrownChip className="mb-4" />
 
       {/* 🌟 Question of the Day — daily question for the whole family. */}
       <QuestionOfDayCard meId={parentUid} />

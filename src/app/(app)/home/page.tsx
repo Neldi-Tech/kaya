@@ -13,6 +13,8 @@ import HoneyPotIcon from '@/components/hive/HoneyPotIcon';
 import BirthdayHero from '@/components/birthdays/BirthdayHero';
 import ArrivalHero from '@/components/family/ArrivalHero';
 import WeekThemeCard from '@/components/meetings/WeekThemeCard';
+import LeaderHomeCard from '@/components/leader/LeaderHomeCard';
+import LeaderCrownChip from '@/components/leader/LeaderCrownChip';
 import RemindersChip from '@/components/reminders/RemindersChip';
 import SparksParentPulse from '@/components/sparks/SparksParentPulse';
 
@@ -134,6 +136,9 @@ export default function DashboardPage() {
             nothing is pending; parent-only via role check. */}
         {/* HD PR-A — recognition FIRST, approvals collapsed below. */}
         <WaitingRoundCard className="mb-5" />
+        {/* 👑 Leader of the Week (LW PR-L1): parents get the appoint/week card,
+            helpers the read-only crown chip. */}
+        {profile?.role === 'parent' ? <LeaderHomeCard className="mb-5" /> : <LeaderCrownChip className="mb-5" />}
         {profile?.role === 'parent' && <PendingApprovalsBanner />}
 
         <div className="bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light rounded-kaya-lg p-5 mb-5 shadow-lg">
@@ -294,6 +299,9 @@ export default function DashboardPage() {
         {/* v4-final §02 Step 9 — aggregator banner (parent-only). */}
         {/* HD PR-A — recognition FIRST, approvals collapsed below. */}
         <WaitingRoundCard className="mb-5" />
+        {/* 👑 Leader of the Week (LW PR-L1): parents get the appoint/week card,
+            helpers the read-only crown chip. */}
+        {profile?.role === 'parent' ? <LeaderHomeCard className="mb-5" /> : <LeaderCrownChip className="mb-5" />}
         {profile?.role === 'parent' && <PendingApprovalsBanner />}
 
         {/* ✨ B6 — the Sparks pulse. Parents had no Sparks signal on
