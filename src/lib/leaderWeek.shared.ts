@@ -316,8 +316,9 @@ export function pickMission(avg: LeaderTraits | null, termIndex: number, sibling
     const sub = LEADER_MISSIONS.filter((m) => m.trait === weakest);
     if (sub.length) pool = sub;
   }
-  // 1-kid families: coverage missions make no sense.
+  // 1-kid families: coverage missions make no sense; "two siblings" needs two.
   if (siblings === 0) pool = pool.filter((m) => m.metric !== 'coverage' && m.metric !== 'quiet_one');
+  if (siblings < 2) pool = pool.filter((m) => m.id !== 'two-siblings');
   if (!pool.length) pool = LEADER_MISSIONS.filter((m) => m.metric !== 'coverage' && m.metric !== 'quiet_one');
   return pool[termIndex % pool.length];
 }

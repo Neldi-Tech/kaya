@@ -51,6 +51,8 @@ import {
 } from '@/lib/helperFeedback';
 import { todayDateString } from '@/lib/workplan';
 import { subscribeToPerformancePolicy, isHelperTracked } from '@/lib/performancePolicy';
+import { fetchRatingsLite, helperToFillLite } from '@/lib/routineFill';
+import { computeRoutineFill, fillCodes, mondayOf, addDays, ymdLocal } from '@/lib/routineFillCore';
 import type { HelperLink, PerformancePolicy } from '@/lib/firestore';
 
 // Emoji map per preset — same vocabulary as the role chips in
@@ -145,10 +147,50 @@ export default function PantryWorkplanPage() {
         : helpers)
     : null;
 
+  // HP2 D16 — this week's routine-fill dots for every row: ONE ratings
+  // range query for the week, then the shared pure compute per helper.
+  const [weekCodes, setWeekCodes] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!family || !visibleHelpers || visibleHelpers.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const today = ymdLocal(new Date());
+        const from = mondayOf(today); const to = addDays(from, 6);
+        const ratings = await fetchRatingsLite(family.id, from, to);
+        if (cancelled) return;
+        const out: Record<string, string> = {};
+        for (const h of visibleHelpers) {
+          out[h.uid] = fillCodes(computeRoutineFill(helperToFillLite(h), ratings, from, to, today).days);
+        }
+        setWeekCodes(out);
+      } catch { /* dots are decoration — fail quiet */ }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [family?.id, helpers?.length]);
+
+  // HP2 D16 — mount ONE layout (phone accordion OR desktop panes) so the
+  // per-row performance reads don't run twice. SSR defaults to phone.
+  const [isLg, setIsLg] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const apply = () => setIsLg(mq.matches);
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+  // HP2 D16 — desktop: which helper the detail pane shows + its tab.
+  const [selectedUid, setSelectedUid] = useState<string | null>(deepHelper);
+  const [desktopTab, setDesktopTab] = useState<HelperTab>(deepTab ?? 'today');
+  const selectedHelper = visibleHelpers?.find((h) => h.uid === selectedUid) ?? visibleHelpers?.[0] ?? null;
+  const showPerfFor = (h: HelperLink) =>
+    isHelperTracked(policy, h.uid) && (profile?.role === 'parent' || policy?.helpersSeeOwnScore !== false);
+
   if (!family) return null;
 
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <div className="mx-auto max-w-md w-full lg:max-w-6xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
       <div className="lg:hidden"><BackButton /></div>
       <div className="mb-3 flex items-center justify-between gap-3">
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">Household · Workplan</p>
@@ -164,13 +206,15 @@ export default function PantryWorkplanPage() {
 
       {/* Day navigator — step back to Yesterday / ahead to Tomorrow.
           Drives every helper card's workplan / feedback / completion. */}
-      <DayStepper
-        selectedDate={selectedDate}
-        onChange={setSelectedDate}
-        helperCount={visibleHelpers === null ? null : visibleHelpers.length}
-      />
+      <div className="lg:hidden">
+        <DayStepper
+          selectedDate={selectedDate}
+          onChange={setSelectedDate}
+          helperCount={visibleHelpers === null ? null : visibleHelpers.length}
+        />
+      </div>
 
-      <p className="text-[12px] text-hive-muted mb-4">
+      <p className="text-[12px] text-hive-muted mb-4 lg:hidden">
         {profile?.role === 'parent'
           ? <>Tap a helper to see / edit their plan. Use <strong>＋ Assign one-off work</strong> below for ad-hoc tasks outside their regular schedule.</>
           : <>Your duties for today + this week. Tap your row to expand the full plan.</>}
@@ -200,18 +244,17 @@ export default function PantryWorkplanPage() {
         </div>
       )}
 
-      <div className="space-y-3">
+      {/* ── Phone: the accordion (unchanged) ── */}
+      {!isLg && <div className="space-y-3 lg:hidden">
         {(visibleHelpers ?? []).map((h) => (
           <PersonCard
             key={h.uid}
             helper={h}
             familyId={family.id}
             isParent={profile?.role === 'parent'}
-            showPerf={
-              isHelperTracked(policy, h.uid)
-              && (profile?.role === 'parent' || policy?.helpersSeeOwnScore !== false)
-            }
+            showPerf={showPerfFor(h)}
             initialTab={deepHelper === h.uid && deepTab ? deepTab : undefined}
+            weekCodes={weekCodes[h.uid]}
             selectedDate={selectedDate}
             expanded={!collapsedIds.has(h.uid)}
             onToggle={() => setCollapsedIds((prev) => {
@@ -222,7 +265,85 @@ export default function PantryWorkplanPage() {
             })}
           />
         ))}
-      </div>
+      </div>}
+
+      {/* ── Desktop (≥1024px): two panes — helper rail + detail (HP2 D16) ── */}
+      {isLg && visibleHelpers && visibleHelpers.length > 0 && (
+        <div className="hidden lg:grid lg:grid-cols-[300px_minmax(0,1fr)] lg:gap-6 lg:items-start">
+          <aside className="lg:sticky lg:top-6 bg-hive-paper border border-hive-line rounded-hive-lg p-2">
+            <p className="px-2 pt-1 pb-2 text-[10px] uppercase tracking-[1.5px] font-nunito font-black text-hive-muted">
+              Helpers · {visibleHelpers.length}{profile?.role === 'parent' ? ` · ${visibleHelpers.filter((h) => showPerfFor(h)).length} tracked` : ''}
+            </p>
+            <div className="space-y-0.5">
+              {visibleHelpers.map((h) => (
+                <RailRow
+                  key={h.uid}
+                  helper={h}
+                  familyId={family.id}
+                  selected={selectedHelper?.uid === h.uid}
+                  onSelect={() => setSelectedUid(h.uid)}
+                  showPerf={showPerfFor(h)}
+                  isParent={profile?.role === 'parent'}
+                  weekCodes={weekCodes[h.uid]}
+                />
+              ))}
+            </div>
+            {profile?.role === 'parent' && (
+              <Link
+                href="/pantry/workplan/assign"
+                className="mt-3 block w-full text-center bg-hive-honey hover:bg-hive-honey-dk text-hive-ink font-nunito font-black text-[13px] py-3 rounded-hive border-2 border-hive-honey-dk no-underline"
+              >
+                ＋ Assign one-off work
+              </Link>
+            )}
+          </aside>
+          <section className="min-w-0">
+            {selectedHelper && (
+              <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-5 space-y-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="text-5xl flex-shrink-0" aria-hidden>{PRESET_EMOJI[selectedHelper.preset]}</span>
+                    <div className="min-w-0">
+                      <h2 className="font-nunito font-black text-2xl leading-tight truncate">
+                        {selectedHelper.displayName}
+                        {selectedHelper.status === 'paused' && <span className="ml-2 text-[10px] uppercase tracking-wider bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold align-middle">Paused</span>}
+                      </h2>
+                      <p className="text-[12px] text-hive-muted truncate">
+                        {PRESET_LABEL[selectedHelper.preset]} · code <span className="font-mono font-bold">{selectedHelper.helperCode}</span>
+                        {selectedHelper.workDays && selectedHelper.workDays.length > 0 && selectedHelper.workDays.length < 7 ? ` · ${selectedHelper.workDays.map((d) => d.charAt(0).toUpperCase() + d.slice(1)).join(' ')}` : ''}
+                        {!showPerfFor(selectedHelper) && profile?.role === 'parent' ? ' · not tracked' : ''}
+                      </p>
+                    </div>
+                  </div>
+                  {showPerfFor(selectedHelper) && (
+                    <div className="text-right flex-shrink-0">
+                      <PerfInline familyId={family.id} helperUid={selectedHelper.uid} weekCodes={weekCodes[selectedHelper.uid]} compact />
+                    </div>
+                  )}
+                </div>
+                <HelperPanel
+                  key={selectedHelper.uid}
+                  helper={selectedHelper}
+                  familyId={family.id}
+                  isParent={profile?.role === 'parent'}
+                  showPerf={showPerfFor(selectedHelper)}
+                  selectedDate={selectedDate}
+                  tab={desktopTab}
+                  onTab={setDesktopTab}
+                  dayStepper={
+                    <DayStepper
+                      selectedDate={selectedDate}
+                      onChange={setSelectedDate}
+                      helperCount={null}
+                      compact
+                    />
+                  }
+                />
+              </div>
+            )}
+          </section>
+        </div>
+      )}
 
       {/* Big "＋ Assign one-off work" CTA — parent only. v4-final §04
           Phone 1 mock anchors this as the page's primary action: most
@@ -231,7 +352,7 @@ export default function PantryWorkplanPage() {
           assigned from here. Step 6 routes to a coming-soon stub;
           Step 7 ships the actual form + ad-hoc schema + push-notify. */}
       {profile?.role === 'parent' && visibleHelpers && visibleHelpers.length > 0 && (
-        <div className="mt-6">
+        <div className="mt-6 lg:hidden">
           <Link
             href="/pantry/workplan/assign"
             className="block w-full text-center bg-hive-honey hover:bg-hive-honey-dk text-hive-ink font-nunito font-black text-base py-4 rounded-hive border-2 border-hive-honey-dk no-underline"
@@ -247,8 +368,8 @@ export default function PantryWorkplanPage() {
   );
 }
 
-// ── Single person row ────────────────────────────────
-function PersonCard({ helper, familyId, expanded, onToggle, isParent, showPerf, initialTab, selectedDate }: {
+// ── Single person row (phone accordion) ─────────────────
+function PersonCard({ helper, familyId, expanded, onToggle, isParent, showPerf, initialTab, selectedDate, weekCodes }: {
   helper: HelperLink;
   familyId: string;
   expanded: boolean;
@@ -263,18 +384,13 @@ function PersonCard({ helper, familyId, expanded, onToggle, isParent, showPerf, 
   initialTab?: HelperTab;
   /** Calendar day chosen in the page's day-stepper. */
   selectedDate: Date;
+  /** HP2 — this week's routine-fill codes (7 chars) for the row dots. */
+  weekCodes?: string;
 }) {
-  // past / today / future drives which surfaces show + whether they're
-  // editable. String compare on local YYYY-MM-DD keys (timezone-safe).
-  const selStr = todayDateString(selectedDate);
-  const todayStr = todayDateString();
-  const dayKind: 'past' | 'today' | 'future' =
-    selStr < todayStr ? 'past' : selStr > todayStr ? 'future' : 'today';
   // HP2 D15 — four tabs inside the card. Today = the screen that was
   // here before (unchanged); the others are the long views. Tabs only
   // exist when performance is shown for this helper.
   const [tab, setTab] = useState<HelperTab>(initialTab ?? 'today');
-  const activeTab: HelperTab = showPerf ? tab : 'today';
   return (
     <div className="bg-hive-paper border border-hive-line rounded-hive-lg overflow-hidden">
       {/* Row header — always visible. Big emoji + name + role +
@@ -300,76 +416,118 @@ function PersonCard({ helper, familyId, expanded, onToggle, isParent, showPerf, 
             {PRESET_LABEL[helper.preset]} · code <span className="font-mono font-bold">{helper.helperCode}</span>
             {!showPerf && isParent && <span className="ml-1.5 text-[10px] uppercase tracking-wider font-nunito font-extrabold text-hive-muted/80">· not tracked</span>}
           </p>
-          {/* Always-visible perf strip — face + headline %. Loads
-              independently per row; falls back gracefully if no data.
-              Hidden for untracked helpers (HP2 D1). */}
-          {showPerf && <PerfInline familyId={familyId} helperUid={helper.uid} />}
+          {/* Always-visible perf strip — face + headline % + this week's
+              dots. Loads independently per row; falls back gracefully if
+              no data. Hidden for untracked helpers (HP2 D1). */}
+          {showPerf && <PerfInline familyId={familyId} helperUid={helper.uid} weekCodes={weekCodes} />}
         </div>
         {expanded ? <ChevronUp size={18} className="text-hive-muted flex-shrink-0" /> : <ChevronDown size={18} className="text-hive-muted flex-shrink-0" />}
       </button>
 
       {expanded && (
         <div className="border-t border-hive-line p-4 space-y-3 bg-hive-cream/30">
-          {showPerf && (
-            <HelperTabs tab={activeTab} onChange={setTab} isParent={isParent} />
-          )}
+          <HelperPanel
+            helper={helper}
+            familyId={familyId}
+            isParent={isParent}
+            showPerf={showPerf}
+            selectedDate={selectedDate}
+            tab={tab}
+            onTab={setTab}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
 
-          {activeTab === 'fill' && (
-            <RoutineFillTab familyId={familyId} helper={helper} isParent={isParent} />
-          )}
-          {activeTab === 'score' && (
-            <ScoreTab familyId={familyId} helper={helper} isParent={isParent} />
-          )}
-          {activeTab === 'reviews' && isParent && (
-            <KidReviewsTab helper={helper} />
-          )}
+// ── The helper's four tabs + content — shared by the phone accordion
+//    body and the desktop detail pane (HP2 D15/D16). Today = the
+//    original screen, unchanged. ─────────────────────────────────
+function HelperPanel({ helper, familyId, isParent, showPerf, selectedDate, tab, onTab, dayStepper }: {
+  helper: HelperLink;
+  familyId: string;
+  isParent: boolean;
+  showPerf: boolean;
+  selectedDate: Date;
+  tab: HelperTab;
+  onTab: (t: HelperTab) => void;
+  /** Desktop: the compact day chips render inside the Today tab. */
+  dayStepper?: React.ReactNode;
+}) {
+  // past / today / future drives which surfaces show + whether they're
+  // editable. String compare on local YYYY-MM-DD keys (timezone-safe).
+  const selStr = todayDateString(selectedDate);
+  const todayStr = todayDateString();
+  const dayKind: 'past' | 'today' | 'future' =
+    selStr < todayStr ? 'past' : selStr > todayStr ? 'future' : 'today';
+  const activeTab: HelperTab = showPerf ? tab : 'today';
+  return (
+    <>
+      {showPerf && (
+        <HelperTabs tab={activeTab} onChange={onTab} isParent={isParent} />
+      )}
 
-          {activeTab === 'today' && <>
-          {/* Future preview banner — nothing's happened yet (2026-05-21). */}
-          {dayKind === 'future' && (
-            <div className="rounded-hive border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] leading-snug text-blue-800">
-              <span className="font-nunito font-black">📅 Coming up.</span> The plan for this day. Nothing&apos;s been done yet — performance &amp; feedback appear once the day arrives.
-            </div>
-          )}
+      {activeTab === 'fill' && (
+        <RoutineFillTab familyId={familyId} helper={helper} isParent={isParent} />
+      )}
+      {activeTab === 'score' && (
+        <ScoreTab familyId={familyId} helper={helper} isParent={isParent} />
+      )}
+      {activeTab === 'reviews' && isParent && (
+        <KidReviewsTab helper={helper} />
+      )}
 
-          {/* Quick feedback strip — parent-only.
-              · today → live, one tap sets 👍 / 😐 / 👎 (feeds the
-                parentFeedback metric in PerformanceCard).
-              · past  → that day's feedback, read-only.
-              · future → hidden (handled by the banner above). */}
-          {isParent && showPerf && dayKind === 'today' && (
-            <FeedbackStrip familyId={familyId} helperUid={helper.uid} />
-          )}
-          {isParent && showPerf && dayKind === 'past' && (
-            <FeedbackStrip familyId={familyId} helperUid={helper.uid} date={selectedDate} readOnly />
-          )}
+      {activeTab === 'today' && <>
+      {dayStepper}
+      {/* Future preview banner — nothing's happened yet (2026-05-21). */}
+      {dayKind === 'future' && (
+        <div className="rounded-hive border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] leading-snug text-blue-800">
+          <span className="font-nunito font-black">📅 Coming up.</span> The plan for this day. Nothing&apos;s been done yet — performance &amp; feedback appear once the day arrives.
+        </div>
+      )}
 
-          {/* Pay check-in approvals — today-only: it's a live to-approve
-              queue, not a per-day record. v3 2026-05-19. */}
-          {isParent && dayKind === 'today' && (helper.payrollConfig?.basis === 'hourly' || helper.payrollConfig?.basis === 'daily') && (
-            <CheckInApprovals
-              familyId={familyId}
-              helperUid={helper.uid}
-              basis={helper.payrollConfig.basis}
-            />
-          )}
+      {/* Quick feedback strip — parent-only.
+          · today → live, one tap sets 👍 / 😐 / 👎 (feeds the
+            parentFeedback metric in PerformanceCard).
+          · past  → that day's feedback, read-only.
+          · future → hidden (handled by the banner above). */}
+      {isParent && showPerf && dayKind === 'today' && (
+        <FeedbackStrip familyId={familyId} helperUid={helper.uid} />
+      )}
+      {isParent && showPerf && dayKind === 'past' && (
+        <FeedbackStrip familyId={familyId} helperUid={helper.uid} date={selectedDate} readOnly />
+      )}
 
-          {/* Performance card — full rolling card on today. Off-today the
-              slim per-day result lives in the workplan card header
-              instead (Decision B, 2026-05-21). */}
-          {showPerf && dayKind === 'today' && (
-            <PerformanceCard
-              familyId={familyId}
-              helperUid={helper.uid}
-              name={helper.displayName}
-            />
-          )}
+      {/* Pay check-in approvals — today-only: it's a live to-approve
+          queue, not a per-day record. v3 2026-05-19. */}
+      {isParent && dayKind === 'today' && (helper.payrollConfig?.basis === 'hourly' || helper.payrollConfig?.basis === 'daily') && (
+        <CheckInApprovals
+          familyId={familyId}
+          helperUid={helper.uid}
+          basis={helper.payrollConfig.basis}
+        />
+      )}
 
-          {/* Workplan view.
-              · today → parent gets the full editor; helper gets the
-                tap-to-tick daily card.
-              · off-today → read-only per-day view for BOTH roles
-                (a settled record for past, a preview for future). */}
+      {/* Performance card — full rolling card on today. Off-today the
+          slim per-day result lives in the workplan card header
+          instead (Decision B, 2026-05-21). On desktop the card and the
+          workplan sit side by side (two columns) — same components. */}
+      <div className={dayKind === 'today' && showPerf ? 'lg:grid lg:grid-cols-2 lg:gap-3 space-y-3 lg:space-y-0' : ''}>
+        {showPerf && dayKind === 'today' && (
+          <PerformanceCard
+            familyId={familyId}
+            helperUid={helper.uid}
+            name={helper.displayName}
+          />
+        )}
+
+        {/* Workplan view.
+            · today → parent gets the full editor; helper gets the
+              tap-to-tick daily card.
+            · off-today → read-only per-day view for BOTH roles
+              (a settled record for past, a preview for future). */}
+        <div>
           {dayKind === 'today' ? (
             isParent ? (
               <WorkplanEditor
@@ -393,10 +551,48 @@ function PersonCard({ helper, familyId, expanded, onToggle, isParent, showPerf, 
               readOnly
             />
           )}
-          </>}
         </div>
-      )}
-    </div>
+      </div>
+      </>}
+    </>
+  );
+}
+
+// ── HP2 D16 · desktop rail row ──────────────────────────────────
+function RailRow({ helper, familyId, selected, onSelect, showPerf, isParent, weekCodes }: {
+  helper: HelperLink; familyId: string; selected: boolean; onSelect: () => void; showPerf: boolean; isParent: boolean; weekCodes?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-current={selected ? 'true' : undefined}
+      className={`w-full text-left flex items-center gap-3 p-3 rounded-hive-lg border transition ${selected ? 'bg-pantry-leaf-soft border-pantry-leaf' : 'border-transparent hover:bg-hive-cream/60'}`}
+    >
+      <span className="text-3xl flex-shrink-0" aria-hidden>{PRESET_EMOJI[helper.preset]}</span>
+      <div className="min-w-0 flex-1">
+        <p className="font-nunito font-extrabold text-[14px] truncate">
+          {helper.displayName}
+          {helper.status === 'paused' && <span className="ml-2 text-[9px] uppercase tracking-wider bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-full font-bold align-middle">Paused</span>}
+        </p>
+        <p className="text-[11px] text-hive-muted truncate">
+          {PRESET_LABEL[helper.preset]}{!showPerf && isParent ? ' · not tracked' : ''}
+        </p>
+        {showPerf && <PerfInline familyId={familyId} helperUid={helper.uid} weekCodes={weekCodes} compact />}
+      </div>
+    </button>
+  );
+}
+
+function WeekDots({ codes }: { codes?: string }) {
+  if (!codes) return null;
+  const cls = (c: string) =>
+    c === 'G' ? 'bg-green-500' : c === 'A' ? 'bg-amber-400' : c === 'R' ? 'bg-red-500' :
+    c === 'T' ? 'bg-white border border-dashed border-amber-400' : c === 'F' ? 'bg-gray-100' : 'bg-gray-200';
+  return (
+    <span className="inline-flex gap-[3px] align-middle" title="This week · Mon→Sun · 🟢 all slots · 🟡 some · 🔴 none · ⚪ off">
+      {codes.split('').map((c, i) => <i key={i} className={`inline-block w-2 h-2 rounded-full ${cls(c)}`} />)}
+    </span>
   );
 }
 
@@ -435,7 +631,7 @@ function HelperTabs({ tab, onChange, isParent }: { tab: HelperTab; onChange: (t:
 // Same data shape as PerformanceCard but renders as a one-liner so
 // parents can scan the team without expanding every row.
 // Color-coded face from `perfFace` keeps the visual fast to parse.
-function PerfInline({ familyId, helperUid }: { familyId: string; helperUid: string }) {
+function PerfInline({ familyId, helperUid, weekCodes, compact = false }: { familyId: string; helperUid: string; weekCodes?: string; compact?: boolean }) {
   const [perf, setPerf] = useState<HelperPerformanceWindow | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -448,9 +644,9 @@ function PerfInline({ familyId, helperUid }: { familyId: string; helperUid: stri
     return () => { cancelled = true; };
   }, [familyId, helperUid]);
 
-  if (!perf) return null;
+  if (!perf) return weekCodes ? <p className="mt-1 text-[11px]"><WeekDots codes={weekCodes} /></p> : null;
   const headlinePct = perf.consolidatedPct ?? perf.todayPct;
-  const face = perfFace(headlinePct);
+  const face = perfFace(headlinePct, perf.policy.thresholds);
   const tone =
     face.tone === 'great' ? 'text-green-700' :
     face.tone === 'low'   ? 'text-red-700' :
@@ -469,7 +665,8 @@ function PerfInline({ familyId, helperUid }: { familyId: string; helperUid: stri
           ? <span className="text-hive-muted">No data yet</span>
           : <span className={tone}>{headlinePct}% · {face.label}</span>}
       </span>
-      {inputs.length > 0 && (
+      {weekCodes && <>· <WeekDots codes={weekCodes} /></>}
+      {!compact && inputs.length > 0 && (
         <span className="text-hive-muted">· {inputs.join(' · ')}</span>
       )}
     </p>

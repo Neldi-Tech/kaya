@@ -69,8 +69,7 @@ export default function KidLeaderStrip({ className = '' }: { className?: string 
             <span className="block text-[13px] font-black text-kaya-chocolate">Leader&apos;s Notebook{unseen > 0 ? <span className="ml-1.5 inline-block min-w-[18px] text-center text-[10px] font-black text-white rounded-full px-1.5" style={{ background: '#D64550' }}>{unseen}</span> : null}</span>
             <span className="block text-[11px] font-bold text-kaya-sand">{bundle ? (sent === 0 ? 'Take your first note — a shout-out or a heads-up' : `${sent} note${sent === 1 ? '' : 's'} sent · ${approved} approved ✅${waiting ? ` · ${waiting} waiting ⏳` : ''}`) : 'Take a note →'}</span>
           </span>
-          <span className="hidden sm:inline-block text-[11px] font-black px-2.5 py-1 rounded-full shrink-0" style={{ background: '#FFF1C9', color: '#8A6800' }}>Take a note →</span>
-          <span className="sm:hidden text-[14px] font-black" style={{ color: '#8A6800' }} aria-hidden>→</span>
+          <span className="text-[11px] font-black px-2.5 py-1 rounded-full" style={{ background: '#FFF1C9', color: '#8A6800' }}>Take a note →</span>
         </Link>
         {bundle?.mission && (
           <div className="mt-2 rounded-xl bg-white border px-3 py-2" style={{ borderColor: '#E9C867' }}>
