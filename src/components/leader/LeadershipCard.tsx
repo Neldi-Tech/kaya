@@ -154,9 +154,9 @@ export default function LeadershipCard({ familyId, childId, childName, childEmoj
           <p className="text-[12.5px] font-bold text-kaya-sand">No leadership weeks yet. When {first} is picked as meeting leader (or appointed), the week lands here with a 5-trait radar.</p>
         )}
         {(history.length > 0 || open) && (
-          <div className="lg:flex lg:items-start lg:gap-5">
-            <div className="mx-auto lg:mx-0 w-[332px] max-w-full shrink-0 [&>svg]:max-w-full [&>svg]:h-auto" dangerouslySetInnerHTML={{ __html: radar }} />
-            <div className="flex-1 mt-2 lg:mt-0">
+          <div className={compact ? '' : 'lg:flex lg:items-start lg:gap-5'}>
+            <div className={`mx-auto w-[332px] max-w-full shrink-0 [&>svg]:max-w-full [&>svg]:h-auto ${compact ? '' : 'lg:mx-0'}`} dangerouslySetInnerHTML={{ __html: radar }} />
+            <div className={`flex-1 mt-2 ${compact ? '' : 'lg:mt-0'}`}>
               {TRAIT_ORDER.map((k) => {
                 const v = traits ? traits[k] : null;
                 const pct = v === null || v === undefined ? 0 : (v / 5) * 100;
