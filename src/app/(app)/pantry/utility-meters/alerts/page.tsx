@@ -137,6 +137,30 @@ export default function AlertLogPage() {
                 </div>
               );
             }
+            // 📊 HP2 helper-performance emails — the row IS the trace
+            // (fixed templates; subject + recipients + sent flag).
+            if (e.kind === 'helper_weekly' || e.kind === 'helper_daily' || e.kind === 'kid_review') {
+              const em = e.channels?.email;
+              const label = e.kind === 'helper_weekly' ? 'weekly helper report' : e.kind === 'helper_daily' ? 'daily helper update' : `kid review · ${e.helperName || 'helper'}`;
+              return (
+                <div key={e.id} className="w-full bg-hive-paper border border-hive-line rounded-hive p-3 mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">{e.kind === 'kid_review' ? '💬' : '📊'}</span>
+                    <span className="font-nunito font-extrabold text-[13px] text-hive-navy truncate">
+                      {e.kind === 'kid_review' && e.childName ? `${e.childName} · ` : ''}{label}
+                    </span>
+                    {em?.sent ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-nunito font-black bg-[#E7F5EC] text-pantry-leaf-dk border border-pantry-leaf-dk/30">✅ sent · {em.to.length}</span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-nunito font-black bg-[#FDE8E8] text-hive-rose border border-hive-rose/40">❌ not sent</span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-hive-muted font-bold mt-1 truncate">
+                    {timeOf(e.firedAt)}{em?.subject ? ` · ${em.subject}` : ''}{em?.to?.length ? ` · to ${em.to.map((t) => t.name).join(', ')}` : ''}
+                  </p>
+                </div>
+              );
+            }
             // 📬 Kid emails (KID PR2/PR3) — same log, their own row shape.
             if (e.kind === 'kid_reward' || e.kind === 'kid_digest' || e.kind === 'kid_statement' || e.kind === 'points_email') {
               const em = e.channels?.email;
