@@ -16,6 +16,7 @@ import {
 } from '@/lib/pantry';
 import ContactPickerButton from '@/components/pantry/ContactPickerButton';
 import BackButton from '@/components/ui/BackButton';
+import { Page, PageSplit, DataRows, DATA_ROW } from '@/components/layout/Page';
 
 export default function SuppliersPage() {
   const { profile, isGuest } = useAuth();
@@ -23,8 +24,22 @@ export default function SuppliersPage() {
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
+  // Web-Fit (2026-08-23): wide tier. Desktop: suppliers as dense rows,
+  // Roster bridge note in the right rail. Mobile markup/order unchanged
+  // (rail = `last`, exactly where the note was; header keeps its own
+  // mobile action button).
+  const rosterNote = (
+      <div className="rounded-hive border border-dashed border-pantry-leaf bg-gradient-to-br from-pantry-leaf-soft to-white p-4 mb-2">
+        <p className="font-nunito font-extrabold text-[12px] text-pantry-leaf-dk">🌐 Bridges to The Roster</p>
+        <p className="text-[11px] text-hive-muted leading-relaxed mt-1">
+          These vendors are tagged <strong>Soko</strong> in your household directory. When the full Roster ships,
+          other categories (transport, security, maids…) live alongside them. Same record, two views.
+        </p>
+      </div>
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="wide">
       <div className="lg:hidden"><BackButton /></div>
       <div className="mb-3 flex items-baseline justify-between gap-3">
         <div>
@@ -49,6 +64,7 @@ export default function SuppliersPage() {
         />
       )}
 
+      <PageSplit rail={rosterNote} railMobile="last">
       {/* Empty state or list */}
       {sokoSuppliers.length === 0 ? (
         <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-8 text-center">
@@ -59,7 +75,7 @@ export default function SuppliersPage() {
           </p>
         </div>
       ) : (
-        <div className="space-y-2 mb-4">
+        <DataRows tone="hive" className="mb-4">
           {sokoSuppliers.map((s) => (
             <SupplierRow
               key={s.id}
@@ -70,22 +86,16 @@ export default function SuppliersPage() {
               isGuest={isGuest}
             />
           ))}
-        </div>
+        </DataRows>
       )}
-
-      {/* Roster bridge note */}
-      <div className="rounded-hive border border-dashed border-pantry-leaf bg-gradient-to-br from-pantry-leaf-soft to-white p-4 mb-2">
-        <p className="font-nunito font-extrabold text-[12px] text-pantry-leaf-dk">🌐 Bridges to The Roster</p>
-        <p className="text-[11px] text-hive-muted leading-relaxed mt-1">
-          These vendors are tagged <strong>Soko</strong> in your household directory. When the full Roster ships,
-          other categories (transport, security, maids…) live alongside them. Same record, two views.
-        </p>
-      </div>
+      </PageSplit>
+      {/* Roster bridge note renders in the PageSplit rail above
+          (mobile: directly after the list, as before). */}
 
       <p className="text-center text-[11px] text-hive-muted mt-4 leading-relaxed">
         <Link href="/pantry" className="text-pantry-leaf-dk font-bold hover:underline">← Back to Pantry</Link>
       </p>
-    </div>
+    </Page>
   );
 }
 
@@ -124,7 +134,7 @@ function SupplierRow({
   }
   const initial = supplier.name?.[0]?.toUpperCase() || '?';
   return (
-    <div className="bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3">
+    <div className={`bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3 lg:px-4 lg:py-3 ${DATA_ROW}`}>
       <div className="w-10 h-10 rounded-[12px] bg-pantry-leaf-soft text-pantry-leaf-dk flex items-center justify-center font-nunito font-black">
         {initial}
       </div>

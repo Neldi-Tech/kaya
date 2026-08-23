@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import { PAGE_WIDTH_CLASS, PageGrid } from '@/components/layout/Page';
 
 export default function HouseholdLandingPage() {
   const { profile, loading } = useAuth();
@@ -28,8 +29,10 @@ export default function HouseholdLandingPage() {
     return <div className="p-6 text-pulse-navy/60">Loading…</div>;
   }
 
+  // Web-Fit (2026-08-23): wide tier (hub). Mobile unchanged — only the
+  // lg max-width changes; the two chooser cards stay 2-up.
   return (
-    <div className="mx-auto max-w-3xl px-4 sm:px-6 py-6 sm:py-10">
+    <div className={`mx-auto max-w-3xl ${PAGE_WIDTH_CLASS.wide} px-4 sm:px-6 py-6 sm:py-10`}>
       <header className="mb-6">
         <h1 className="font-display text-3xl font-extrabold text-pulse-navy">
           Household money
@@ -39,7 +42,7 @@ export default function HouseholdLandingPage() {
         </p>
       </header>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <PageGrid cols={{ base: 1, sm: 2 }} className="gap-4">
         <HouseholdCard
           href="/household/contributions"
           emoji="🤲"
@@ -52,7 +55,7 @@ export default function HouseholdLandingPage() {
           title="Subscriptions"
           blurb="Recurring or one-off subscriptions — apps, memberships, media, property dues."
         />
-      </div>
+      </PageGrid>
 
       <p className="mt-6 text-xs text-pulse-navy/50">
         Other Household surfaces (Pantry, Utilities, Outdoor, Drivers, Payroll) live in

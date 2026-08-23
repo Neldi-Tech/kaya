@@ -58,6 +58,7 @@ import {
   subscribeToCatalogueSubs, subscribeToCatalogueContribs,
   recordSubCatalogueUse, recordContribCatalogueUse,
 } from '@/lib/householdCatalogue';
+import { Page, PageHeader, DataRows, DATA_ROW, DATA_ROW_HOVER } from '@/components/layout/Page';
 import {
   type GlobalSubItem, type GlobalContribItem,
   filterGlobalSubsForCountry, filterGlobalContribsForCountry,
@@ -294,9 +295,13 @@ export default function OtherCataloguePage() {
   };
 
   // ── Render ─────────────────────────────────────────────────────
+  // Web-Fit (2026-08-23): content tier. Desktop: "Your regulars" and
+  // "Suggestions" sit side by side, list stacks render as dense rows.
+  // Mobile markup/order is unchanged — only `lg:` classes + layout-
+  // neutral wrappers were added.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
-      <div className="mb-3">
+    <Page width="content" className="pb-32 lg:pb-12">
+      <PageHeader>
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">
           Household · Catalogues &amp; plans
         </p>
@@ -306,7 +311,7 @@ export default function OtherCataloguePage() {
         <p className="text-hive-muted text-sm mt-1">
           The peer of <Link href="/pantry/staples" className="text-pantry-leaf-dk underline">Staples</Link> for everything outside the kitchen — Outdoor, Drivers, Utility, Payroll. Edit, add, or tap a suggestion.
         </p>
-      </div>
+      </PageHeader>
 
       <div className="sticky top-0 bg-hive-cream z-10 pt-2 pb-3 -mx-4 px-4 lg:-mx-8 lg:px-8">
         <div className="relative">
@@ -435,11 +440,12 @@ export default function OtherCataloguePage() {
       {/* ── Payroll: read-only category preview ────────────────────── */}
       {tab === 'payroll' && (
         <div className="mt-3 flex flex-col gap-2">
+          <DataRows tone="hive">
           {PAYROLL_CATEGORIES
             .filter((c) => cat === 'all' || c.id === cat)
             .filter((c) => !query || c.label.toLowerCase().includes(query))
             .map((c) => (
-              <div key={c.id} className="bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3">
+              <div key={c.id} className={`bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3 lg:px-4 lg:py-3 ${DATA_ROW}`}>
                 <div className="w-10 h-10 rounded-xl bg-[#FFF3D9] flex items-center justify-center text-lg flex-shrink-0">{c.emoji}</div>
                 <div className="flex-1 min-w-0">
                   <div className="font-nunito font-extrabold text-sm text-hive-navy">{c.label}</div>
@@ -447,12 +453,14 @@ export default function OtherCataloguePage() {
                 </div>
               </div>
             ))}
+          </DataRows>
           <div className="bg-pantry-leaf-soft border border-pantry-leaf/30 rounded-hive p-3 text-xs text-pantry-leaf-dk font-nunito">
             <span className="font-extrabold">Helper-locked flow.</span> Payroll requests are created by the helper themselves, then approved by the parent. To set up auto-payroll, see <Link href="/pantry/payroll" className="underline">Payroll</Link>.
           </div>
         </div>
       )}
 
+      <div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start">
       {/* ── Your regulars (Outdoor / Drivers) ─────────────────────── */}
       {(tab === 'outdoor' || tab === 'drivers') && (
         <Section
@@ -461,7 +469,7 @@ export default function OtherCataloguePage() {
           icon={MODULE_EMOJI[tab]}
         >
           {familyStaples.length > 0 && (
-            <div className="flex flex-col gap-2 mt-2">
+            <DataRows tone="hive" className="mt-2">
               {familyStaples.map((s) => (
                 <FamilyStapleRow
                   key={s.id}
@@ -471,7 +479,7 @@ export default function OtherCataloguePage() {
                   onDelete={() => deleteFamilyStaple(s)}
                 />
               ))}
-            </div>
+            </DataRows>
           )}
           {!isGuest && (
             <button
@@ -495,7 +503,7 @@ export default function OtherCataloguePage() {
           icon="⚡"
         >
           {familyUtilities.length > 0 && (
-            <div className="flex flex-col gap-2 mt-2">
+            <DataRows tone="hive" className="mt-2">
               {familyUtilities.map((u) => (
                 <FamilyUtilityRow
                   key={u.id}
@@ -507,7 +515,7 @@ export default function OtherCataloguePage() {
                   onDelete={() => deleteFamilyUtility(u.id, u.name)}
                 />
               ))}
-            </div>
+            </DataRows>
           )}
           <Link
             href="/pantry/utilities"
@@ -525,7 +533,7 @@ export default function OtherCataloguePage() {
           subtitle="Tap any to add it to your regulars. Editable after."
           icon="✨"
         >
-          <div className="flex flex-col gap-2 mt-2">
+          <DataRows tone="hive" className="mt-2">
             {suggestions.map((r) => (
               <SuggestionRow
                 key={`${r.category}:${r.label}`}
@@ -536,9 +544,10 @@ export default function OtherCataloguePage() {
                 onAdd={() => addCuratedAsFamily(r.label, r.category, r.defaultQty, r.unit, r.cadence)}
               />
             ))}
-          </div>
+          </DataRows>
         </Section>
       )}
+      </div>
 
       {/* Outdoor/Drivers empty-after-filter hint */}
       {(tab === 'outdoor' || tab === 'drivers') && familyStaples.length === 0 && suggestions.length === 0 && (q || cat !== 'all') && (
@@ -560,7 +569,7 @@ export default function OtherCataloguePage() {
           onClose={() => setEditing(null)}
         />
       )}
-    </div>
+    </Page>
   );
 }
 
@@ -597,11 +606,11 @@ function FamilyStapleRow({
   onDelete: () => void | Promise<void>;
 }) {
   return (
-    <div className="flex items-stretch gap-1.5">
+    <div className="flex items-stretch gap-1.5 lg:gap-0">
       <button
         type="button"
         onClick={onEdit}
-        className="flex-1 bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3 text-left hover:border-hive-honey"
+        className={`flex-1 bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3 text-left hover:border-hive-honey lg:px-4 lg:py-3 ${DATA_ROW} ${DATA_ROW_HOVER}`}
       >
         <div className="w-10 h-10 rounded-xl bg-pantry-leaf-soft flex items-center justify-center text-base flex-shrink-0">
           📌
@@ -632,7 +641,7 @@ function FamilyStapleRow({
       <button
         type="button"
         onClick={(e) => { e.preventDefault(); e.stopPropagation(); void onDelete(); }}
-        className="flex-shrink-0 bg-hive-paper border border-hive-line rounded-hive px-3 text-hive-rose font-nunito font-black hover:bg-hive-rose/10 hover:border-hive-rose"
+        className={`flex-shrink-0 bg-hive-paper border border-hive-line rounded-hive px-3 text-hive-rose font-nunito font-black hover:bg-hive-rose/10 hover:border-hive-rose lg:border-l ${DATA_ROW}`}
         aria-label={`Remove ${staple.name}`}
         title="Remove from regulars"
       >
@@ -653,10 +662,10 @@ function FamilyUtilityRow({
   onDelete: () => void | Promise<void>;
 }) {
   return (
-    <div className="flex items-stretch gap-1.5">
+    <div className="flex items-stretch gap-1.5 lg:gap-0">
       <Link
         href="/pantry/utilities"
-        className="flex-1 bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3 no-underline hover:border-hive-honey"
+        className={`flex-1 bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3 no-underline hover:border-hive-honey lg:px-4 lg:py-3 ${DATA_ROW} ${DATA_ROW_HOVER}`}
       >
         <div className="w-10 h-10 rounded-xl bg-pantry-leaf-soft flex items-center justify-center text-base flex-shrink-0">⚡</div>
         <div className="flex-1 min-w-0">
@@ -673,7 +682,7 @@ function FamilyUtilityRow({
       <button
         type="button"
         onClick={(e) => { e.preventDefault(); e.stopPropagation(); void onDelete(); }}
-        className="flex-shrink-0 bg-hive-paper border border-hive-line rounded-hive px-3 text-hive-rose font-nunito font-black hover:bg-hive-rose/10 hover:border-hive-rose"
+        className={`flex-shrink-0 bg-hive-paper border border-hive-line rounded-hive px-3 text-hive-rose font-nunito font-black hover:bg-hive-rose/10 hover:border-hive-rose lg:border-l ${DATA_ROW}`}
         aria-label={`Remove ${name}`}
         title="Remove from bills"
       >
@@ -694,7 +703,7 @@ function SuggestionRow({
 }) {
   const [adding, setAdding] = useState(false);
   return (
-    <div className="bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3">
+    <div className={`bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3 lg:px-4 lg:py-3 ${DATA_ROW}`}>
       <div className="w-10 h-10 rounded-xl bg-[#FFF3D9] flex items-center justify-center text-lg flex-shrink-0">{emoji}</div>
       <div className="flex-1 min-w-0">
         <div className="font-nunito font-extrabold text-sm text-hive-navy truncate">{label}</div>
@@ -1012,7 +1021,7 @@ function SubscriptionsBrowse({
             : <>Everything common in your country is already in your catalogue 🎉</>}
         </div>
       ) : (
-        <div className="flex flex-col gap-2">
+        <DataRows tone="hive">
           {list.map((it) => (
             <GlobalSubRow
               key={it.id}
@@ -1021,7 +1030,7 @@ function SubscriptionsBrowse({
               disabled={isGuest || !isParent}
             />
           ))}
-        </div>
+        </DataRows>
       )}
     </div>
   );
@@ -1059,7 +1068,7 @@ function GlobalSubRow({
   };
 
   return (
-    <div className="bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3">
+    <div className={`bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3 lg:px-4 lg:py-3 ${DATA_ROW}`}>
       <div className="w-10 h-10 rounded-xl bg-[#FFF3D9] flex items-center justify-center text-lg flex-shrink-0">
         {item.emoji}
       </div>
@@ -1132,7 +1141,7 @@ function ContributionsBrowse({
             : <>Everything common in your country is already in your catalogue 🎉</>}
         </div>
       ) : (
-        <div className="flex flex-col gap-2">
+        <DataRows tone="hive">
           {list.map((it) => (
             <GlobalContribRow
               key={it.id}
@@ -1141,7 +1150,7 @@ function ContributionsBrowse({
               disabled={isGuest}
             />
           ))}
-        </div>
+        </DataRows>
       )}
     </div>
   );
@@ -1177,7 +1186,7 @@ function GlobalContribRow({
   };
 
   return (
-    <div className="bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3">
+    <div className={`bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3 lg:px-4 lg:py-3 ${DATA_ROW}`}>
       <div className="w-10 h-10 rounded-xl bg-[#FFF3D9] flex items-center justify-center text-lg flex-shrink-0">
         {item.emoji}
       </div>

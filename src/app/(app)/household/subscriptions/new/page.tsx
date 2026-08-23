@@ -32,6 +32,7 @@ import PaidByPicker, { type PaidByValue } from '@/components/household/PaidByPic
 import { CatalogueSearch, type CatalogueSelection } from '@/components/household/CatalogueSearch';
 import { CurrencyAmountInput, type CurrencyAmountValue } from '@/components/household/CurrencyAmountInput';
 import { FrequencyPicker, SUB_FREQUENCY_OPTIONS } from '@/components/household/FrequencyPicker';
+import { PAGE_WIDTH_CLASS } from '@/components/layout/Page';
 
 const PLATFORMS: { id: SubscriptionPlatform; label: string }[] = [
   { id: 'ios',     label: '📱 iOS' },
@@ -244,8 +245,10 @@ export default function NewSubscriptionPage() {
   if (authLoading || !profile) return <div className="p-6 text-pulse-navy/60">Loading…</div>;
   if (profile.role !== 'parent') return null;
 
+  // Web-Fit (2026-08-23): narrow tier (forms stay narrow); the submit
+  // is already inline. Mobile unchanged — only the lg max-width changes.
   return (
-    <div className="mx-auto max-w-2xl px-4 sm:px-6 py-6 sm:py-10">
+    <div className={`mx-auto max-w-2xl ${PAGE_WIDTH_CLASS.narrow} px-4 sm:px-6 py-6 sm:py-10`}>
       <header className="mb-6">
         <div className="text-xs font-bold uppercase tracking-wide text-pulse-gold">
           <Link href="/household/subscriptions" className="hover:underline">Subscriptions</Link> · New

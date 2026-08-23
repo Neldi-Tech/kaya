@@ -32,6 +32,7 @@ import {
 import { subscribeToVenues, type Venue } from '@/lib/dineOutVenues';
 import VenueSheet from '@/components/pantry/VenueSheet';
 import { formatCents } from '@/components/pantry/format';
+import { Page, PageHeader, PageSplit } from '@/components/layout/Page';
 
 export default function MealsPage() {
   const { profile, isGuest } = useAuth();
@@ -145,51 +146,25 @@ export default function MealsPage() {
     };
   }, [venues]);
 
-  return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32 lg:pb-12">
-      <div className="mb-3">
-        <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">
-          Pantry · Meal Planner
-        </p>
-        <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1 leading-tight">
-          {plan.weekLabel} 🍽️
-        </h1>
-        <p className="text-[12px] lg:text-[13px] text-hive-muted mt-1">
-          Plan breakfast, lunch, dinner and snacks. Tap a slot to pick a meal or mark it as dining out.
-        </p>
-      </div>
-
-      {/* Top-level view toggle — keeps "Places to Go" one tap from the top
-          instead of buried below the week (parents only; helpers just plan). */}
-      {isParent && (
-        <div className="flex bg-hive-paper border border-hive-line rounded-hive p-1 mb-4">
-          <button
-            type="button" onClick={() => setView('plan')}
-            className={`flex-1 py-2.5 rounded-lg font-nunito font-extrabold text-sm transition-colors ${view === 'plan' ? 'bg-pantry-leaf text-white' : 'text-hive-muted'}`}
-          >📅 Meal Plan</button>
-          <button
-            type="button" onClick={() => setView('places')}
-            className={`flex-1 py-2.5 rounded-lg font-nunito font-extrabold text-sm transition-colors ${view === 'places' ? 'text-white' : 'text-hive-muted'}`}
-            style={view === 'places' ? { background: '#C2562E' } : undefined}
-          >📍 Places to Go{venues.length > 0 ? ` · ${venues.length}` : ''}</button>
-        </div>
-      )}
-
-      {(!isParent || view === 'plan') && (
-        <>
+  // Web-Fit (2026-08-23): wide tier. Desktop: preferences card sits in
+  // a sticky right rail, the week grid stays main (2-up), Places list
+  // renders 2-up. Mobile markup/order unchanged (rail = `first`, i.e.
+  // exactly where the preferences card was).
+  const preferencesCard = (
+    <>
       {/* Preference chips drive the auto-fill suggestions. */}
       <div className="bg-pantry-leaf-soft/50 border border-pantry-leaf/40 rounded-hive-lg p-3 lg:p-4 mb-4">
         <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.6px] text-pantry-leaf-dk mb-2">
           Preferences · used by auto-fill
         </p>
-        <div className="flex gap-1.5 overflow-x-auto pb-1 mb-2 -mx-1 px-1">
+        <div className="flex gap-1.5 overflow-x-auto pb-1 mb-2 -mx-1 px-1 lg:flex-wrap">
           {REGIONS.map((r) => (
             <Chip key={r.id} active={region === r.id} onClick={() => setRegion(r.id)}>
               {r.emoji} {r.label}
             </Chip>
           ))}
         </div>
-        <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+        <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1 lg:flex-wrap">
           {DIETS.map((d) => (
             <Chip key={d.id} active={diet === d.id} onClick={() => setDiet(d.id)}>
               {d.emoji} {d.label}
@@ -216,6 +191,42 @@ export default function MealsPage() {
           Cooking for {familySize} {familySize === 1 ? 'person' : 'people'} · suggestions drawn from your selected region + diet.
         </p>
       </div>
+    </>
+  );
+
+  return (
+    <Page width="wide" className="pb-32 lg:pb-12">
+      <PageHeader>
+        <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">
+          Pantry · Meal Planner
+        </p>
+        <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1 leading-tight">
+          {plan.weekLabel} 🍽️
+        </h1>
+        <p className="text-[12px] lg:text-[13px] text-hive-muted mt-1">
+          Plan breakfast, lunch, dinner and snacks. Tap a slot to pick a meal or mark it as dining out.
+        </p>
+      </PageHeader>
+
+      {/* Top-level view toggle — keeps "Places to Go" one tap from the top
+          instead of buried below the week (parents only; helpers just plan). */}
+      {isParent && (
+        <div className="flex bg-hive-paper border border-hive-line rounded-hive p-1 mb-4">
+          <button
+            type="button" onClick={() => setView('plan')}
+            className={`flex-1 py-2.5 rounded-lg font-nunito font-extrabold text-sm transition-colors ${view === 'plan' ? 'bg-pantry-leaf text-white' : 'text-hive-muted'}`}
+          >📅 Meal Plan</button>
+          <button
+            type="button" onClick={() => setView('places')}
+            className={`flex-1 py-2.5 rounded-lg font-nunito font-extrabold text-sm transition-colors ${view === 'places' ? 'text-white' : 'text-hive-muted'}`}
+            style={view === 'places' ? { background: '#C2562E' } : undefined}
+          >📍 Places to Go{venues.length > 0 ? ` · ${venues.length}` : ''}</button>
+        </div>
+      )}
+
+      {(!isParent || view === 'plan') && (
+        <>
+      <PageSplit rail={preferencesCard} railMobile="first">
 
       {/* Days grid — single column on mobile, two columns on desktop.
           The per-day "Eating out" shortcut was removed because it
@@ -253,6 +264,7 @@ export default function MealsPage() {
           );
         })}
       </div>
+      </PageSplit>
         </>
       )}
 
@@ -297,7 +309,7 @@ export default function MealsPage() {
               {sortedVenues.length === 0 ? (
                 <p className="text-[12px] text-hive-muted italic text-center py-3">No places match this filter.</p>
               ) : (
-                <div className="flex flex-col gap-1.5">
+                <div className="flex flex-col gap-1.5 lg:grid lg:grid-cols-2 lg:gap-2">
                   {sortedVenues.map((v) => (
                     <button
                       key={v.id} onClick={() => setSheetVenue(v)}
@@ -356,7 +368,7 @@ export default function MealsPage() {
           {toast}
         </div>
       )}
-    </div>
+    </Page>
   );
 }
 

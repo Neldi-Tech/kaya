@@ -36,6 +36,7 @@ import {
   type Utility, type Cadence, subscribeToUtilities, sumMonthlyUtilities, isUtilityBill,
   monthlyEquivalentCents, CADENCE_SHORT,
 } from '@/lib/pantry';
+import { Page, BTN_INLINE_LG } from '@/components/layout/Page';
 
 const MODULE_LABELS: Record<PurchaseModule, { emoji: string; label: string; tint: string; border: string; eyebrow: string }> = {
   pantry:        { emoji: '🛒',  label: 'Pantry',           tint: 'bg-pantry-leaf-soft', border: 'border-pantry-leaf', eyebrow: 'text-pantry-leaf-dk' },
@@ -333,8 +334,10 @@ export default function ComposeBudgetPage() {
     );
   }
 
+  // Web-Fit (2026-08-23): narrow tier (composer = form); the save
+  // button goes inline + right-aligned on desktop. Mobile unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="narrow" className="pb-32 lg:pb-12">
       {/* Back to Budget */}
       <Link href="/pantry/budget" className="text-pantry-leaf-dk font-nunito font-extrabold text-xs">
         ← Back to Budget
@@ -453,15 +456,17 @@ export default function ComposeBudgetPage() {
       </div>
 
       {/* Save */}
+      <div className="lg:flex lg:justify-end">
       <button
         type="button"
         onClick={handleSave}
         disabled={saving}
-        className="w-full mt-5 bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60"
+        className={`w-full mt-5 bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60 ${BTN_INLINE_LG}`}
       >
         {saving ? 'Saving…' : `Save ${meta.label} cap · ${formatCents(roundedCap, currency)}/mo →`}
       </button>
-    </div>
+      </div>
+    </Page>
   );
 }
 

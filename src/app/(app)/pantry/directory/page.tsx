@@ -19,6 +19,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import BackButton from '@/components/ui/BackButton';
+import { Page, PageHeader } from '@/components/layout/Page';
 import NumberInput from '@/components/ui/NumberInput';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePantry } from '@/contexts/PantryContext';
@@ -394,11 +395,14 @@ export default function PantryDirectoryPage() {
     ingredients: [],
   });
 
+  // Web-Fit (2026-08-23): wide tier. Desktop: tabs + search share one
+  // row, staples 3-up, dishes 2-up. Mobile markup/order unchanged —
+  // only `lg:` classes + a layout-neutral wrapper were added.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32 lg:pb-12">
+    <Page width="wide" className="pb-32 lg:pb-12">
       <div className="lg:hidden"><BackButton /></div>
 
-      <div className="mb-3">
+      <PageHeader>
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">
           Pantry · Directory
         </p>
@@ -408,10 +412,11 @@ export default function PantryDirectoryPage() {
         <p className="text-[12px] lg:text-[13px] text-hive-muted mt-1">
           Tap to multi-select · ✏️ to edit details or add your own.
         </p>
-      </div>
+      </PageHeader>
 
+      <div className="lg:flex lg:items-center lg:gap-4">
       {/* Top tabs */}
-      <div className="grid grid-cols-2 gap-2 mb-4">
+      <div className="grid grid-cols-2 gap-2 mb-4 lg:w-[440px] lg:shrink-0">
         <TopTab active={tab === 'staples'} onClick={() => { setTab('staples'); setSelected(new Set()); }}>
           🧺 Staples · {DIRECTORY_STAPLES.length}
         </TopTab>
@@ -421,13 +426,14 @@ export default function PantryDirectoryPage() {
       </div>
 
       {/* Search */}
-      <div className="mb-4">
+      <div className="mb-4 lg:flex-1">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder={tab === 'staples' ? '🔎  Search rice, omo, eggs…' : '🔎  Search ugali, biryani, mango…'}
           className="w-full h-12 px-4 rounded-hive-pill bg-hive-paper border border-hive-line text-[14px] focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
         />
+      </div>
       </div>
 
       {tab === 'staples' ? (
@@ -481,7 +487,7 @@ export default function PantryDirectoryPage() {
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-2 mb-3">
+          <div className="grid grid-cols-2 gap-2 mb-3 lg:max-w-[440px]">
             <SubTab active={surface === 'food'} onClick={() => { setSurface('food'); setSelected(new Set()); }}>
               🍱 Food
             </SubTab>
@@ -511,7 +517,7 @@ export default function PantryDirectoryPage() {
             ))}
           </ChipRow>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 mt-2 items-start">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 mt-2 items-start">
             {/* Add-your-own-item — opens a full inline editor. */}
             {canEdit && (
               addingItem ? (
@@ -590,7 +596,7 @@ export default function PantryDirectoryPage() {
             ))}
           </ChipRow>
 
-          <div className="space-y-2 mt-2">
+          <div className="space-y-2 mt-2 lg:grid lg:grid-cols-2 lg:gap-2 lg:space-y-0 lg:items-start">
             {/* Add-your-own-dish — opens a full inline editor. */}
             {canEdit && (
               addingFood ? (
@@ -668,7 +674,7 @@ export default function PantryDirectoryPage() {
           {toast}
         </div>
       )}
-    </div>
+    </Page>
   );
 }
 

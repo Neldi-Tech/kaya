@@ -35,6 +35,7 @@ import {
 } from '@/lib/timeRange';
 import { buildModuleSeries, activeModulesIn, monthlyAverages, headlineSignal } from '@/lib/financeSeries';
 import { budgetHealth } from '@/lib/budgetHealth';
+import { Page, PageHeader, DataRows, DATA_ROW, DATA_ROW_HOVER } from '@/components/layout/Page';
 
 const monthKey = (d: Date = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -289,9 +290,13 @@ export default function FinancesPage() {
     );
   }
 
+  // Web-Fit (2026-08-23): wide tier (dashboard). Desktop: household
+  // total + per-parent attribution side by side, module cards 3-up,
+  // recent closed requests as dense rows. Mobile markup/order
+  // unchanged — only `lg:` classes + layout-neutral wrappers.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
-      <div className="mb-3">
+    <Page width="wide" className="pb-32 lg:pb-12">
+      <PageHeader>
         <div className="flex items-center justify-between">
           <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">
             Household · Finances
@@ -310,7 +315,7 @@ export default function FinancesPage() {
         <p className="text-hive-muted text-sm mt-1">
           Every closed request {rangePeriodWord(range)}, rolled up across Household modules.
         </p>
-      </div>
+      </PageHeader>
 
       {/* Time-range filter — month (default) · quarter · year · custom. */}
       <div className="mb-1">
@@ -322,7 +327,7 @@ export default function FinancesPage() {
       </div>
 
       {/* Tabs — Overview (roll-up) · Trends (charts). AI Insights lands next. */}
-      <div className="flex gap-1.5 bg-hive-paper border border-hive-line rounded-hive p-1 mt-3">
+      <div className="flex gap-1.5 bg-hive-paper border border-hive-line rounded-hive p-1 mt-3 lg:max-w-[520px]">
         {([['overview', '📊 Overview'], ['trends', '📈 Trends'], ['insights', '🤖 AI']] as const).map(([k, label]) => (
           <button
             key={k}
@@ -377,6 +382,7 @@ export default function FinancesPage() {
           <span className="ml-auto text-[11px] font-nunito font-black text-hive-muted flex-shrink-0">AI →</span>
         </button>
       )}
+      <div className="lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start">
       {/* Family total */}
       <div className={`mt-4 rounded-hive border p-4 ${
         totalOver ? 'bg-[#FCEAEA] border-[#E8B5B5]' : 'bg-pantry-leaf-soft border-pantry-leaf'
@@ -451,9 +457,10 @@ export default function FinancesPage() {
           )}
         </div>
       )}
+      </div>
 
       {/* Per-module cards */}
-      <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {LIVE_MODULES.map((m) => {
           const { spent, cap, count, over, pct } = perModule[m];
           const tint = MODULE_TINT[m];
@@ -513,7 +520,7 @@ export default function FinancesPage() {
             No closed requests {rangePeriodWord(range)} yet. They'll appear here as soon as helpers reconcile shops.
           </div>
         ) : (
-          <div className="flex flex-col gap-2">
+          <DataRows tone="hive">
             {(() => {
               // Pulse-style scannability — sort newest-first, then drop a
               // day-group header (Today / Yesterday / This week / Earlier) when
@@ -542,11 +549,11 @@ export default function FinancesPage() {
                 return (
                   <div key={r.id}>
                     {showHeader && (
-                      <p className="text-[10px] font-nunito font-black uppercase tracking-[1.5px] text-hive-muted mt-3 mb-1.5 first:mt-0">{g.label}</p>
+                      <p className="text-[10px] font-nunito font-black uppercase tracking-[1.5px] text-hive-muted mt-3 mb-1.5 first:mt-0 lg:mt-0 lg:mb-0 lg:px-4 lg:pt-3 lg:pb-1">{g.label}</p>
                     )}
                     <Link
                       href={`/pantry/purchase/${r.id}`}
-                      className="bg-hive-paper border border-hive-line rounded-hive p-3.5 flex items-center gap-3 no-underline"
+                      className={`bg-hive-paper border border-hive-line rounded-hive p-3.5 flex items-center gap-3 no-underline lg:px-4 lg:py-3 ${DATA_ROW} ${DATA_ROW_HOVER}`}
                     >
                       <div className="w-10 h-10 rounded-xl bg-pantry-leaf-soft flex items-center justify-center text-base">
                         {MODULE_EMOJI[m] ?? '🧾'}
@@ -568,7 +575,7 @@ export default function FinancesPage() {
                 );
               });
             })()}
-          </div>
+          </DataRows>
         )}
       </div>
 
@@ -578,6 +585,6 @@ export default function FinancesPage() {
       </p>
       </>
       )}
-    </div>
+    </Page>
   );
 }
