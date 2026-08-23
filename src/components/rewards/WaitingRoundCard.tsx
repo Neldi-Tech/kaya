@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { listRounds, listShineCards, type RecognitionRound, type ShineCard } from '@/lib/shineCards';
+import { openRoundItems, roundStreak } from '@/lib/recognitionDismiss';
 
 export default function WaitingRoundCard({ className = '' }: { className?: string }) {
   const { profile } = useAuth();
@@ -29,16 +30,8 @@ export default function WaitingRoundCard({ className = '' }: { className?: strin
           listRounds(profile.familyId).catch(() => [] as RecognitionRound[]),
           listShineCards(profile.familyId).catch(() => [] as ShineCard[]),
         ]);
-        const answered = (date: string) => {
-          const start = new Date(`${date}T00:00:00`).getTime();
-          return cards.some((c) => c.at >= start && c.at < start + 72 * 3600_000);
-        };
-        let streak = 0;
-        for (const r of [...rounds].sort((a, b) => b.date.localeCompare(a.date))) {
-          const start = new Date(`${r.date}T00:00:00`).getTime();
-          if (Date.now() < start + 72 * 3600_000 && !answered(r.date)) continue;
-          if (answered(r.date)) streak++; else break;
-        }
+        // 🔥 handled rounds in a row (answered OR ✕ reviewed — DL PR-A).
+        const streak = roundStreak(rounds, cards.map((c) => c.at), Date.now());
         const latest = rounds[0];
         let waitingKids: RecognitionRound['items'] = [];
         if (latest) {
@@ -47,7 +40,8 @@ export default function WaitingRoundCard({ className = '' }: { className?: strin
           const audienceOk = profile.role === 'parent' || (latest.sentTo || []).includes(profile.uid);
           if (windowOpen && audienceOk) {
             const celebrated = new Set(cards.filter((c) => c.at >= start).map((c) => c.kidId));
-            waitingKids = latest.items.filter((i) => !celebrated.has(i.kidId));
+            // ✕ dismissed items never count as waiting.
+            waitingKids = openRoundItems(latest, celebrated);
           }
         }
         setState({ waitingKids, streak });

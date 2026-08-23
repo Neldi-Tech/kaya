@@ -12,6 +12,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminFirestore, getAdminAuth } from '@/lib/firebaseAdmin';
+import {
+  isDismissCode, dismissKey, dismissReason, DISMISS_NOTE_MAX, ROUND_WINDOW_MS, DISMISS_MEMORY_DAYS,
+  type RoundDismissal,
+} from '@/lib/recognitionDismiss';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -19,7 +23,8 @@ export const maxDuration = 30;
 
 type Action =
   | 'card-create' | 'card-list' | 'card-theme' | 'card-note' | 'card-echo'
-  | 'card-set-post' | 'card-email' | 'card-delete' | 'card-gift' | 'round-get' | 'round-list';
+  | 'card-set-post' | 'card-email' | 'card-delete' | 'card-gift' | 'round-get' | 'round-list'
+  | 'round-dismiss' | 'round-undismiss' | 'dismissals-list';
 
 const CARD_LIMIT = 120;
 
@@ -356,6 +361,76 @@ export async function POST(req: NextRequest) {
         const snap = await famRef.collection('recognitionRounds')
           .orderBy('date', 'desc').limit(120).get();
         return NextResponse.json({ ok: true, rounds: snap.docs.map((d) => ({ id: d.id, ...d.data() })) });
+      }
+
+      case 'round-dismiss': {
+        // ✕ DL PR-A — a parent says "this proposal isn't right" + why.
+        // Writes the round's `dismissed` map (one-read rendering) AND a
+        // learning-log record (the engine's memory). Parents only; nothing
+        // minted, nobody notified; kids never see it.
+        if (!isParent) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+        const { date, kidId, kind, code } = body;
+        const note = typeof body.note === 'string' ? body.note.trim().slice(0, DISMISS_NOTE_MAX) : '';
+        if (!date || !kidId || !kind || !isDismissCode(code)) return NextResponse.json({ error: 'bad-request' }, { status: 400 });
+        if (dismissReason(code).noteRequired && !note) return NextResponse.json({ error: 'note-required' }, { status: 400 });
+        const roundRef = famRef.collection('recognitionRounds').doc(String(date));
+        const roundSnap = await roundRef.get();
+        if (!roundSnap.exists) return NextResponse.json({ error: 'not-found' }, { status: 404 });
+        const round = roundSnap.data() as {
+          lens?: string;
+          items?: Array<{ kidId: string; kind: string; line?: string; daysSince?: number; termId?: string; giftIdea?: { rewardId?: string } }>;
+          dismissed?: Record<string, RoundDismissal>;
+        };
+        const item = (round.items || []).find((i) => i.kidId === String(kidId) && i.kind === String(kind));
+        if (!item) return NextResponse.json({ error: 'item-not-found' }, { status: 404 });
+        const key = dismissKey(String(kidId), String(kind));
+        if (round.dismissed?.[key]) return NextResponse.json({ ok: true, already: true });
+        const now = Date.now();
+        const dismissal: RoundDismissal = {
+          by: uid, byName: (user.displayName || 'Parent').split(' ')[0], at: now, code,
+          ...(note ? { note } : {}),
+        };
+        const logRef = famRef.collection('recognitionDismissals').doc();
+        await logRef.set({
+          ...dismissal,
+          kidId: String(kidId), kind: String(kind), roundDate: String(date),
+          ...(item.line ? { line: item.line } : {}),
+          ...(typeof item.daysSince === 'number' ? { daysSince: item.daysSince } : {}),
+          ...(round.lens ? { lens: round.lens } : {}),
+          ...(item.termId ? { termId: item.termId } : {}),
+          ...(item.giftIdea?.rewardId ? { giftRewardId: item.giftIdea.rewardId } : {}),
+          ...(code === 'data_wrong' ? { flag: true } : {}),
+        });
+        await roundRef.update({ [`dismissed.${key}`]: { ...dismissal, logId: logRef.id } });
+        return NextResponse.json({ ok: true, id: logRef.id });
+      }
+
+      case 'round-undismiss': {
+        // ↩︎ any parent, while the round's 72h window is open. Removes the
+        // map entry AND the learning record (Kaya un-learns it).
+        if (!isParent) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+        const { date, kidId, kind } = body;
+        if (!date || !kidId || !kind) return NextResponse.json({ error: 'bad-request' }, { status: 400 });
+        const start = new Date(`${String(date)}T00:00:00`).getTime();
+        if (Date.now() >= start + ROUND_WINDOW_MS) return NextResponse.json({ error: 'window-closed' }, { status: 409 });
+        const roundRef = famRef.collection('recognitionRounds').doc(String(date));
+        const roundSnap = await roundRef.get();
+        if (!roundSnap.exists) return NextResponse.json({ error: 'not-found' }, { status: 404 });
+        const key = dismissKey(String(kidId), String(kind));
+        const entry = (roundSnap.data() as { dismissed?: Record<string, RoundDismissal & { logId?: string }> }).dismissed?.[key];
+        if (!entry) return NextResponse.json({ ok: true, already: true });
+        if (entry.logId) await famRef.collection('recognitionDismissals').doc(entry.logId).delete().catch(() => { /* best-effort */ });
+        await roundRef.update({ [`dismissed.${key}`]: FieldValue.delete() });
+        return NextResponse.json({ ok: true });
+      }
+
+      case 'dismissals-list': {
+        // 🧠 the learning log (adults; parents + helpers in audience read
+        // the same round anyway). Single-field range — no composite index.
+        if (!isAdult) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+        const since = Date.now() - DISMISS_MEMORY_DAYS * 86400_000;
+        const snap = await famRef.collection('recognitionDismissals').where('at', '>=', since).get();
+        return NextResponse.json({ ok: true, records: snap.docs.map((d) => ({ id: d.id, ...d.data() })) });
       }
 
       default:
