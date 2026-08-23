@@ -5,8 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { participatesInSparks } from '@/lib/participation';
-import { submitRating, getTodayRatings, getRatingsByDate, getFamilyMembers, getFamily, todayString, RatingValue } from '@/lib/firestore';
-import { notifyRating } from '@/lib/notify';
+import { submitRating, getTodayRatings, getRatingsByDate, todayString, RatingValue } from '@/lib/firestore';
 import { auth as fbAuth } from '@/lib/firebase';
 import { fmt } from '@/lib/format';
 import BackButton from '@/components/ui/BackButton';
@@ -249,7 +248,7 @@ export default function RatePage() {
       if (t) cleanedNotes[id] = t;
     }
     const trimmedComment = overallComment.trim();
-    await submitRating(profile.familyId, {
+    const ratingId = await submitRating(profile.familyId, {
       childId: child.id,
       date: todayString(),
       period,
@@ -268,65 +267,21 @@ export default function RatePage() {
     setSaving(false);
     setTimeout(() => setSaved(false), 3000);
 
-    // Fire-and-forget email notification to other family members and
-    // any external contacts opted in for rating notifications.
-    (async () => {
-      const [members, fam] = await Promise.all([
-        getFamilyMembers(profile.familyId),
-        getFamily(profile.familyId),
-      ]);
-      const familyEmails = members
-        .filter((m) => m.uid !== profile.uid && m.email && m.role !== 'kid')
-        .filter((m) => m.notifyOnRating !== false) // default true
-        .map((m) => m.email);
-      const externalEmails = (fam?.externalContacts || [])
-        .filter((c) => c.notifyOnRating !== false)
-        .map((c) => c.email);
-      const recipients = Array.from(new Set([...familyEmails, ...externalEmails]));
-      notifyRating({
-        to: recipients,
-        childName: child.name,
-        actorName: profile.displayName,
-        points: totalPoints,
-        period,
-      });
-
-      // 📮 Points Audience (2026-08-09) — the family's EXTRA recipients.
-      const aud = fam?.pointsEmailAudience?.rating;
-      if (aud) {
-        // 👥 groups: member uids resolve to live emails (full template),
-        // group externals + ✉️ custom emails get the privacy-trimmed one.
-        const groups = (fam?.emailGroups || []).filter((g) => (aud.groupIds || []).includes(g.id));
-        const groupMemberEmails = groups.flatMap((g) =>
-          members.filter((m) => g.memberUids.includes(m.uid) && m.email).map((m) => m.email));
-        const fullExtra = Array.from(new Set(groupMemberEmails)).filter((e) => !recipients.includes(e));
-        if (fullExtra.length > 0) {
-          notifyRating({ to: fullExtra, childName: child.name, actorName: profile.displayName, points: totalPoints, period });
-        }
-        const trimmedTo = Array.from(new Set([
-          ...groups.flatMap((g) => g.externalEmails || []),
-          ...(aud.emails || []),
-        ])).filter((e) => !recipients.includes(e) && !fullExtra.includes(e));
-        if (trimmedTo.length > 0) {
-          notifyRating({
-            to: trimmedTo, childName: child.name.split(' ')[0], actorName: profile.displayName,
-            points: totalPoints, period, trimmed: true, familyName: fam?.name,
-          });
-        }
-        // 🧒 The kid it's about — instant kid-voiced email via the COPPA
-        // pointer. The route gates + composes server-side; numbers only.
-        if (aud.kidItsAbout && totalPoints > 0) {
-          fbAuth.currentUser?.getIdToken().then((token) => {
-            if (!token) return;
-            return fetch('/api/kids/rating-email', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-              body: JSON.stringify({ childId: child.id, period, points: totalPoints }),
-            });
-          }).catch(() => { /* delight only — never blocks */ });
-        }
-      }
-    })();
+    // 🔥 Points Emails 2.0 (approved 23-Aug-2026) — ONE server gateway
+    // composes + sends every tier (family Heat Report · Kid Heat Report ·
+    // outside totals) from the rating doc. The client sends the ID only;
+    // fire-and-forget — a delivery hiccup never touches the saved rating.
+    if (ratingId && ratingId !== 'guest-rating') {
+      fbAuth.currentUser?.getIdToken().then((token) => {
+        if (!token) return;
+        return fetch('/api/points/rating-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ ratingId }),
+          keepalive: true,
+        });
+      }).catch(() => { /* delight only — never blocks */ });
+    }
   };
 
   if (children.length === 0) {
