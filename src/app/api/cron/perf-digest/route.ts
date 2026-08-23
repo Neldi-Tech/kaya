@@ -1,9 +1,11 @@
 // Daily helper-performance email digest (2026-05-20).
 //
 // Runs on a Vercel cron (see vercel.json). For every family, finds the
-// parents who opted in (users/{uid}.perfDigestEmail === true) and emails
-// them a summary of each helper's performance over the last 7 settled
-// days (today excluded — matches the in-app card). Uses the Admin SDK so
+// parents whose helper-email frequency resolves to 'daily'
+// (users/{uid}.perfDigest — HP2 D7, legacy boolean mapped in
+// lib/perfDigestPrefs; the weekly report is /api/cron/perf-weekly) and
+// emails them a summary of each TRACKED helper's performance over the
+// last 7 settled days (today excluded — matches the in-app card). Uses the Admin SDK so
 // it bypasses security rules; renders + sends via the existing
 // /api/notify dispatcher (Resend), so the email styling stays in one place.
 //
@@ -12,6 +14,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebaseAdmin';
+import { resolvePerfDigest } from '@/lib/perfDigestPrefs';
+import { readPolicy, isTracked } from '@/lib/helperPerf.server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -97,18 +101,20 @@ async function run(req: NextRequest) {
       members = await db.collection('users').where('familyId', '==', fid).get();
     } catch { continue; }
     const optedInParents = members.docs
-      .map((d) => d.data() as { uid?: string; role?: string; email?: string; name?: string; displayName?: string; perfDigestEmail?: boolean })
-      .filter((u) => u.role === 'parent' && u.perfDigestEmail === true && u.email);
+      .map((d) => d.data() as { uid?: string; role?: string; email?: string; name?: string; displayName?: string; perfDigest?: string; perfDigestEmail?: boolean })
+      .filter((u) => u.role === 'parent' && u.email && resolvePerfDigest(u) === 'daily');
     if (optedInParents.length === 0) continue;
 
-    // Active helpers in the family.
-    let helperDocs;
+    // Active + TRACKED helpers in the family (HP2 D1).
+    let helperDocs; let policy;
     try {
+      policy = await readPolicy(famDoc.ref);
       helperDocs = await famDoc.ref.collection('helpers').get();
     } catch { continue; }
     const helpers = helperDocs.docs
       .map((d) => ({ uid: d.id, ...(d.data() as Record<string, unknown>) }))
-      .filter((h) => (h as { status?: string }).status !== 'removed');
+      .filter((h) => (h as { status?: string }).status !== 'removed' && isTracked(policy, (h as { uid: string }).uid));
+    if (helpers.length === 0) continue;
 
     // Active routine count per period — denominator for partial
     // "by checks" rating credit. Read once from the family doc (already
@@ -145,6 +151,7 @@ async function run(req: NextRequest) {
 
     // Send one email per opted-in parent (personalised greeting).
     const dateLabel = ymd(now);
+    const sentTo: { name: string; email: string }[] = [];
     for (const p of optedInParents) {
       try {
         const res = await fetch(`${APP_URL}/api/notify`, {
@@ -160,11 +167,27 @@ async function run(req: NextRequest) {
             },
           }),
         });
-        if (res.ok) emailsSent++;
+        if (res.ok) { emailsSent++; sentTo.push({ name: p.name || p.displayName || 'Parent', email: p.email! }); }
       } catch {
         // best-effort per parent
       }
     }
+    // HP2 — as-sent trace (Admin-only alertLog; never blocks).
+    try {
+      await famDoc.ref.collection('alertLog').add({
+        kind: 'helper_daily',
+        firedAt: Date.now(),
+        trigger: 'digest',
+        channels: {
+          email: {
+            on: true, sent: sentTo.length > 0, to: sentTo,
+            subject: `📊 Daily helper update · ${dateLabel}`,
+            templateVersion: 1,
+            dailyFacts: { dateLabel, helpers: digestHelpers },
+          },
+        },
+      });
+    } catch { /* ignore */ }
     familiesProcessed++;
   }
 

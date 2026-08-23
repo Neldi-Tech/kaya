@@ -43,9 +43,11 @@ type RoundItem = {
   kidId: string;
   kidName: string;
   emoji: string;
-  kind: 'coverage' | 'best' | 'improved' | 'comeback';
+  kind: 'coverage' | 'best' | 'improved' | 'comeback' | 'leader';
   line: string;
   daysSince?: number;
+  /** 👑 LW PR-L5 — the sealed leaderTerm this item celebrates. */
+  termId?: string;
   /** 🎁 FX PR-6 — the engine's gift recommendation for this kid: nearest
    *  within-reach store reward NOT given recently (the system remembers
    *  via shineCards.giftMeta). */
@@ -295,6 +297,28 @@ async function handle(req: NextRequest) {
           used.add(it.kidId);
         }
       }
+      // 👑 LW PR-L5 — a week as Leader of the Week sealed in the last 10
+      // days and not yet celebrated → "celebrate the leader" item (even if
+      // the kid is already in this round for another reason — the crown is
+      // its own moment). Single-field range on sealedAt; flag filtered in code.
+      try {
+        const since10 = Date.now() - 10 * 86400_000;
+        const termsSnap = await famRef.collection('leaderTerms').where('sealedAt', '>=', since10).get();
+        const sealed = termsSnap.docs
+          .map((d) => ({ id: d.id, ...(d.data() as { childId: string; name: string; emoji: string; style?: string; celebrated?: boolean; counts?: { approved: number; adjusted: number }; ledMeeting?: boolean; honest?: boolean; mission?: { done?: boolean }; sealedAt?: number }) }))
+          .filter((t) => !t.celebrated)
+          .sort((a, b) => (b.sealedAt || 0) - (a.sealedAt || 0));
+        const seenKid = new Set<string>();
+        for (const t of sealed) {
+          if (seenKid.has(t.childId)) continue;
+          seenKid.add(t.childId);
+          const n = (t.counts?.approved || 0) + (t.counts?.adjusted || 0);
+          items.push({
+            kidId: t.childId, kidName: t.name, emoji: t.emoji || '🧒', kind: 'leader', termId: t.id,
+            line: `👑 Celebrate ${t.name.split(' ')[0]}'s week as leader — ${t.style || 'New Leader'} · ${n} note${n === 1 ? '' : 's'} made a difference${t.ledMeeting ? ' · led the meeting' : ''}${t.honest ? ' · Honest ✓' : ''}${t.mission?.done ? ' · Mission ✓' : ''}`,
+          });
+        }
+      } catch { /* best-effort */ }
       if (items.length === 0) continue; // nothing worth nudging about
 
       // ── Audience ────────────────────────────────────────────────

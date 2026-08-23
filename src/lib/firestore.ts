@@ -153,6 +153,16 @@ export interface Family {
    *  celebration rides the existing award rail. Partial, merged with
    *  DEFAULT_RECOGNITION_CONFIG via readRecognitionConfig(). */
   recognitionConfig?: Partial<RecognitionConfig>;
+  /** 👑 Leader of the Week (LW PR-L1, approved 23-Aug-2026) — who wears
+   *  the crown NOW (kid-only role; fed by the meeting's leader pick at
+   *  FINISH, or appointed by a parent). History + sealed traits live in
+   *  `leaderTerms/`; 📒 Notebook entries in `leaderNotes/` — ALL written
+   *  through the /api/leader Admin gateway (zero rules deploys). */
+  houseLeader?: import('./leaderWeek.shared').HouseLeader | null;
+  leaderConfig?: Partial<import('./leaderWeek.shared').LeaderConfig>;
+  /** Set when the meeting's pick was an ADULT → parents see the "appoint a
+   *  House Leader" card on Home until they pick a kid (or dismiss). */
+  leaderAppointPending?: { at: number; byName?: string } | null;
   // 📬 Kids' email updates (KID PR1) — per-kid source POINTER + stream
   // toggles, everything default OFF (COPPA). See lib/kidEmails.shared.
   kidEmailUpdates?: import('./kidEmails.shared').KidEmailUpdatesConfig;
@@ -1054,7 +1064,7 @@ export interface Child {
   /** Per-kid participation override — set only when a parent flips a
    *  wizard/profile switch away from the age-based family default
    *  (lib/participation.ts). Absent = follow family participationAges. */
-  participationOverrides?: { sparks?: boolean; meetings?: boolean };
+  participationOverrides?: { sparks?: boolean; meetings?: boolean; notebook?: boolean };
   /** The day this kid was added to the family (YYYY-MM-DD) — powers the
    *  🎊 arrival celebration on Home + the pinned Moments welcome. */
   arrivedAt?: string;

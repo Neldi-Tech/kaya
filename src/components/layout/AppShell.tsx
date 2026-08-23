@@ -171,6 +171,8 @@ const KAYA_NAV: NavItem[] = [
   { path: '/award',           icon: '🎖️',          label: 'Award points',    mobileLabel: 'Award' },
   // 🌟 FX PR-5 (Elia 16-Aug: "appear all the time so it can be referenced")
   { path: '/recognition',     icon: '🌟',           label: 'Recognition',     mobileLabel: 'Shine' },
+  // 👑 Leader of the Week (LW PR-L1) — notes inbox + leadership cards.
+  { path: '/parent/leader',   icon: '👑',           label: 'Leader of the Week', mobileLabel: 'Leader' },
   { path: '/meetings',        icon: '👨‍👩‍👧‍👦', label: 'Family meeting',  mobileLabel: 'Meet' },
   { path: '/rewards',         icon: '🎁',           label: 'Rewards',         mobileLabel: 'Rewards' },
   { path: '/parent/rewards',  icon: '⚙️',           label: 'Manage rewards',  mobileLabel: 'Manage' },

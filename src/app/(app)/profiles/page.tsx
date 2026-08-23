@@ -31,6 +31,7 @@ import KidAvatar from '@/components/ui/KidAvatar';
 import TopBadge from '@/components/rewards/TopBadge';
 import KidWorkplanAccomplishment from '@/components/workplan/KidWorkplanAccomplishment';
 import { ShineWall } from '@/components/rewards/ShineCards';
+import LeadershipCard from '@/components/leader/LeadershipCard';
 
 export default function ProfilesPage() {
   const { profile, isGuest } = useAuth();
@@ -419,7 +420,7 @@ export default function ProfilesPage() {
               }`}
               style={selected === i ? { backgroundColor: c.houseColor } : {}}
             >
-              {c.avatarEmoji} {c.name}
+              {c.avatarEmoji} {c.name}{family?.houseLeader?.childId === c.id ? <span title="Leader of the Week" aria-label="Leader of the Week"> 👑</span> : null}
             </button>
           ))}
         </div>
@@ -1153,6 +1154,9 @@ export default function ProfilesPage() {
           {/* 🌟 RR PR-2 — the kid's collected Shine Cards (flip side carries
               📝 notes + 💌 their thank-you echo). */}
           <ShineWall familyId={profile.familyId} childId={child.id} childName={child.name} />
+          {/* 👑 LW PR-L4 — Leadership card: style · counters · 5-trait radar ·
+              weeks as leader · 📤 share PNG (screenshot-ready for the kids). */}
+          <LeadershipCard familyId={profile.familyId} childId={child.id} childName={child.name} childEmoji={child.avatarEmoji} viewer="parent" familyName={family?.name} />
           <KidWorkplanAccomplishment familyId={profile.familyId} childId={child.id} childName={child.name} />
         </>
       )}

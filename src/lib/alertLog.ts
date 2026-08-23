@@ -83,7 +83,14 @@ export interface AlertLogChannels {
 
 export interface AlertLogEntry {
   id: string;
-  kind: 'alert' | 'recovered' | 'kid_reward' | 'kid_digest' | 'kid_statement' | 'storage_quota' | 'points_email';
+  kind: 'alert' | 'recovered' | 'kid_reward' | 'kid_digest' | 'kid_statement' | 'storage_quota' | 'points_email'
+    // HP2 (2026-08-23) — helper performance emails: weekly report,
+    // daily digest, and a kid's review-done note to parents.
+    | 'helper_weekly' | 'helper_daily' | 'kid_review';
+  /** HP2 — ISO week key on helper_weekly / kid_review entries. */
+  weekKey?: string;
+  /** HP2 kid_review — which helper was reviewed. */
+  helperName?: string;
   /** 🔥 Points Emails 2.0 — which audience tier a 'points_email' row was. */
   tier?: 'family' | 'outside';
   ratingId?: string;
