@@ -22,6 +22,7 @@ import {
   fetchTreasuresRollUp, treasuresApi, CADENCE_LABEL,
   type TreasuresRollUp,
 } from '@/lib/sparks/treasures';
+import { PAGE_WIDTH_CLASS, PageSplit } from '@/components/layout/Page';
 
 export default function ParentTreasuresPage() {
   const { profile } = useAuth();
@@ -58,11 +59,190 @@ export default function ParentTreasuresPage() {
   const kids = data?.kids ?? [];
   const totalLive = kids.reduce((n, k) => n + k.live, 0);
   const totalMissing = kids.reduce((n, k) => n + k.missing, 0);
+  const needsYou = !!data?.thankYous.length || !!data?.warrantyDue.length;
+
+  // Web-Fit (2026-08-23): wide tier. Desktop gets the shortcut pills in
+  // the hero, "what needs you" as a right rail, and the per-child cards
+  // 2–3-up. Mobile markup/order is unchanged — desktop-only copies are
+  // `hidden lg:flex`, mobile-only ones `lg:hidden`.
+  const shortcutPills = (
+    <>
+      <Link
+        href="/sparks/treasures/lost-found"
+        className="px-3.5 py-2 rounded-full font-extrabold text-[12px] no-underline bg-[#E2F3EE] text-[#0E6B5E]"
+      >
+        🔍 Lost &amp; Found{totalMissing ? ` · ${totalMissing}` : ''}
+      </Link>
+      {/* 🗄 Treasures 2.0 — the family's shared books + games. */}
+      <Link
+        href="/sparks/treasures/cupboard"
+        className="px-3.5 py-2 rounded-full font-extrabold text-[12px] no-underline bg-[#F6ECDF] text-[#6E4624]"
+      >
+        🗄 Family Cupboard
+      </Link>
+    </>
+  );
+
+  // 1 · What needs you — mobile: above the children; desktop: the rail.
+  const needsYouCards = (
+    <>
+      {!!data?.thankYous.length && (
+        <div className="rounded-[14px] border border-[#BFE3D8] bg-[#F1FAF7] p-3 mb-2.5">
+          <div className="font-display font-extrabold text-[12.5px] text-[#0E6B5E]">
+            💛 Thank-yous waiting for you
+          </div>
+          <p className="text-[10.5px] text-[#2C4A44] font-bold m-0 mt-0.5 leading-snug">
+            They wrote it. Kaya never sends a child&rsquo;s words without you.
+          </p>
+          {data.thankYous.map((ty) => (
+            <div key={ty.treasureId} className="mt-2 rounded-[10px] bg-white border border-[#BFE3D8] p-2.5">
+              <div className="text-[11.5px] font-extrabold text-[#0F1F44]">
+                {ty.kidName} → {ty.giverName || 'the giver'} · {ty.name}
+              </div>
+              {ty.text && (
+                <p className="text-[11.5px] italic text-[#2C4A44] mt-1 m-0 leading-snug">
+                  &ldquo;{ty.text}&rdquo;
+                </p>
+              )}
+              <div className="flex gap-2 mt-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => send(ty.treasureId)}
+                  className="px-3.5 py-1.5 rounded-full text-white font-extrabold text-[11.5px]"
+                  style={{ background: '#0E6B5E' }}
+                >
+                  ▶ Send it
+                </button>
+                <Link
+                  href={`/sparks/${ty.kidId}/treasures/${ty.treasureId}`}
+                  className="px-3.5 py-1.5 rounded-full font-extrabold text-[11.5px] bg-[#EEF0F4] text-[#5B6B8C] no-underline"
+                >
+                  Open
+                </Link>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!!data?.warrantyDue.length && (
+        <div className="rounded-[14px] border border-[#F3D3A6] bg-[#FFF9EF] p-3 mb-2.5">
+          <div className="font-display font-extrabold text-[12.5px] text-[#8A6800]">
+            🧾 Warranty ending soon
+          </div>
+          {data.warrantyDue.map((w) => (
+            <p key={w.treasureId} className="text-[11.3px] font-bold text-[#7a6320] mt-1.5 m-0 leading-snug">
+              <Link
+                href={`/sparks/${w.kidId}/treasures/${w.treasureId}`}
+                className="text-[#8A6800] no-underline"
+              >
+                {w.kidName}&rsquo;s {w.name}
+              </Link>{' '}
+              — ends {toDisplayDate(w.endsOn)} ({w.days} day{w.days === 1 ? '' : 's'})
+            </p>
+          ))}
+          <p className="text-[10.5px] text-[#8A8471] italic mt-2 m-0 leading-snug">
+            One honoured warranty on a laptop or a bike repays a year of Kaya.
+          </p>
+        </div>
+      )}
+    </>
+  );
+
+  // 2 + 3 · Behaviour per child (never ranked), the D5 note, shortcuts.
+  const mainContent = (
+    <>
+      {/* 2 · Behaviour, per child. Never ranked. */}
+      <div className="lg:grid lg:grid-cols-2 xl:grid-cols-3 lg:gap-3">
+      {kids.map((k) => (
+        <div key={k.kidId} className="rounded-[14px] border border-[#ECE4D3] bg-white p-3 mb-2.5 lg:mb-0">
+          <div className="flex items-center gap-2.5">
+            <div
+              className="w-[46px] h-[46px] rounded-full grid place-items-center shrink-0"
+              style={{ background: `conic-gradient(#0E6B5E 0 ${k.careScore}%, #E4EDEA ${k.careScore}% 100%)` }}
+              aria-hidden
+            >
+              <span className="w-[34px] h-[34px] rounded-full bg-white grid place-items-center font-display font-extrabold text-[11px] text-[#0E6B5E]">
+                {k.careScore}
+              </span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-display font-extrabold text-[13px] text-[#0F1F44]">
+                {k.emoji} {k.name} · 🔑 {k.careScore}%
+              </div>
+              <p className="text-[10.8px] font-bold text-[#5B6B8C] mt-0.5 m-0 leading-snug">
+                {k.live} thing{k.live === 1 ? '' : 's'}
+                {k.missing ? ` · ${k.missing} missing` : ''}
+                {k.lent ? ` · ${k.lent} lent` : ''}
+                {k.ownedIt ? ` · 🫱 Owned It ×${k.ownedIt}` : ''}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 mt-2.5">
+            <span
+              className="text-[10px] font-extrabold px-2 py-1 rounded-full"
+              style={
+                k.checkOverdueDays >= 1
+                  ? { background: '#FDE8E8', color: '#C0392B' }
+                  : { background: '#EEF0F4', color: '#5B6B8C' }
+              }
+            >
+              🔑 {k.checkOverdueDays >= 1
+                ? `Check overdue ${k.checkOverdueDays}d`
+                : `Next check ${toDisplayDate(k.checkDueOn)}`}
+            </span>
+            <span className="text-[10px] font-extrabold px-2 py-1 rounded-full bg-[#EEF0F4] text-[#5B6B8C]">
+              {CADENCE_LABEL[k.cadence]}
+            </span>
+            <Link
+              href={`/sparks/${k.kidId}/treasures`}
+              className="text-[10px] font-extrabold px-2 py-1 rounded-full bg-[#E2F3EE] text-[#0E6B5E] no-underline"
+            >
+              Open
+            </Link>
+            <Link
+              href={`/sparks/${k.kidId}/treasures/setup`}
+              className="text-[10px] font-extrabold px-2 py-1 rounded-full bg-[#EEF0F4] text-[#5B6B8C] no-underline"
+            >
+              ⚙️ Cadence
+            </Link>
+          </div>
+
+          {/* 3 · D4 · value, parents only, and never compared. */}
+          {k.costCents > 0 && (
+            <p className="text-[10.8px] font-bold text-[#5B6B8C] mt-2 m-0">
+              🔒 Cost {(k.costCents / 100).toLocaleString()} {k.currency} · roughly{' '}
+              {(k.nowCents / 100).toLocaleString()} {k.currency} now
+            </p>
+          )}
+        </div>
+      ))}
+      </div>
+
+      {kids.length > 1 && (
+        <div className="rounded-[12px] border border-[#DDE3EC] bg-[#F1F3F7] p-3 mt-1 lg:mt-3">
+          <p className="text-[11.2px] font-bold text-[#5B6B8C] leading-snug m-0">
+            No total is ever compared across children — not here, not on a kid screen, not in an
+            email. <b>Only behaviour is shown, never count or value.</b>
+          </p>
+        </div>
+      )}
+
+      {/* Shortcut pills — mobile here; desktop: in the hero. */}
+      <div className="flex flex-wrap gap-2 mt-3 lg:hidden">
+        {shortcutPills}
+      </div>
+
+      {err && <p className="text-[11.5px] text-[#C0392B] font-bold mt-3">{err}</p>}
+    </>
+  );
 
   return (
     <div className="min-h-screen bg-[#FFFBF5] pb-20">
-      <div className="mx-auto max-w-md sm:max-w-2xl">
-        <div className="px-4 pt-4">
+      <div className={`mx-auto max-w-md sm:max-w-2xl ${PAGE_WIDTH_CLASS.wide} lg:px-4`}>
+        <div className="px-4 pt-4 lg:pt-6">
           <Link
             href="/sparks"
             className="inline-flex items-center gap-1.5 pl-2.5 pr-3.5 py-1.5 rounded-full bg-white border border-[#ECE4D3] text-[#0F1F44] font-display font-extrabold text-[12px] no-underline"
@@ -73,21 +253,24 @@ export default function ParentTreasuresPage() {
         </div>
 
         <div
-          className="mx-4 mt-3 rounded-[18px] p-4 text-white"
+          className="mx-4 mt-3 rounded-[18px] lg:rounded-[24px] p-4 lg:px-8 lg:py-7 text-white lg:flex lg:items-end lg:justify-between lg:gap-6"
           style={{ background: 'linear-gradient(135deg,#1F2A44 0%,#5B6B8C 100%)' }}
         >
-          <div className="text-[10.5px] font-extrabold opacity-85">✨ Sparks · parents only</div>
-          <div className="font-display text-[19px] font-extrabold mt-0.5">💎 Treasures</div>
-          <div className="text-[11px] opacity-90 mt-1">
+          <div className="min-w-0">
+          <div className="text-[10.5px] lg:text-[12px] font-extrabold opacity-85">✨ Sparks · parents only</div>
+          <div className="font-display text-[19px] lg:text-[30px] font-extrabold mt-0.5">💎 Treasures</div>
+          <div className="text-[11px] lg:text-[13.5px] opacity-90 mt-1">
             {data === null
               ? 'Loading…'
               : `${kids.length} ${kids.length === 1 ? 'child' : 'children'} · ${totalLive} registered${
                   totalMissing ? ` · ${totalMissing} missing` : ''
                 }`}
           </div>
+          </div>
+          <div className="hidden lg:flex flex-wrap gap-2 shrink-0">{shortcutPills}</div>
         </div>
 
-        <div className="px-4 mt-3">
+        <div className="px-4 mt-3 lg:mt-5">
           {data === null && (
             <p className="text-[13px] text-[#5A6488] text-center py-6">Loading…</p>
           )}
@@ -105,161 +288,15 @@ export default function ParentTreasuresPage() {
             </div>
           )}
 
-          {/* 1 · What needs you */}
-          {!!data?.thankYous.length && (
-            <div className="rounded-[14px] border border-[#BFE3D8] bg-[#F1FAF7] p-3 mb-2.5">
-              <div className="font-display font-extrabold text-[12.5px] text-[#0E6B5E]">
-                💛 Thank-yous waiting for you
-              </div>
-              <p className="text-[10.5px] text-[#2C4A44] font-bold m-0 mt-0.5 leading-snug">
-                They wrote it. Kaya never sends a child&rsquo;s words without you.
-              </p>
-              {data.thankYous.map((ty) => (
-                <div key={ty.treasureId} className="mt-2 rounded-[10px] bg-white border border-[#BFE3D8] p-2.5">
-                  <div className="text-[11.5px] font-extrabold text-[#0F1F44]">
-                    {ty.kidName} → {ty.giverName || 'the giver'} · {ty.name}
-                  </div>
-                  {ty.text && (
-                    <p className="text-[11.5px] italic text-[#2C4A44] mt-1 m-0 leading-snug">
-                      &ldquo;{ty.text}&rdquo;
-                    </p>
-                  )}
-                  <div className="flex gap-2 mt-2">
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => send(ty.treasureId)}
-                      className="px-3.5 py-1.5 rounded-full text-white font-extrabold text-[11.5px]"
-                      style={{ background: '#0E6B5E' }}
-                    >
-                      ▶ Send it
-                    </button>
-                    <Link
-                      href={`/sparks/${ty.kidId}/treasures/${ty.treasureId}`}
-                      className="px-3.5 py-1.5 rounded-full font-extrabold text-[11.5px] bg-[#EEF0F4] text-[#5B6B8C] no-underline"
-                    >
-                      Open
-                    </Link>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {!!data?.warrantyDue.length && (
-            <div className="rounded-[14px] border border-[#F3D3A6] bg-[#FFF9EF] p-3 mb-2.5">
-              <div className="font-display font-extrabold text-[12.5px] text-[#8A6800]">
-                🧾 Warranty ending soon
-              </div>
-              {data.warrantyDue.map((w) => (
-                <p key={w.treasureId} className="text-[11.3px] font-bold text-[#7a6320] mt-1.5 m-0 leading-snug">
-                  <Link
-                    href={`/sparks/${w.kidId}/treasures/${w.treasureId}`}
-                    className="text-[#8A6800] no-underline"
-                  >
-                    {w.kidName}&rsquo;s {w.name}
-                  </Link>{' '}
-                  — ends {toDisplayDate(w.endsOn)} ({w.days} day{w.days === 1 ? '' : 's'})
-                </p>
-              ))}
-              <p className="text-[10.5px] text-[#8A8471] italic mt-2 m-0 leading-snug">
-                One honoured warranty on a laptop or a bike repays a year of Kaya.
-              </p>
-            </div>
-          )}
-
-          {/* 2 · Behaviour, per child. Never ranked. */}
-          {kids.map((k) => (
-            <div key={k.kidId} className="rounded-[14px] border border-[#ECE4D3] bg-white p-3 mb-2.5">
-              <div className="flex items-center gap-2.5">
-                <div
-                  className="w-[46px] h-[46px] rounded-full grid place-items-center shrink-0"
-                  style={{ background: `conic-gradient(#0E6B5E 0 ${k.careScore}%, #E4EDEA ${k.careScore}% 100%)` }}
-                  aria-hidden
-                >
-                  <span className="w-[34px] h-[34px] rounded-full bg-white grid place-items-center font-display font-extrabold text-[11px] text-[#0E6B5E]">
-                    {k.careScore}
-                  </span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-display font-extrabold text-[13px] text-[#0F1F44]">
-                    {k.emoji} {k.name} · 🔑 {k.careScore}%
-                  </div>
-                  <p className="text-[10.8px] font-bold text-[#5B6B8C] mt-0.5 m-0 leading-snug">
-                    {k.live} thing{k.live === 1 ? '' : 's'}
-                    {k.missing ? ` · ${k.missing} missing` : ''}
-                    {k.lent ? ` · ${k.lent} lent` : ''}
-                    {k.ownedIt ? ` · 🫱 Owned It ×${k.ownedIt}` : ''}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 mt-2.5">
-                <span
-                  className="text-[10px] font-extrabold px-2 py-1 rounded-full"
-                  style={
-                    k.checkOverdueDays >= 1
-                      ? { background: '#FDE8E8', color: '#C0392B' }
-                      : { background: '#EEF0F4', color: '#5B6B8C' }
-                  }
-                >
-                  🔑 {k.checkOverdueDays >= 1
-                    ? `Check overdue ${k.checkOverdueDays}d`
-                    : `Next check ${toDisplayDate(k.checkDueOn)}`}
-                </span>
-                <span className="text-[10px] font-extrabold px-2 py-1 rounded-full bg-[#EEF0F4] text-[#5B6B8C]">
-                  {CADENCE_LABEL[k.cadence]}
-                </span>
-                <Link
-                  href={`/sparks/${k.kidId}/treasures`}
-                  className="text-[10px] font-extrabold px-2 py-1 rounded-full bg-[#E2F3EE] text-[#0E6B5E] no-underline"
-                >
-                  Open
-                </Link>
-                <Link
-                  href={`/sparks/${k.kidId}/treasures/setup`}
-                  className="text-[10px] font-extrabold px-2 py-1 rounded-full bg-[#EEF0F4] text-[#5B6B8C] no-underline"
-                >
-                  ⚙️ Cadence
-                </Link>
-              </div>
-
-              {/* 3 · D4 · value, parents only, and never compared. */}
-              {k.costCents > 0 && (
-                <p className="text-[10.8px] font-bold text-[#5B6B8C] mt-2 m-0">
-                  🔒 Cost {(k.costCents / 100).toLocaleString()} {k.currency} · roughly{' '}
-                  {(k.nowCents / 100).toLocaleString()} {k.currency} now
-                </p>
-              )}
-            </div>
-          ))}
-
-          {kids.length > 1 && (
-            <div className="rounded-[12px] border border-[#DDE3EC] bg-[#F1F3F7] p-3 mt-1">
-              <p className="text-[11.2px] font-bold text-[#5B6B8C] leading-snug m-0">
-                No total is ever compared across children — not here, not on a kid screen, not in an
-                email. <b>Only behaviour is shown, never count or value.</b>
-              </p>
-            </div>
-          )}
-
-          <div className="flex flex-wrap gap-2 mt-3">
-            <Link
-              href="/sparks/treasures/lost-found"
-              className="px-3.5 py-2 rounded-full font-extrabold text-[12px] no-underline bg-[#E2F3EE] text-[#0E6B5E]"
-            >
-              🔍 Lost &amp; Found{totalMissing ? ` · ${totalMissing}` : ''}
-            </Link>
-            {/* 🗄 Treasures 2.0 — the family's shared books + games. */}
-            <Link
-              href="/sparks/treasures/cupboard"
-              className="px-3.5 py-2 rounded-full font-extrabold text-[12px] no-underline bg-[#F6ECDF] text-[#6E4624]"
-            >
-              🗄 Family Cupboard
-            </Link>
-          </div>
-
-          {err && <p className="text-[11.5px] text-[#C0392B] font-bold mt-3">{err}</p>}
+          {/* 1 · needs-you cards, then 2 · children, 3 · note + shortcuts.
+              Desktop: needs-you in a right rail (railMobile="first" keeps
+              the mobile order); when nothing needs you the main column
+              simply takes the full width. */}
+          {needsYou ? (
+            <PageSplit rail={needsYouCards} railMobile="first">
+              {mainContent}
+            </PageSplit>
+          ) : mainContent}
         </div>
       </div>
     </div>

@@ -25,6 +25,7 @@ import {
   listTreasures, submitKeeperCheck, watchList, categoryDef,
   type Treasure, type CheckResult, type CheckSubmission,
 } from '@/lib/sparks/treasures';
+import { PAGE_WIDTH_CLASS, PageSplit, DATA_ROW } from '@/components/layout/Page';
 
 const PLACES = ['School bag', 'My room', 'The car', 'Sitting room', 'At school', 'Someone borrowed it'];
 
@@ -129,10 +130,46 @@ export default function KeeperCheckPage() {
     );
   }
 
+  // Web-Fit (2026-08-23): content tier + rail. Desktop: the D7 promise
+  // and a copy of the Finish button sit in a right rail (railMobile=
+  // "first" keeps the mobile order); the watch list is one divided panel;
+  // the fixed bottom bar is mobile-only. Mobile markup unchanged.
+  const finishButton = (
+    <button
+      type="button"
+      disabled={busy || answered === 0}
+      onClick={finish}
+      className="w-full py-3 rounded-full text-white font-extrabold text-[13px] disabled:opacity-40"
+      style={{ background: '#0E6B5E' }}
+    >
+      {busy
+        ? 'Saving…'
+        : remaining > 0
+          ? `Finish check · ${remaining} left`
+          : 'Finish check'}
+    </button>
+  );
+  const rail = (
+    <>
+      {/* D7 · said out loud BEFORE the first tap. */}
+      <div className="rounded-[12px] border border-[#BFE3D8] bg-[#E2F3EE] p-3 text-[#1B4B43]">
+        <p className="text-[11.2px] font-bold leading-snug m-0">
+          Kaya never takes points away for an accident.{' '}
+          <b>Telling us fast is the Keeper’s job.</b>
+        </p>
+      </div>
+      {items.length > 0 && (
+        <div className="hidden lg:block mt-3 rounded-[14px] border border-[#ECE4D3] bg-white p-3">
+          {finishButton}
+        </div>
+      )}
+    </>
+  );
+
   return (
     <div className="min-h-screen bg-[#FFFBF5] pb-28">
-      <div className="mx-auto max-w-md sm:max-w-2xl">
-        <div className="px-4 pt-4">
+      <div className={`mx-auto max-w-md sm:max-w-2xl ${PAGE_WIDTH_CLASS.content} lg:px-4`}>
+        <div className="px-4 pt-4 lg:pt-6">
           <Link
             href={`/sparks/${kidId}/treasures`}
             className="inline-flex items-center gap-1.5 pl-2.5 pr-3.5 py-1.5 rounded-full bg-white border border-[#ECE4D3] text-[#0F1F44] font-display font-extrabold text-[12px] no-underline"
@@ -143,29 +180,22 @@ export default function KeeperCheckPage() {
         </div>
 
         <div
-          className="mx-4 mt-3 rounded-[18px] p-4 text-white"
+          className="mx-4 mt-3 rounded-[18px] lg:rounded-[24px] p-4 lg:px-8 lg:py-7 text-white"
           style={{ background: 'linear-gradient(135deg,#0E6B5E 0%,#3FA38F 100%)' }}
         >
-          <div className="text-[10.5px] font-extrabold opacity-85">
+          <div className="text-[10.5px] lg:text-[12px] font-extrabold opacity-85">
             🔑 {kid?.name ? `${kid.name}’s check` : 'Keeper Check'}
           </div>
-          <div className="font-display text-[19px] font-extrabold mt-0.5">Keeper Check</div>
-          <div className="text-[11px] opacity-90 mt-1">
+          <div className="font-display text-[19px] lg:text-[30px] font-extrabold mt-0.5">Keeper Check</div>
+          <div className="text-[11px] lg:text-[13.5px] opacity-90 mt-1">
             {items.length} thing{items.length === 1 ? '' : 's'} · tap one for each · no wrong answers
           </div>
         </div>
 
-        <div className="px-4 mt-3">
-          {/* D7 · said out loud BEFORE the first tap. */}
-          <div className="rounded-[12px] border border-[#BFE3D8] bg-[#E2F3EE] p-3 text-[#1B4B43]">
-            <p className="text-[11.2px] font-bold leading-snug m-0">
-              Kaya never takes points away for an accident.{' '}
-              <b>Telling us fast is the Keeper’s job.</b>
-            </p>
-          </div>
-
+        <div className="px-4 mt-3 lg:mt-5">
+          <PageSplit rail={rail} railMobile="first">
           {items.length === 0 && (
-            <div className="mt-4 rounded-[14px] border border-[#ECE4D3] bg-white p-4 text-center">
+            <div className="mt-4 lg:mt-0 rounded-[14px] border border-[#ECE4D3] bg-white p-4 text-center">
               <p className="text-[13px] font-bold text-[#0F1F44] m-0">
                 Nothing on the watch list yet.
               </p>
@@ -182,13 +212,13 @@ export default function KeeperCheckPage() {
             </div>
           )}
 
-          <div className="mt-3">
+          <div className={items.length > 0 ? 'mt-3 lg:mt-0 lg:rounded-[14px] lg:border lg:border-[#ECE4D3] lg:bg-white lg:divide-y lg:divide-[#ECE4D3] lg:overflow-hidden' : 'mt-3'}>
             {items.map((t) => {
               const a = answers[t.id];
               return (
                 <div
                   key={t.id}
-                  className="rounded-[13px] border border-[#ECE4D3] bg-white px-2.5 py-2 mb-2 flex items-center gap-2.5"
+                  className={`rounded-[13px] border border-[#ECE4D3] bg-white px-2.5 py-2 mb-2 lg:mb-0 lg:px-4 lg:py-3 flex items-center gap-2.5 ${DATA_ROW}`}
                 >
                   <span className="text-[21px] shrink-0" aria-hidden>
                     {t.thumbUrl ? (
@@ -245,25 +275,15 @@ export default function KeeperCheckPage() {
           ))}
 
           {err && <p className="text-[11.5px] text-[#C0392B] font-bold mt-2">{err}</p>}
+          </PageSplit>
         </div>
       </div>
 
+      {/* Mobile: fixed bottom bar. Desktop: the copy in the rail. */}
       {items.length > 0 && (
-        <div className="fixed bottom-0 inset-x-0 p-3 bg-[#FFFBF5]/95 backdrop-blur border-t border-[#ECE4D3]">
+        <div className="lg:hidden fixed bottom-0 inset-x-0 p-3 bg-[#FFFBF5]/95 backdrop-blur border-t border-[#ECE4D3]">
           <div className="mx-auto max-w-md sm:max-w-2xl">
-            <button
-              type="button"
-              disabled={busy || answered === 0}
-              onClick={finish}
-              className="w-full py-3 rounded-full text-white font-extrabold text-[13px] disabled:opacity-40"
-              style={{ background: '#0E6B5E' }}
-            >
-              {busy
-                ? 'Saving…'
-                : remaining > 0
-                  ? `Finish check · ${remaining} left`
-                  : 'Finish check'}
-            </button>
+            {finishButton}
           </div>
         </div>
       )}

@@ -22,6 +22,7 @@ import {
   CADENCE_LABEL, DEFAULT_KEEPER_SETTINGS, fetchTreasuresToday,
   type CheckCadence, type KeeperCheckSettings, type Treasure,
 } from '@/lib/sparks/treasures';
+import { PAGE_WIDTH_CLASS } from '@/components/layout/Page';
 
 const CADENCES: CheckCadence[] = ['weekly', 'fortnightly', 'monthly', 'termly'];
 const DOW = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -84,10 +85,13 @@ export default function KeeperCheckSetupPage() {
     );
   }
 
+  // Web-Fit (2026-08-23): narrow tier — a settings form, so just the
+  // container (every control auto-saves; there is no submit). Mobile
+  // markup unchanged.
   return (
     <div className="min-h-screen bg-[#FFFBF5] pb-20">
-      <div className="mx-auto max-w-md sm:max-w-2xl">
-        <div className="px-4 pt-4">
+      <div className={`mx-auto max-w-md sm:max-w-2xl ${PAGE_WIDTH_CLASS.narrow} lg:px-4`}>
+        <div className="px-4 pt-4 lg:pt-6">
           <Link
             href={`/sparks/${kidId}/treasures`}
             className="inline-flex items-center gap-1.5 pl-2.5 pr-3.5 py-1.5 rounded-full bg-white border border-[#ECE4D3] text-[#0F1F44] font-display font-extrabold text-[12px] no-underline"
@@ -98,19 +102,19 @@ export default function KeeperCheckSetupPage() {
         </div>
 
         <div
-          className="mx-4 mt-3 rounded-[18px] p-4 text-white"
+          className="mx-4 mt-3 rounded-[18px] lg:rounded-[24px] p-4 lg:px-8 lg:py-7 text-white"
           style={{ background: 'linear-gradient(135deg,#1F2A44 0%,#5B6B8C 100%)' }}
         >
-          <div className="text-[10.5px] font-extrabold opacity-85">
+          <div className="text-[10.5px] lg:text-[12px] font-extrabold opacity-85">
             ⚙️ Sparks setup · {kid?.name ?? 'this child'}
           </div>
-          <div className="font-display text-[19px] font-extrabold mt-0.5">🔑 Keeper Check</div>
-          <div className="text-[11px] opacity-90 mt-1">
+          <div className="font-display text-[19px] lg:text-[30px] font-extrabold mt-0.5">🔑 Keeper Check</div>
+          <div className="text-[11px] lg:text-[13.5px] opacity-90 mt-1">
             How often should Kaya ask {kid?.name ?? 'them'} to check their things?
           </div>
         </div>
 
-        <div className="px-4 mt-3">
+        <div className="px-4 mt-3 lg:mt-5">
           {CADENCES.map((c) => (
             <button
               key={c}
