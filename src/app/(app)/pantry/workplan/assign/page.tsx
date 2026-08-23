@@ -29,6 +29,7 @@ import { addAdhocWorkplanItem, todayDateString } from '@/lib/workplan';
 import { notifyAdhocAssigned } from '@/lib/notify';
 import { toDisplayDate } from '@/lib/dates';
 import type { HelperLink, WorkplanPeriod } from '@/lib/firestore';
+import { Page, PageHeader, BTN_INLINE_LG } from '@/components/layout/Page';
 
 // Emoji palette for the "What" picker. Curated to common helper-task
 // vocabulary. Parents can also override by typing in the emoji slot.
@@ -208,9 +209,11 @@ export default function AssignWorkPage() {
 
   if (!family) return null;
 
+  // Web-Fit (2026-08-23): narrow tier (form); the submit button goes
+  // inline + right-aligned on desktop. Mobile unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
-      <div className="mb-3">
+    <Page width="narrow" className="pb-32 lg:pb-12">
+      <PageHeader>
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">
           Workplan · Assign one-off
         </p>
@@ -220,7 +223,7 @@ export default function AssignWorkPage() {
         <p className="text-hive-muted text-sm mt-1">
           Outside the regular plan — pick the helper, what to do, when, and which period of the day.
         </p>
-      </div>
+      </PageHeader>
 
       {/* ── 1. WHO ── */}
       <Section title="1 · Who" subtitle="Who should do it?">
@@ -405,14 +408,16 @@ export default function AssignWorkPage() {
             {doneFlash}
           </div>
         )}
+        <div className="lg:flex lg:justify-end">
         <button
           type="button"
           disabled={!canSubmit}
           onClick={submit}
-          className="w-full text-center bg-hive-honey hover:bg-hive-honey-dk text-hive-ink font-nunito font-black text-base py-4 rounded-hive border-2 border-hive-honey-dk disabled:opacity-40 disabled:cursor-not-allowed"
+          className={`w-full text-center bg-hive-honey hover:bg-hive-honey-dk text-hive-ink font-nunito font-black text-base py-4 rounded-hive border-2 border-hive-honey-dk disabled:opacity-40 disabled:cursor-not-allowed ${BTN_INLINE_LG}`}
         >
           {busy ? 'Assigning…' : '＋ Assign this work'}
         </button>
+        </div>
         <p className="text-[10px] text-hive-muted text-center">
           Helper sees the task on their home for each day you picked + gets a notification (in-app bell + web push if they&apos;ve enabled it).
         </p>
@@ -425,7 +430,7 @@ export default function AssignWorkPage() {
           </Link>
         </div>
       </div>
-    </div>
+    </Page>
   );
 }
 

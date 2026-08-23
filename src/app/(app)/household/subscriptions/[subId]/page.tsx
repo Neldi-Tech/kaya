@@ -44,6 +44,7 @@ import { UtilisationCheckIn } from '@/components/household/UtilisationCheckIn';
 import {
   subscribeToOpenAdvisories, advisoriesForSub, type WealthAdvisory,
 } from '@/lib/wealthAdvisories';
+import { PAGE_WIDTH_CLASS, PageSplit } from '@/components/layout/Page';
 
 const STATUS_TONE: Record<Subscription['status'], StatusTone> = {
   active:    'green',
@@ -137,171 +138,14 @@ export default function SubscriptionDetailPage() {
   const householdCurrency = family?.hiveConfig?.currency ?? 'USD';
   const fromWealth = sub.sourceModule === 'wealth';
 
-  return (
-    <div className="mx-auto max-w-2xl px-4 sm:px-6 py-6 sm:py-10">
-      <header className="mb-6">
-        <Link href="/household/subscriptions" className="text-xs font-bold uppercase tracking-wide text-pulse-navy/55 hover:text-pulse-navy">
-          ← Subscriptions
-        </Link>
-        <div className="mt-2 flex items-center gap-2">
-          <span className="text-3xl">{subCategoryEmoji(sub.category)}</span>
-          <div>
-            <h1 className="font-display text-2xl font-extrabold text-pulse-navy leading-tight">
-              {sub.name}
-            </h1>
-            <div className="text-xs font-bold uppercase tracking-wide text-pulse-navy/55">
-              {subCategoryLabel(sub.category)} · {sub.subCategory}
-            </div>
-          </div>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <StatusBadge tone={STATUS_TONE[sub.status]}>{STATUS_LABEL[sub.status]}</StatusBadge>
-          <StatusBadge tone={sub.billingMode === 'auto' ? 'neutral' : 'gold'}>
-            {sub.billingMode === 'auto' ? 'Auto' : 'Manual'}
-          </StatusBadge>
-          {fromWealth && <StatusBadge tone="muted">From Wealth · read-only</StatusBadge>}
-          {sub.isProfessionalExpense && <StatusBadge tone="neutral">Pro expense</StatusBadge>}
-          <StatusBadge tone="neutral">{SUBSCRIPTION_PLATFORMS.find((p) => p.id === (sub.platform ?? 'other'))?.emoji} {platformLabel(sub.platform)}</StatusBadge>
-        </div>
-      </header>
-
-      {/* Status banner — only when held or stopped, so the parent sees at a
-          glance what's happening to the cost. */}
-      {sub.status === 'paused' && (
-        <div className="mb-4 flex items-start gap-2.5 rounded-kaya bg-pulse-navy/5 border border-pulse-navy/12 px-4 py-3">
-          <span className="text-lg leading-none">⏸</span>
-          <p className="text-sm font-semibold text-pulse-navy/75">
-            <b className="font-extrabold">On hold.</b> Not counted in your monthly or annual totals, and
-            reminders are paused.
-            {sub.autoResumeOn
-              ? ` Auto-resumes ${toDisplayDate(tsToIso(sub.autoResumeOn))}.`
-              : ' Resume it any time below.'}
-          </p>
-        </div>
-      )}
-      {sub.status === 'cancelled' && (() => {
-        const prepaidStillCounting =
-          isPrepaidFrequency(sub.frequency, sub.customMonths) &&
-          (sub.nextBillingDate?.toMillis?.() ?? 0) > Date.now();
-        return (
-          <div className="mb-4 flex items-start gap-2.5 rounded-kaya bg-pulse-coral/8 border border-pulse-coral/30 px-4 py-3">
-            <span className="text-lg leading-none">⏹</span>
-            <p className="text-sm font-semibold text-pulse-navy/75">
-              <b className="font-extrabold">Stopped{sub.endedOn ? ` on ${toDisplayDate(tsToIso(sub.endedOn))}` : ''}.</b>{' '}
-              {prepaidStillCounting
-                ? `Already paid for, so it stays in your monthly & annual totals until ${toDisplayDate(tsToIso(sub.nextBillingDate))}, then drops off automatically.`
-                : 'Removed from your spend totals. History &amp; receipts are kept — you can reactivate it any time.'}
-            </p>
-          </div>
-        );
-      })()}
-
-      {/* Amount + cadence */}
-      <div className="rounded-kaya bg-white border border-pulse-navy/10 px-5 py-5 sm:px-6 sm:py-6 space-y-4">
-        <div className="flex items-baseline gap-2">
-          <span className="font-display text-3xl font-extrabold text-pulse-navy">
-            {formatCents(sub.amountHousehold, householdCurrency)}
-          </span>
-          <span className="text-sm font-semibold text-pulse-navy/60">
-            / {sub.frequency === 'custom' ? `${sub.customMonths ?? '?'}mo` : sub.frequency}
-          </span>
-        </div>
-        {sub.currencyOriginal !== householdCurrency && (
-          <div className="text-xs font-semibold text-pulse-navy/60 -mt-3">
-            ({formatCents(sub.amountOriginal, sub.currencyOriginal)} @ {sub.fxRate.toFixed(4)})
-          </div>
-        )}
-
-        <hr className="border-pulse-navy/8" />
-
-        <DetailRow label="Monthly equivalent" value={formatCents(sub.monthlyEquivalent, householdCurrency)} />
-        <DetailRow label="Annualized"         value={formatCents(sub.monthlyEquivalent * 12, householdCurrency)} />
-        <DetailRow label="Next billing"        value={toDisplayDate(tsToIso(sub.nextBillingDate))} />
-        <DetailRow label="Started"             value={toDisplayDate(tsToIso(sub.startedOn))} />
-        {sub.trialEndsOn && (
-          <DetailRow label="Trial ends"        value={toDisplayDate(tsToIso(sub.trialEndsOn))} />
-        )}
-      </div>
-
-      {/* Advisory cards — surface any open redirection_opportunity citing this sub */}
-      {profile?.uid && advisoriesForSub(advisories, sub.id).map((adv) => (
-        <div key={adv.id} className="mt-4">
-          <AdvisoryCard
-            familyId={profile.familyId!}
-            uid={profile.uid}
-            advisory={adv}
-            householdCurrency={householdCurrency}
-          />
-        </div>
-      ))}
-
-      {/* Utilisation check-in — surfaces when this sub hasn't been touched
-          in `utilisationCheckDays` days (sticky for Manual subs at 30/60d
-          per cost band). */}
-      {profile?.role === 'parent' && (() => {
-        const lastTouched = (sub.updatedAt?.toMillis?.() ?? sub.createdAt?.toMillis?.() ?? 0);
-        if (!lastTouched) return null;
-        const daysSinceTouch = Math.floor((Date.now() - lastTouched) / 86_400_000);
-        if (daysSinceTouch < sub.utilisationCheckDays) return null;
-        return (
-          <div className="mt-4">
-            <UtilisationCheckIn
-              familyId={profile.familyId!}
-              subId={sub.id}
-              daysSinceTouch={daysSinceTouch}
-              threshold={sub.utilisationCheckDays}
-            />
-          </div>
-        );
-      })()}
-
-      {/* Post-due check — Manual subs with an open cycle past dueDate */}
-      {sub.billingMode === 'manual' && profile?.uid && (() => {
-        const now = Date.now();
-        const openCycle = cycles.find((c) =>
-          (c.status === 'overdue') ||
-          (c.status === 'due') ||
-          (c.status === 'upcoming' && (c.dueDate?.toMillis?.() ?? 0) < now)
-        );
-        if (!openCycle) return null;
-        return (
-          <div className="mt-4">
-            <PostDueCheck
-              familyId={profile.familyId!}
-              subId={sub.id}
-              cycle={openCycle}
-              householdCurrency={householdCurrency}
-              uid={profile.uid}
-            />
-          </div>
-        );
-      })()}
-
-      {/* Recent cycles */}
-      {cycles.length > 0 && (
-        <div className="mt-4 rounded-kaya bg-white border border-pulse-navy/10 px-5 py-4">
-          <div className="text-[11px] font-bold uppercase tracking-wide text-pulse-navy/55 mb-2">
-            Recent cycles
-          </div>
-          <ul className="divide-y divide-pulse-navy/8">
-            {cycles.slice(0, 6).map((c) => (
-              <li key={c.id} className="flex items-center justify-between gap-3 py-2 text-sm">
-                <div>
-                  <div className="font-display font-bold text-pulse-navy">{c.id}</div>
-                  <div className="text-[11px] font-semibold text-pulse-navy/55">
-                    Due {toDisplayDate(tsToIso(c.dueDate))}
-                    {c.paidOn ? ` · Paid ${toDisplayDate(tsToIso(c.paidOn))}` : ''}
-                  </div>
-                </div>
-                <CycleBadge status={c.status} />
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
+  // Web-Fit (2026-08-23): content tier, main + rail. Desktop: amount
+  // card / advisories / cycles stay main; reminder behaviour + parent
+  // actions sit in the right rail. Mobile DOM order unchanged (rail =
+  // `last`, exactly where those blocks were before).
+  const rail = (
+    <>
       {/* Reminder behaviour summary */}
-      <div className="mt-4 rounded-kaya bg-pulse-cream border border-pulse-navy/10 px-5 py-4 space-y-2">
+      <div className="mt-4 lg:mt-0 rounded-kaya bg-pulse-cream border border-pulse-navy/10 px-5 py-4 space-y-2">
         <div className="text-[11px] font-bold uppercase tracking-wide text-pulse-navy/55">
           Reminder behaviour
         </div>
@@ -438,6 +282,177 @@ export default function SubscriptionDetailPage() {
           Edit happens in Kaya Wealth — this subscription mirrors the property asset there.
         </p>
       )}
+    </>
+  );
+
+  return (
+    <div className={`mx-auto max-w-2xl ${PAGE_WIDTH_CLASS.content} px-4 sm:px-6 py-6 sm:py-10`}>
+      <header className="mb-6">
+        <Link href="/household/subscriptions" className="text-xs font-bold uppercase tracking-wide text-pulse-navy/55 hover:text-pulse-navy">
+          ← Subscriptions
+        </Link>
+        <div className="mt-2 flex items-center gap-2">
+          <span className="text-3xl">{subCategoryEmoji(sub.category)}</span>
+          <div>
+            <h1 className="font-display text-2xl font-extrabold text-pulse-navy leading-tight">
+              {sub.name}
+            </h1>
+            <div className="text-xs font-bold uppercase tracking-wide text-pulse-navy/55">
+              {subCategoryLabel(sub.category)} · {sub.subCategory}
+            </div>
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <StatusBadge tone={STATUS_TONE[sub.status]}>{STATUS_LABEL[sub.status]}</StatusBadge>
+          <StatusBadge tone={sub.billingMode === 'auto' ? 'neutral' : 'gold'}>
+            {sub.billingMode === 'auto' ? 'Auto' : 'Manual'}
+          </StatusBadge>
+          {fromWealth && <StatusBadge tone="muted">From Wealth · read-only</StatusBadge>}
+          {sub.isProfessionalExpense && <StatusBadge tone="neutral">Pro expense</StatusBadge>}
+          <StatusBadge tone="neutral">{SUBSCRIPTION_PLATFORMS.find((p) => p.id === (sub.platform ?? 'other'))?.emoji} {platformLabel(sub.platform)}</StatusBadge>
+        </div>
+      </header>
+
+      {/* Status banner — only when held or stopped, so the parent sees at a
+          glance what's happening to the cost. */}
+      {sub.status === 'paused' && (
+        <div className="mb-4 flex items-start gap-2.5 rounded-kaya bg-pulse-navy/5 border border-pulse-navy/12 px-4 py-3">
+          <span className="text-lg leading-none">⏸</span>
+          <p className="text-sm font-semibold text-pulse-navy/75">
+            <b className="font-extrabold">On hold.</b> Not counted in your monthly or annual totals, and
+            reminders are paused.
+            {sub.autoResumeOn
+              ? ` Auto-resumes ${toDisplayDate(tsToIso(sub.autoResumeOn))}.`
+              : ' Resume it any time below.'}
+          </p>
+        </div>
+      )}
+      {sub.status === 'cancelled' && (() => {
+        const prepaidStillCounting =
+          isPrepaidFrequency(sub.frequency, sub.customMonths) &&
+          (sub.nextBillingDate?.toMillis?.() ?? 0) > Date.now();
+        return (
+          <div className="mb-4 flex items-start gap-2.5 rounded-kaya bg-pulse-coral/8 border border-pulse-coral/30 px-4 py-3">
+            <span className="text-lg leading-none">⏹</span>
+            <p className="text-sm font-semibold text-pulse-navy/75">
+              <b className="font-extrabold">Stopped{sub.endedOn ? ` on ${toDisplayDate(tsToIso(sub.endedOn))}` : ''}.</b>{' '}
+              {prepaidStillCounting
+                ? `Already paid for, so it stays in your monthly & annual totals until ${toDisplayDate(tsToIso(sub.nextBillingDate))}, then drops off automatically.`
+                : 'Removed from your spend totals. History &amp; receipts are kept — you can reactivate it any time.'}
+            </p>
+          </div>
+        );
+      })()}
+
+      <PageSplit rail={rail} railMobile="last">
+      {/* Amount + cadence */}
+      <div className="rounded-kaya bg-white border border-pulse-navy/10 px-5 py-5 sm:px-6 sm:py-6 space-y-4">
+        <div className="flex items-baseline gap-2">
+          <span className="font-display text-3xl font-extrabold text-pulse-navy">
+            {formatCents(sub.amountHousehold, householdCurrency)}
+          </span>
+          <span className="text-sm font-semibold text-pulse-navy/60">
+            / {sub.frequency === 'custom' ? `${sub.customMonths ?? '?'}mo` : sub.frequency}
+          </span>
+        </div>
+        {sub.currencyOriginal !== householdCurrency && (
+          <div className="text-xs font-semibold text-pulse-navy/60 -mt-3">
+            ({formatCents(sub.amountOriginal, sub.currencyOriginal)} @ {sub.fxRate.toFixed(4)})
+          </div>
+        )}
+
+        <hr className="border-pulse-navy/8" />
+
+        <DetailRow label="Monthly equivalent" value={formatCents(sub.monthlyEquivalent, householdCurrency)} />
+        <DetailRow label="Annualized"         value={formatCents(sub.monthlyEquivalent * 12, householdCurrency)} />
+        <DetailRow label="Next billing"        value={toDisplayDate(tsToIso(sub.nextBillingDate))} />
+        <DetailRow label="Started"             value={toDisplayDate(tsToIso(sub.startedOn))} />
+        {sub.trialEndsOn && (
+          <DetailRow label="Trial ends"        value={toDisplayDate(tsToIso(sub.trialEndsOn))} />
+        )}
+      </div>
+
+      {/* Advisory cards — surface any open redirection_opportunity citing this sub */}
+      {profile?.uid && advisoriesForSub(advisories, sub.id).map((adv) => (
+        <div key={adv.id} className="mt-4">
+          <AdvisoryCard
+            familyId={profile.familyId!}
+            uid={profile.uid}
+            advisory={adv}
+            householdCurrency={householdCurrency}
+          />
+        </div>
+      ))}
+
+      {/* Utilisation check-in — surfaces when this sub hasn't been touched
+          in `utilisationCheckDays` days (sticky for Manual subs at 30/60d
+          per cost band). */}
+      {profile?.role === 'parent' && (() => {
+        const lastTouched = (sub.updatedAt?.toMillis?.() ?? sub.createdAt?.toMillis?.() ?? 0);
+        if (!lastTouched) return null;
+        const daysSinceTouch = Math.floor((Date.now() - lastTouched) / 86_400_000);
+        if (daysSinceTouch < sub.utilisationCheckDays) return null;
+        return (
+          <div className="mt-4">
+            <UtilisationCheckIn
+              familyId={profile.familyId!}
+              subId={sub.id}
+              daysSinceTouch={daysSinceTouch}
+              threshold={sub.utilisationCheckDays}
+            />
+          </div>
+        );
+      })()}
+
+      {/* Post-due check — Manual subs with an open cycle past dueDate */}
+      {sub.billingMode === 'manual' && profile?.uid && (() => {
+        const now = Date.now();
+        const openCycle = cycles.find((c) =>
+          (c.status === 'overdue') ||
+          (c.status === 'due') ||
+          (c.status === 'upcoming' && (c.dueDate?.toMillis?.() ?? 0) < now)
+        );
+        if (!openCycle) return null;
+        return (
+          <div className="mt-4">
+            <PostDueCheck
+              familyId={profile.familyId!}
+              subId={sub.id}
+              cycle={openCycle}
+              householdCurrency={householdCurrency}
+              uid={profile.uid}
+            />
+          </div>
+        );
+      })()}
+
+      {/* Recent cycles */}
+      {cycles.length > 0 && (
+        <div className="mt-4 rounded-kaya bg-white border border-pulse-navy/10 px-5 py-4">
+          <div className="text-[11px] font-bold uppercase tracking-wide text-pulse-navy/55 mb-2">
+            Recent cycles
+          </div>
+          <ul className="divide-y divide-pulse-navy/8">
+            {cycles.slice(0, 6).map((c) => (
+              <li key={c.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                <div>
+                  <div className="font-display font-bold text-pulse-navy">{c.id}</div>
+                  <div className="text-[11px] font-semibold text-pulse-navy/55">
+                    Due {toDisplayDate(tsToIso(c.dueDate))}
+                    {c.paidOn ? ` · Paid ${toDisplayDate(tsToIso(c.paidOn))}` : ''}
+                  </div>
+                </div>
+                <CycleBadge status={c.status} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      </PageSplit>
+      {/* Reminder behaviour + parent actions render in the PageSplit
+          rail above (mobile: directly after Recent cycles, as before). */}
+
 
       {/* Inline edit sheet — opens above the detail card when Edit is tapped. */}
       {editOpen && !fromWealth && profile?.familyId && subId && (

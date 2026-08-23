@@ -54,6 +54,7 @@ import { subscribeToPerformancePolicy, isHelperTracked } from '@/lib/performance
 import { fetchRatingsLite, helperToFillLite } from '@/lib/routineFill';
 import { computeRoutineFill, fillCodes, mondayOf, addDays, ymdLocal } from '@/lib/routineFillCore';
 import type { HelperLink, PerformancePolicy } from '@/lib/firestore';
+import { Page } from '@/components/layout/Page';
 
 // Emoji map per preset — same vocabulary as the role chips in
 // Settings → Helpers add form. Used as the avatar on each row.
@@ -189,8 +190,11 @@ export default function PantryWorkplanPage() {
 
   if (!family) return null;
 
+  // Web-Fit (2026-08-23): wide tier container (was lg:max-w-6xl). The
+  // two-pane desktop layout (HP2 D16) already exists below; mobile
+  // accordion unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-6xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="wide" className="pb-32 lg:pb-12">
       <div className="lg:hidden"><BackButton /></div>
       <div className="mb-3 flex items-center justify-between gap-3">
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">Household · Workplan</p>
@@ -364,7 +368,7 @@ export default function PantryWorkplanPage() {
           </p>
         </div>
       )}
-    </div>
+    </Page>
   );
 }
 

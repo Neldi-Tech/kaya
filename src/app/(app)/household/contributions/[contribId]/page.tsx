@@ -19,6 +19,7 @@ import PaidByPicker, { type PaidByValue } from '@/components/household/PaidByPic
 import { formatCents } from '@/components/pantry/format';
 import { toDisplayDate } from '@/lib/dates';
 import { StatusBadge, type StatusTone } from '@/components/household/StatusBadge';
+import { PAGE_WIDTH_CLASS, PageSplit } from '@/components/layout/Page';
 
 const VISIBILITY_TONE: Record<Contribution['visibility'], StatusTone> = {
   parents_only:     'muted',
@@ -86,8 +87,42 @@ export default function ContributionDetailPage() {
     ? `${(contrib.percentRate ?? 0).toFixed(1)}% of income`
     : null;
 
+  // Web-Fit (2026-08-23): content tier. Desktop: summary card stays
+  // main, parent Edit/Delete actions sit in the right rail. Mobile DOM
+  // order unchanged (rail = `last`, exactly where the actions were).
+  const parentActions = profile?.role === 'parent' ? (
+        <div className="mt-5 lg:mt-0 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setEditOpen(true)}
+            className="flex-1 rounded-kaya bg-pulse-gold/15 border border-pulse-gold/30 text-pulse-navy font-extrabold text-sm py-2.5 hover:bg-pulse-gold/25 transition"
+          >
+            ✏️ Edit
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              if (!profile?.familyId || !contribId) return;
+              const ok = typeof window !== 'undefined' && window.confirm(
+                `Delete "${contrib.recipientName}"?\n\nThis can’t be undone.`,
+              );
+              if (!ok) return;
+              try {
+                await deleteContribution(profile.familyId, contribId);
+                router.replace('/household/contributions');
+              } catch (e) {
+                window.alert(`Delete failed: ${(e as Error).message || 'unknown error'}`);
+              }
+            }}
+            className="rounded-kaya bg-pulse-coral/12 border border-pulse-coral/35 text-pulse-coral font-extrabold text-sm py-2.5 px-4 hover:bg-pulse-coral/22 transition"
+          >
+            🗑 Delete
+          </button>
+        </div>
+  ) : null;
+
   return (
-    <div className="mx-auto max-w-2xl px-4 sm:px-6 py-6 sm:py-10">
+    <div className={`mx-auto max-w-2xl ${PAGE_WIDTH_CLASS.content} px-4 sm:px-6 py-6 sm:py-10`}>
       <header className="mb-6">
         <Link href="/household/contributions" className="text-xs font-bold uppercase tracking-wide text-pulse-navy/55 hover:text-pulse-navy">
           ← Contributions
@@ -111,6 +146,7 @@ export default function ContributionDetailPage() {
         </div>
       </header>
 
+      <MaybeSplit rail={parentActions}>
       <div className="rounded-kaya bg-white border border-pulse-navy/10 px-5 py-5 sm:px-6 sm:py-6 space-y-4">
         {/* Amount block */}
         <div className="flex items-baseline gap-2">
@@ -160,37 +196,9 @@ export default function ContributionDetailPage() {
         )}
       </div>
 
-      {/* Parent actions — Edit + Delete. */}
-      {profile?.role === 'parent' && (
-        <div className="mt-5 flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setEditOpen(true)}
-            className="flex-1 rounded-kaya bg-pulse-gold/15 border border-pulse-gold/30 text-pulse-navy font-extrabold text-sm py-2.5 hover:bg-pulse-gold/25 transition"
-          >
-            ✏️ Edit
-          </button>
-          <button
-            type="button"
-            onClick={async () => {
-              if (!profile?.familyId || !contribId) return;
-              const ok = typeof window !== 'undefined' && window.confirm(
-                `Delete "${contrib.recipientName}"?\n\nThis can’t be undone.`,
-              );
-              if (!ok) return;
-              try {
-                await deleteContribution(profile.familyId, contribId);
-                router.replace('/household/contributions');
-              } catch (e) {
-                window.alert(`Delete failed: ${(e as Error).message || 'unknown error'}`);
-              }
-            }}
-            className="rounded-kaya bg-pulse-coral/12 border border-pulse-coral/35 text-pulse-coral font-extrabold text-sm py-2.5 px-4 hover:bg-pulse-coral/22 transition"
-          >
-            🗑 Delete
-          </button>
-        </div>
-      )}
+      </MaybeSplit>
+      {/* Parent actions — Edit + Delete — render in the PageSplit rail
+          above (mobile: directly after the card, as before). */}
 
       {editOpen && profile?.familyId && contribId && (
         <ContributionEditSheet
@@ -207,6 +215,12 @@ export default function ContributionDetailPage() {
       )}
     </div>
   );
+}
+
+/** PageSplit only when there is a rail (parents); helpers get the plain card. */
+function MaybeSplit({ rail, children }: { rail: React.ReactNode; children: React.ReactNode }) {
+  if (!rail) return <>{children}</>;
+  return <PageSplit rail={rail} railMobile="last">{children}</PageSplit>;
 }
 
 // ── Edit sheet ───────────────────────────────────────────────────────

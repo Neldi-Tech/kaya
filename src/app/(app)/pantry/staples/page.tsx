@@ -26,6 +26,7 @@ import SupplierBadge from '@/components/pantry/SupplierBadge';
 import NumberInput from '@/components/ui/NumberInput';
 import BackButton from '@/components/ui/BackButton';
 import { toDisplayDate } from '@/lib/dates';
+import { Page, DataRows, DATA_ROW } from '@/components/layout/Page';
 
 type Filter = 'all' | StapleCategory;
 
@@ -143,8 +144,11 @@ export default function StaplesPage() {
     exitSelectMode();
   };
 
+  // Web-Fit (2026-08-23): wide tier. Desktop: staples render as dense
+  // rows in one panel. Mobile markup/order unchanged — only `lg:`
+  // classes were added (header keeps its own action buttons).
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="wide" className="pb-32 lg:pb-12">
       <div className="lg:hidden"><BackButton /></div>
       {/* Staples ↔ Browse explainer banner (v4-final §05) — clarifies
           the distinction Elia called out: Staples is the family's
@@ -303,7 +307,7 @@ export default function StaplesPage() {
           </p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <DataRows tone="hive">
           {visible.map((s) => (
             <StapleRow
               key={s.id}
@@ -321,7 +325,7 @@ export default function StaplesPage() {
               onToggleSelect={() => toggleSelect(s.id)}
             />
           ))}
-        </div>
+        </DataRows>
       )}
 
       <p className="text-center text-[11px] text-hive-muted mt-6 leading-relaxed">
@@ -353,7 +357,7 @@ export default function StaplesPage() {
           </div>
         </div>
       )}
-    </div>
+    </Page>
   );
 }
 
@@ -456,7 +460,7 @@ function StapleRow({
   // a button — this gives us keyboard activation + the right hit
   // target for thumbs. Outside select mode the row stays a div so
   // the inline price input doesn't accidentally toggle anything.
-  const rowOuterClass = `bg-hive-paper border rounded-hive p-3 flex items-center gap-3 ${
+  const rowOuterClass = `bg-hive-paper border rounded-hive p-3 flex items-center gap-3 lg:px-4 lg:py-3 ${DATA_ROW} ${
     selectMode && selected
       ? 'border-hive-rose ring-2 ring-hive-rose/30 bg-hive-rose/5'
       : 'border-hive-line'

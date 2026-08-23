@@ -26,6 +26,7 @@ import { suggestCatalogueLocales, COUNTRY_PICKS, countryLabel } from '@/lib/cata
 import { addStaple, type Staple } from '@/lib/pantry';
 import { formatCents } from '@/components/pantry/format';
 import { FOOD_CATEGORY_CHIPS, HOUSEHOLD_CATEGORY_CHIPS } from '@/lib/pantryDirectory';
+import { Page, PageHeader } from '@/components/layout/Page';
 
 const OTHER_TABS: { id: CatalogueModule; emoji: string; label: string }[] = [
   { id: 'outdoor',       emoji: '🌿',  label: 'Outdoor' },
@@ -144,9 +145,12 @@ export default function BrowseCataloguePage() {
 
   const switchSection = (s: CatalogueSection) => { setSection(s); setCat('all'); setQ(''); };
 
+  // Web-Fit (2026-08-23): wide tier. Desktop: section toggle + search
+  // share one row, catalogue cards render 3-up. Mobile markup/order is
+  // unchanged — only `lg:` classes + a layout-neutral wrapper were added.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
-      <div className="mb-3">
+    <Page width="wide" className="pb-32 lg:pb-12">
+      <PageHeader>
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">
           Household · Browse Catalogue
         </p>
@@ -182,10 +186,11 @@ export default function BrowseCataloguePage() {
             </div>
           )}
         </div>
-      </div>
+      </PageHeader>
 
+      <div className="lg:flex lg:items-start lg:gap-3">
       {/* Section toggle */}
-      <div className="flex bg-hive-paper border border-hive-line rounded-hive p-1 mb-3">
+      <div className="flex bg-hive-paper border border-hive-line rounded-hive p-1 mb-3 lg:w-[380px] lg:shrink-0">
         <button
           type="button"
           onClick={() => switchSection('pantry')}
@@ -203,7 +208,7 @@ export default function BrowseCataloguePage() {
       </div>
 
       {/* Search (brand-aware) */}
-      <div className="relative mb-3">
+      <div className="relative mb-3 lg:flex-1">
         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-hive-muted text-sm pointer-events-none">🔍</span>
         <input
           type="text"
@@ -215,6 +220,7 @@ export default function BrowseCataloguePage() {
         {q && (
           <button type="button" onClick={() => setQ('')} className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-hive-line text-hive-muted text-sm font-black" aria-label="Clear">×</button>
         )}
+      </div>
       </div>
 
       {/* Sub-tabs: surface for Pantry, module for Other */}
@@ -330,7 +336,7 @@ export default function BrowseCataloguePage() {
           </p>
         </div>
       ) : (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 lg:grid lg:grid-cols-3 lg:gap-3">
           {items.map((it) => (
             <CatalogueCard
               key={it.id}
@@ -349,7 +355,7 @@ export default function BrowseCataloguePage() {
       <p className="text-[11px] text-hive-muted text-center mt-6 font-bold">
         Added items land in your <Link href="/pantry/staples" className="text-pantry-leaf-dk underline">Staples</Link> with the local name + brands + price pre-filled.
       </p>
-    </div>
+    </Page>
   );
 }
 

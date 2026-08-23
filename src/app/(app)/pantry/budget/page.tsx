@@ -36,6 +36,7 @@ import { subscribeToVehicles, type Vehicle } from '@/lib/vehicles';
 import { subscribeToMeters, type UtilityMeter } from '@/lib/utilityMeters';
 import { listHelpers } from '@/lib/helpers';
 import type { HelperLink } from '@/lib/firestore';
+import { Page, PageHeader, DataRows, DATA_ROW, DATA_ROW_HOVER } from '@/components/layout/Page';
 
 const monthKey = (d: Date = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -269,9 +270,16 @@ export default function BudgetPage() {
   const totalBaseline = MODULE_CARDS.reduce((sum, m) => sum + (rollingAverages.averages[m.id] ?? 0), 0);
   const plannedSavings = Math.max(0, totalBaseline - totalCap);
 
+  // Web-Fit (2026-08-23): wide tier (dashboard). Desktop: roll-up +
+  // savings commentary on the left, starter-budget CTA on the right;
+  // module cards 3-up; closed requests as dense rows. Mobile markup/
+  // order unchanged — only `lg:` classes + layout-neutral wrappers.
+  const showSuggest = isParent && Object.values(caps).some((c) => !c || c <= 0);
+  const heroSplit = showSuggest && totalCap > 0;
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
-      <div className="mb-3">
+    <Page width="wide" className="pb-32 lg:pb-12">
+      <PageHeader>
         <div className="flex items-center justify-between">
           <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">
             Household · Budget
@@ -290,8 +298,10 @@ export default function BudgetPage() {
         <p className="text-hive-muted text-sm mt-1">
           Per-module caps roll into Household Finances. Set a cap per module — the spend bar tracks the current month's closed shops.
         </p>
-      </div>
+      </PageHeader>
 
+      <div className={`lg:grid lg:gap-4 lg:items-start ${heroSplit ? 'lg:grid-cols-3' : ''}`}>
+      <div className={heroSplit ? 'lg:col-span-2' : ''}>
       {/* Roll-up strip — only when at least one cap is set. Helps the
           parent see the household's monthly money posture at a glance. */}
       {totalCap > 0 && (
@@ -330,7 +340,8 @@ export default function BudgetPage() {
           starter-pack sheet (numbers derived from family-size signals).
           Only shows when at LEAST ONE module is uncapped — once every
           module has a cap, we hide it so the home stays clean. */}
-      {isParent && Object.values(caps).some((c) => !c || c <= 0) && (
+      </div>
+      {showSuggest && (
         <button
           type="button"
           onClick={() => setSuggestOpen(true)}
@@ -346,9 +357,10 @@ export default function BudgetPage() {
           <span className="font-nunito font-black text-hive-honey-dk text-lg">→</span>
         </button>
       )}
+      </div>
 
       {/* Per-module cards */}
-      <div className="mt-4 flex flex-col gap-3">
+      <div className="mt-4 flex flex-col gap-3 lg:grid lg:grid-cols-3 lg:gap-4">
         {MODULE_CARDS.map((m) => {
           const cap = caps[m.id];
           const spent = spentByModule[m.id];
@@ -529,7 +541,7 @@ export default function BudgetPage() {
             No purchases closed yet this month. They'll appear here as soon as a helper reconciles a shop.
           </div>
         ) : (
-          <div className="flex flex-col gap-2">
+          <DataRows tone="hive">
             {closedThisMonth.map((r) => {
               const total = r.actualTotalCents ?? r.estimatedTotalCents ?? 0;
               const m = MODULE_CARDS.find((x) => x.id === (r.module ?? 'pantry'));
@@ -537,7 +549,7 @@ export default function BudgetPage() {
                 <Link
                   key={r.id}
                   href={`/pantry/purchase/${r.id}`}
-                  className="bg-hive-paper border border-hive-line rounded-hive p-3.5 flex items-center gap-3 no-underline"
+                  className={`bg-hive-paper border border-hive-line rounded-hive p-3.5 flex items-center gap-3 no-underline lg:px-4 lg:py-3 ${DATA_ROW} ${DATA_ROW_HOVER}`}
                 >
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-base ${m?.tint ?? 'bg-pantry-leaf-soft'}`}>
                     {m?.emoji ?? '🧾'}
@@ -554,10 +566,10 @@ export default function BudgetPage() {
                 </Link>
               );
             })}
-          </div>
+          </DataRows>
         )}
       </div>
-    </div>
+    </Page>
   );
 }
 
