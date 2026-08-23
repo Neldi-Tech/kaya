@@ -11,6 +11,7 @@ import {
   updateFamily, readRecognitionConfig, getFamilyMembers,
   type UserProfile,
 } from '@/lib/firestore';
+import KayaLearnedLine from '@/components/rewards/RecognitionLearned';
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
@@ -130,6 +131,9 @@ export default function RecognitionRoundsCard() {
           💬 WhatsApp — coming soon
         </span>
       </div>
+
+      {/* 🧠 DL PR-B — what the ✕ dismissals taught Kaya (read-only). */}
+      <KayaLearnedLine variant="full" />
 
       <div className="flex items-center gap-2">
         <button

@@ -8,6 +8,8 @@
 //               non-round days — every act of noticing paints)
 //   🟨 gold   = 🤝 Double Shine day (both parents celebrated one kid)
 //   🟥 red    = a round fired and 72h passed with no celebration
+//   ◻︎ lilac  = a round fired, no card, every item ✕ dismissed with a
+//               reason — "reviewed — Kaya learned" (DL PR-B)
 //   ⏳ cream  = a round fired and is still within its 72h window
 //   cream     = no round scheduled that day
 // Green/gold days OPEN: the day sheet lists what was provided (award
@@ -26,6 +28,8 @@ import {
   type ShineCard, type RecognitionRound,
 } from '@/lib/shineCards';
 import { toDisplayDate } from '@/lib/dates';
+import { roundOutcome, roundStreak, dismissReason, dismissKey } from '@/lib/recognitionDismiss';
+import KayaLearnedLine from '@/components/rewards/RecognitionLearned';
 
 type View = 'week' | 'month' | '3mo' | 'custom' | 'rounds';
 
@@ -88,13 +92,18 @@ export default function RecognitionHitMap({ showStats = true }: { showStats?: bo
     return m;
   }, [cards]);
   const roundDays = useMemo(() => new Set(rounds.map((r) => r.date)), [rounds]);
+  const roundByDate = useMemo(() => new Map(rounds.map((r) => [r.date, r])), [rounds]);
+  const cardsAt = useMemo(() => cards.map((c) => c.at), [cards]);
 
-  const answeredRound = useMemo(() => (date: string): boolean => {
-    // A round is "answered" when any Shine Card lands within 72h of it.
-    const start = new Date(`${date}T00:00:00`).getTime();
-    const end = start + 72 * 3600_000;
-    return cards.some((c) => c.at >= start && c.at < end);
-  }, [cards]);
+  // ✕ DL PR-B — dismissed items of a round day (for the day sheet).
+  const dismissedOf = (date: string) => {
+    const r = roundByDate.get(date);
+    if (!r?.dismissed) return [];
+    return r.items
+      .map((it) => ({ it, d: r.dismissed![dismissKey(it.kidId, it.kind)] }))
+      .filter((x) => !!x.d)
+      .sort((a, b) => a.d.at - b.d.at);
+  };
 
   const todayKey = dayKeyLocal(new Date());
   const classify = (date: string): { cls: string; mark: string } => {
@@ -109,11 +118,13 @@ export default function RecognitionHitMap({ showStats = true }: { showStats?: bo
       if (valuable) return { cls: 'greendark', mark: noteMark || '💎' };
       return { cls: 'green', mark: noteMark || (roundDays.has(date) ? '⭐' : '✨') };
     }
-    if (roundDays.has(date)) {
-      const roundStart = new Date(`${date}T00:00:00`).getTime();
-      const windowOpen = Date.now() < roundStart + 72 * 3600_000;
-      if (answeredRound(date)) return { cls: 'green', mark: '⭐' };
-      return windowOpen ? { cls: 'off', mark: '⏳' } : { cls: 'red', mark: '' };
+    const round = roundByDate.get(date);
+    if (round) {
+      // answered / ◻︎ reviewed (all items ✕ dismissed) / ⏳ open / missed
+      const o = roundOutcome(round, cardsAt, Date.now());
+      if (o === 'answered') return { cls: 'green', mark: '⭐' };
+      if (o === 'reviewed') return { cls: 'rev', mark: '◻︎' };
+      return o === 'open' ? { cls: 'off', mark: '⏳' } : { cls: 'red', mark: '' };
     }
     return date > todayKey ? { cls: 'future', mark: '' } : { cls: 'off', mark: '' };
   };
@@ -125,20 +136,14 @@ export default function RecognitionHitMap({ showStats = true }: { showStats?: bo
     const weekCards = cards.filter((c) => c.at >= monday.getTime());
     const byGiver = new Map<string, number>();
     for (const c of weekCards) byGiver.set(c.byName, (byGiver.get(c.byName) || 0) + 1);
-    // 🔥 consecutive answered rounds (skip rounds still in their window).
-    let streak = 0;
-    for (const r of [...rounds].sort((a, b) => b.date.localeCompare(a.date))) {
-      const start = new Date(`${r.date}T00:00:00`).getTime();
-      if (Date.now() < start + 72 * 3600_000 && !answeredRound(r.date)) continue;
-      if (answeredRound(r.date)) streak++;
-      else break;
-    }
+    // 🔥 consecutive HANDLED rounds — answered OR ◻︎ reviewed (DL PR-B).
+    const streak = roundStreak(rounds, cardsAt, Date.now());
     return {
       weekCount: weekCards.length,
       streak,
       split: [...byGiver.entries()].map(([n, c]) => `${n} ${c}`).join(' · ') || '—',
     };
-  }, [cards, rounds, answeredRound]);
+  }, [cards, rounds, cardsAt]);
 
   // ── Visible day range per view ──────────────────────────────────
   const days: string[] = useMemo(() => {
@@ -191,11 +196,14 @@ export default function RecognitionHitMap({ showStats = true }: { showStats?: bo
     greendark: 'bg-[#4E9464] text-white cursor-pointer shadow-[inset_0_0_0_1.5px_#3a7550]',
     gold: 'bg-gradient-to-br from-[#F3D06A] to-[#D4A017] text-[#5c4102] cursor-pointer',
     red: 'bg-[#F9D9D4] text-[#a34335]',
+    rev: 'bg-[#E7E1F7] text-[#4a3a86] cursor-pointer border-[1.5px] border-dashed border-[#B7A6E6]',
     off: 'bg-[#F4F0E8] text-[#c9c0ae]',
     future: 'bg-white border border-dashed border-kaya-warm-dark text-[#c9c0ae]',
   };
 
   const openCards = openDay ? (cardsByDay.get(openDay) || []) : [];
+  const openDismissed = openDay ? dismissedOf(openDay) : [];
+  const isTappable = (date: string) => (cardsByDay.get(date) || []).length > 0 || dismissedOf(date).length > 0;
 
   return (
     <div className="space-y-3">
@@ -208,7 +216,7 @@ export default function RecognitionHitMap({ showStats = true }: { showStats?: bo
         </div>
         <div className="bg-kaya-warm rounded-kaya-sm p-2.5 text-center">
           <p className="font-display font-black text-lg">🔥 {stats.streak}</p>
-          <p className="text-[8.5px] uppercase tracking-wider font-bold text-kaya-sand">Rounds answered in a row</p>
+          <p className="text-[8.5px] uppercase tracking-wider font-bold text-kaya-sand">Rounds handled in a row</p>
         </div>
         <div className="bg-kaya-warm rounded-kaya-sm p-2.5 text-center">
           <p className="font-display font-black text-[12px] leading-tight mt-1 truncate">{stats.split}</p>
@@ -260,16 +268,18 @@ export default function RecognitionHitMap({ showStats = true }: { showStats?: bo
                 ? `💎 valuable gift — ${dayCards.length} card${dayCards.length === 1 ? '' : 's'} (${dayCards.map((c) => c.kidName).filter((v, i, a) => a.indexOf(v) === i).join(', ')})`
               : cls === 'green'
                 ? `${isRound ? '⭐ answered' : '✨ spontaneous'} — ${dayCards.length} card${dayCards.length === 1 ? '' : 's'} (${dayCards.map((c) => c.kidName).filter((v, i, a) => a.indexOf(v) === i).join(', ')})`
+                : cls === 'rev' ? `◻︎ reviewed — ${dismissedOf(date).length} dismissed, Kaya learned`
                 : cls === 'red' ? 'missed — carried to the next round' : '⏳ round open — still waiting';
             const swatch = cls === 'gold'
               ? 'bg-gradient-to-br from-[#F3D06A] to-[#D4A017]'
               : cls === 'greendark' ? 'bg-[#4E9464]'
-              : cls === 'green' ? 'bg-[#A9D9B4]' : cls === 'red' ? 'bg-[#F9D9D4]' : 'bg-[#F4F0E8]';
+              : cls === 'green' ? 'bg-[#A9D9B4]' : cls === 'red' ? 'bg-[#F9D9D4]'
+              : cls === 'rev' ? 'bg-[#E7E1F7] border border-dashed border-[#B7A6E6]' : 'bg-[#F4F0E8]';
             return (
               <button
                 key={date}
                 type="button"
-                disabled={dayCards.length === 0}
+                disabled={!isTappable(date)}
                 onClick={() => { setOpenDay(date); setNoteFor(null); setNoteText(''); }}
                 className="w-full flex items-center gap-2.5 bg-white border border-kaya-warm-dark rounded-kaya-sm px-3 py-2 text-left disabled:opacity-70"
               >
@@ -292,8 +302,8 @@ export default function RecognitionHitMap({ showStats = true }: { showStats?: bo
           {Array.from({ length: leadingBlanks }, (_, i) => <span key={`b${i}`} />)}
           {days.map((date) => {
             const { cls, mark } = classify(date);
-            const tappable = (cardsByDay.get(date) || []).length > 0;
-            const dimmed = focusDays && !roundDows.has(new Date(`${date}T00:00:00`).getDay()) && cls !== 'green' && cls !== 'greendark' && cls !== 'gold';
+            const tappable = isTappable(date);
+            const dimmed = focusDays && !roundDows.has(new Date(`${date}T00:00:00`).getDay()) && cls !== 'green' && cls !== 'greendark' && cls !== 'gold' && cls !== 'rev';
             return (
               <button
                 key={date}
@@ -313,6 +323,7 @@ export default function RecognitionHitMap({ showStats = true }: { showStats?: bo
           <span><span className="inline-block w-2.5 h-2.5 rounded-[3px] bg-[#A9D9B4] align-[-1px]" /> celebrated / simple gift ⭐/✨</span>
           <span><span className="inline-block w-2.5 h-2.5 rounded-[3px] bg-[#4E9464] align-[-1px]" /> 💎💰 valuable gift (Hive/Treasure)</span>
           <span><span className="inline-block w-2.5 h-2.5 rounded-[3px] bg-gradient-to-br from-[#F3D06A] to-[#D4A017] align-[-1px]" /> 🤝 Double Shine</span>
+          <span><span className="inline-block w-2.5 h-2.5 rounded-[3px] bg-[#E7E1F7] border border-dashed border-[#B7A6E6] align-[-1px]" /> ◻︎ reviewed — dismissed, Kaya learned</span>
           <span><span className="inline-block w-2.5 h-2.5 rounded-[3px] bg-[#F9D9D4] align-[-1px]" /> round missed</span>
           <span><span className="inline-block w-2.5 h-2.5 rounded-[3px] bg-[#F4F0E8] align-[-1px]" /> quiet day</span>
         </div>
@@ -321,9 +332,13 @@ export default function RecognitionHitMap({ showStats = true }: { showStats?: bo
 
       {/* Day sheet */}
       {openDay && (
-        <div className="rounded-kaya border-[1.5px] border-[#7fc290] bg-[#F4FBF6] p-3.5">
+        <div className={`rounded-kaya border-[1.5px] p-3.5 ${openCards.length === 0 && openDismissed.length > 0 ? 'border-[#B7A6E6] bg-[#F7F4FF]' : 'border-[#7fc290] bg-[#F4FBF6]'}`}>
           <div className="flex items-center gap-2 mb-1.5">
-            <p className="text-[12.5px] font-black flex-1">⭐ {toDisplayDate(openDay) || openDay} · {openCards.length} recognition{openCards.length === 1 ? '' : 's'}</p>
+            <p className="text-[12.5px] font-black flex-1">
+              {openCards.length === 0 && openDismissed.length > 0
+                ? `◻︎ ${toDisplayDate(openDay) || openDay} · reviewed — ${openDismissed.length} dismissed, no card`
+                : `⭐ ${toDisplayDate(openDay) || openDay} · ${openCards.length} recognition${openCards.length === 1 ? '' : 's'}`}
+            </p>
             <button type="button" onClick={() => setOpenDay(null)} className="text-kaya-sand font-black px-1">×</button>
           </div>
           {openCards.map((c) => (
@@ -366,6 +381,22 @@ export default function RecognitionHitMap({ showStats = true }: { showStats?: bo
               )}
             </div>
           ))}
+          {/* ✕ DL PR-B — dismissed proposals that day + what Kaya learned. */}
+          {openDismissed.length > 0 && (
+            <div className={openCards.length > 0 ? 'mt-2 pt-2 border-t border-dashed border-[#d6cdf2]' : ''}>
+              {openDismissed.map(({ it, d }) => {
+                const r = dismissReason(d.code);
+                return (
+                  <p key={`${it.kidId}-${it.kind}`} className="text-[11.5px] py-1 border-b border-dashed border-[#d6cdf2] last:border-b-0">
+                    {r.emoji} {it.emoji} <b>{it.kidName}</b> — {r.label}{d.note ? ` · “${d.note}”` : ''} <span className="text-kaya-sand">· {d.byName}</span>
+                  </p>
+                );
+              })}
+              <p className="text-[10.5px] mt-1.5" style={{ color: '#4a3a86' }}>
+                🧠 Kaya learned: {openDismissed.map(({ it, d }) => `${it.kidName} — ${dismissReason(d.code).effect}`).join(' · ')}
+              </p>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -388,16 +419,8 @@ export function RecognitionStats() {
           listShineCards(familyId).catch(() => [] as ShineCard[]),
           listRounds(familyId).catch(() => [] as RecognitionRound[]),
         ]);
-        const answered = (date: string) => {
-          const start = new Date(`${date}T00:00:00`).getTime();
-          return cards.some((c) => c.at >= start && c.at < start + 72 * 3600_000);
-        };
-        let streak = 0;
-        for (const r of [...rounds].sort((a, b) => b.date.localeCompare(a.date))) {
-          const start = new Date(`${r.date}T00:00:00`).getTime();
-          if (Date.now() < start + 72 * 3600_000 && !answered(r.date)) continue;
-          if (answered(r.date)) streak++; else break;
-        }
+        // 🔥 handled rounds in a row (answered OR ◻︎ reviewed — DL PR-B).
+        const streak = roundStreak(rounds, cards.map((c) => c.at), Date.now());
         const monday = new Date(); monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7)); monday.setHours(0, 0, 0, 0);
         const weekCards = cards.filter((c) => c.at >= monday.getTime());
         const byGiver = new Map<string, number>();
@@ -412,19 +435,23 @@ export function RecognitionStats() {
   }, [familyId]);
   if (!stats) return null;
   return (
-    <div className="grid grid-cols-3 gap-2 mb-4">
-      <div className="bg-white border border-kaya-warm-dark rounded-kaya-sm p-2.5 text-center">
-        <p className="font-display font-black text-lg">{stats.week}</p>
-        <p className="text-[8.5px] uppercase tracking-wider font-bold text-kaya-sand">Cards this week</p>
+    <div className="mb-4">
+      <div className="grid grid-cols-3 gap-2">
+        <div className="bg-white border border-kaya-warm-dark rounded-kaya-sm p-2.5 text-center">
+          <p className="font-display font-black text-lg">{stats.week}</p>
+          <p className="text-[8.5px] uppercase tracking-wider font-bold text-kaya-sand">Cards this week</p>
+        </div>
+        <div className="bg-white border border-kaya-warm-dark rounded-kaya-sm p-2.5 text-center">
+          <p className="font-display font-black text-lg">🔥 {stats.streak}</p>
+          <p className="text-[8.5px] uppercase tracking-wider font-bold text-kaya-sand">Rounds handled in a row</p>
+        </div>
+        <div className="bg-white border border-kaya-warm-dark rounded-kaya-sm p-2.5 text-center">
+          <p className="font-display font-black text-[12px] leading-tight mt-1 truncate">{stats.split}</p>
+          <p className="text-[8.5px] uppercase tracking-wider font-bold text-kaya-sand mt-0.5">This week — who gave</p>
+        </div>
       </div>
-      <div className="bg-white border border-kaya-warm-dark rounded-kaya-sm p-2.5 text-center">
-        <p className="font-display font-black text-lg">🔥 {stats.streak}</p>
-        <p className="text-[8.5px] uppercase tracking-wider font-bold text-kaya-sand">Rounds answered in a row</p>
-      </div>
-      <div className="bg-white border border-kaya-warm-dark rounded-kaya-sm p-2.5 text-center">
-        <p className="font-display font-black text-[12px] leading-tight mt-1 truncate">{stats.split}</p>
-        <p className="text-[8.5px] uppercase tracking-wider font-bold text-kaya-sand mt-0.5">This week — who gave</p>
-      </div>
+      {/* 🧠 DL PR-B — what the ✕ dismissals taught Kaya (quiet when none). */}
+      <KayaLearnedLine variant="compact" className="mt-2" />
     </div>
   );
 }
