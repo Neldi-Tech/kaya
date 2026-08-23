@@ -19,6 +19,7 @@ import {
   Post, Comment, Reaction, REACTION_EMOJIS,
 } from '@/lib/moments';
 import BackButton from '@/components/ui/BackButton';
+import { Page, PageSplit } from '@/components/layout/Page';
 import KidAvatar from '@/components/ui/KidAvatar';
 import { downloadImage, suggestedPhotoFilename } from '@/lib/downloadImage';
 
@@ -157,101 +158,11 @@ export default function PostDetailPage() {
     await deleteComment(profile.familyId, post.id, id);
   };
 
-  return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
-      <div className="lg:hidden"><BackButton /></div>
-
-      {/* Author bar */}
-      <div className="bg-white border border-kaya-warm-dark rounded-kaya p-3 flex items-center gap-3 mb-3">
-        {post.authorAvatar ? (
-          <img src={post.authorAvatar} alt={post.authorName} className="w-11 h-11 rounded-full object-cover bg-kaya-warm" />
-        ) : (
-          <div className="w-11 h-11 rounded-full bg-gradient-to-br from-kaya-gold to-kaya-gold-dark flex items-center justify-center text-white font-black">
-            {post.authorName?.[0]?.toUpperCase() || '?'}
-          </div>
-        )}
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-bold">{post.authorName}</p>
-          <p className="text-[11px] text-kaya-sand">
-            {dateLabel}{event && <> · {event.emoji} {event.label}</>}
-            {wasEdited && <span className="ml-1 italic text-kaya-sand-light">· edited</span>}
-          </p>
-        </div>
-        {canEditPost && (
-          <Link
-            href={`/moments/${post.id}/edit`}
-            className="h-8 px-3 inline-flex items-center bg-kaya-gold/15 text-kaya-chocolate rounded-kaya-sm text-[11px] font-bold hover:bg-kaya-gold/25 transition-colors"
-          >
-            Edit
-          </Link>
-        )}
-      </div>
-
-      {/* Photo stack */}
-      <div className="space-y-2 mb-3">
-        {post.photos.map((p) => (
-          <div
-            key={p.id}
-            className="relative overflow-hidden rounded-kaya bg-kaya-warm-dark/20"
-            style={{ aspectRatio: `${p.width} / ${p.height}` }}
-          >
-            {p.kind === 'video' && p.videoUrl ? (
-              <video
-                src={p.videoUrl}
-                poster={p.feedUrl}
-                controls
-                playsInline
-                preload="metadata"
-                className="absolute inset-0 w-full h-full object-contain bg-black"
-              />
-            ) : (
-              <button
-                type="button"
-                onClick={() => downloadPhoto(p.id, p.fullUrl)}
-                disabled={downloadingId === p.id}
-                aria-label="Download photo"
-                className="absolute inset-0 w-full h-full p-0 border-0 bg-transparent cursor-pointer"
-              >
-                <img
-                  src={p.feedUrl}
-                  alt=""
-                  className="absolute inset-0 w-full h-full object-cover"
-                  loading="lazy"
-                />
-                {downloadingId === p.id && (
-                  <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-white text-xs font-display font-bold">
-                    Saving…
-                  </span>
-                )}
-              </button>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* Caption + kid tags */}
-      {(post.caption || taggedKids.length > 0) && (
-        <div className="bg-white border border-kaya-warm-dark rounded-kaya p-3 mb-3 space-y-2">
-          {post.caption && (
-            <p className="text-sm leading-relaxed whitespace-pre-wrap">{post.caption}</p>
-          )}
-          {taggedKids.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {taggedKids.map((c) => (
-                <span
-                  key={c.id}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold text-white"
-                  style={{ backgroundColor: c.houseColor }}
-                >
-                  <KidAvatar child={c} size="xs" />
-                  {c.name}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
+  // Web-Fit (2026-08-23): content tier (detail). Desktop: photos +
+  // caption in the main column, reactions + comments in the right rail.
+  // railMobile="last" keeps the mobile order exactly as before.
+  const rail = (
+    <>
       {/* Reaction bar */}
       <div className="bg-white border border-kaya-warm-dark rounded-kaya p-3 mb-3">
         <p className="text-[10px] text-kaya-sand-light font-bold uppercase tracking-wider mb-2">
@@ -349,6 +260,106 @@ export default function PostDetailPage() {
           </div>
         )}
       </div>
-    </div>
+    </>
+  );
+
+  return (
+    <Page width="content" className="pb-32">
+      <div className="lg:hidden"><BackButton /></div>
+
+      <PageSplit rail={rail} railMobile="last" railWidth={360} sticky={false}>
+      {/* Author bar */}
+      <div className="bg-white border border-kaya-warm-dark rounded-kaya p-3 flex items-center gap-3 mb-3">
+        {post.authorAvatar ? (
+          <img src={post.authorAvatar} alt={post.authorName} className="w-11 h-11 rounded-full object-cover bg-kaya-warm" />
+        ) : (
+          <div className="w-11 h-11 rounded-full bg-gradient-to-br from-kaya-gold to-kaya-gold-dark flex items-center justify-center text-white font-black">
+            {post.authorName?.[0]?.toUpperCase() || '?'}
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold">{post.authorName}</p>
+          <p className="text-[11px] text-kaya-sand">
+            {dateLabel}{event && <> · {event.emoji} {event.label}</>}
+            {wasEdited && <span className="ml-1 italic text-kaya-sand-light">· edited</span>}
+          </p>
+        </div>
+        {canEditPost && (
+          <Link
+            href={`/moments/${post.id}/edit`}
+            className="h-8 px-3 inline-flex items-center bg-kaya-gold/15 text-kaya-chocolate rounded-kaya-sm text-[11px] font-bold hover:bg-kaya-gold/25 transition-colors"
+          >
+            Edit
+          </Link>
+        )}
+      </div>
+
+      {/* Photo stack */}
+      <div className="space-y-2 mb-3">
+        {post.photos.map((p) => (
+          <div
+            key={p.id}
+            className="relative overflow-hidden rounded-kaya bg-kaya-warm-dark/20"
+            style={{ aspectRatio: `${p.width} / ${p.height}` }}
+          >
+            {p.kind === 'video' && p.videoUrl ? (
+              <video
+                src={p.videoUrl}
+                poster={p.feedUrl}
+                controls
+                playsInline
+                preload="metadata"
+                className="absolute inset-0 w-full h-full object-contain bg-black"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => downloadPhoto(p.id, p.fullUrl)}
+                disabled={downloadingId === p.id}
+                aria-label="Download photo"
+                className="absolute inset-0 w-full h-full p-0 border-0 bg-transparent cursor-pointer"
+              >
+                <img
+                  src={p.feedUrl}
+                  alt=""
+                  className="absolute inset-0 w-full h-full object-cover"
+                  loading="lazy"
+                />
+                {downloadingId === p.id && (
+                  <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-white text-xs font-display font-bold">
+                    Saving…
+                  </span>
+                )}
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Caption + kid tags */}
+      {(post.caption || taggedKids.length > 0) && (
+        <div className="bg-white border border-kaya-warm-dark rounded-kaya p-3 mb-3 space-y-2">
+          {post.caption && (
+            <p className="text-sm leading-relaxed whitespace-pre-wrap">{post.caption}</p>
+          )}
+          {taggedKids.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {taggedKids.map((c) => (
+                <span
+                  key={c.id}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold text-white"
+                  style={{ backgroundColor: c.houseColor }}
+                >
+                  <KidAvatar child={c} size="xs" />
+                  {c.name}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      </PageSplit>
+    </Page>
   );
 }

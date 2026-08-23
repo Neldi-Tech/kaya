@@ -27,7 +27,7 @@ export default function AlbumPhotoGrid({ photos, emptyHint }: Props) {
 
   return (
     <>
-      <div className="grid grid-cols-3 lg:grid-cols-4 gap-1">
+      <div className="grid grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-1">
         {photos.map((p, i) => (
           <button
             key={p.id}

@@ -23,6 +23,7 @@ import {
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
 import MomentsTabs from '@/components/moments/MomentsTabs';
+import { Page } from '@/components/layout/Page';
 
 const PAGE_SIZE_STEP = 20;
 
@@ -117,8 +118,11 @@ export default function MomentsFeedPage() {
 
   const hasMore = posts.length >= pageSize;
 
+  // Web-Fit (2026-08-23): content tier. The header already reads
+  // title-left / action-right. Post cards go 2-up at lg; mobile stays a
+  // single column with the same markup/order.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="content" className="pb-32">
       <div className="lg:hidden"><BackButton /></div>
       <div className="mb-4 lg:mb-5 flex items-end justify-between gap-3">
         <div>
@@ -165,7 +169,7 @@ export default function MomentsFeedPage() {
         </div>
       )}
 
-      <div className="space-y-4">
+      <div className="space-y-4 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start">
         {posts.map((p) => (
           <PostCard key={p.id} post={p} children={children} myUid={profile?.uid || ''} myName={profile?.displayName || ''} familyId={profile?.familyId || ''} />
         ))}
@@ -181,7 +185,7 @@ export default function MomentsFeedPage() {
           </button>
         </div>
       )}
-    </div>
+    </Page>
   );
 }
 

@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { setMessagingPrivacy } from '@/lib/messaging';
+import { Page } from '@/components/layout/Page';
 
 export default function MessagingSettingsPage() {
   const { profile } = useAuth();
@@ -54,7 +55,7 @@ export default function MessagingSettingsPage() {
   );
 
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="narrow">
       <h1 className="font-display font-extrabold text-[20px] flex items-center gap-2">🔒 Message privacy</h1>
       <p className="text-[12px] text-kaya-sand mt-0.5 mb-4">Choose what you share with your family in chat. {saving ? '· Saving…' : ''}</p>
 
@@ -70,6 +71,6 @@ export default function MessagingSettingsPage() {
       <p className="text-[10.5px] text-kaya-sand mt-4 leading-relaxed">
         These are your choices and only affect what others see about you. Turning one off keeps everything working for you — it just hides that signal from others.
       </p>
-    </div>
+    </Page>
   );
 }

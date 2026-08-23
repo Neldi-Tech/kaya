@@ -1,6 +1,7 @@
 'use client';
 
 import BackButton from '@/components/ui/BackButton';
+import { Page, PageHeader, PageGrid } from '@/components/layout/Page';
 import { MODULE_GUIDES, openModuleGuide } from '@/lib/moduleGuides';
 import { useLocale } from '@/lib/useLocale';
 import { t } from '@/lib/i18n';
@@ -8,20 +9,22 @@ import { t } from '@/lib/i18n';
 export default function VideosPage() {
   const locale = useLocale();
   const sw = locale === 'sw';
+  // Web-Fit (2026-08-23): wide tier (hub). Guide tiles 3-up at lg;
+  // mobile markup/order unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="wide">
       <div className="lg:hidden"><BackButton /></div>
-      <div className="mb-5 lg:mb-7">
+      <PageHeader className="mb-5 lg:mb-7">
         <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-kaya-gold mb-1">Guides &amp; Videos</p>
         <h1 className="font-display text-2xl lg:text-[34px] font-black lg:font-extrabold tracking-tight">Guides &amp; Videos</h1>
         <p className="text-sm lg:text-base text-kaya-sand mt-1 lg:mt-2 max-w-xl leading-relaxed">
           Quick walk-throughs of how each part of Kaya works — and soon, a kid-safe video corner.
         </p>
-      </div>
+      </PageHeader>
 
       {/* ── Module guides (live) ─────────────────────────────────────────── */}
       <h2 className="font-display text-lg font-extrabold mb-3 flex items-center gap-2">{sw ? "▶ Jinsi Kaya inavyofanya kazi" : "▶ How Kaya works"}</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8">
+      <PageGrid cols={{ base: 1, sm: 2, lg: 3 }} className="gap-3 mb-8">
         {MODULE_GUIDES.filter((g) => !g.parentId).map((g) => (
           g.available ? (
             <button
@@ -48,7 +51,7 @@ export default function VideosPage() {
             </div>
           )
         ))}
-      </div>
+      </PageGrid>
 
       {/* ── Kid-safe video corner (coming soon) ──────────────────────────── */}
       <h2 className="font-display text-lg font-extrabold mb-3">📺 Video corner <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-kaya-gold align-middle ml-1">Coming soon</span></h2>
@@ -76,6 +79,6 @@ export default function VideosPage() {
           </div>
         ))}
       </div>
-    </div>
+    </Page>
   );
 }

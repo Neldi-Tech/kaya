@@ -22,6 +22,7 @@ import {
 import BackButton from '@/components/ui/BackButton';
 import AccessPickerSheet from '@/components/moments/AccessPickerSheet';
 import UpgradeCard from '@/components/moments/UpgradeCard';
+import { Page, PageHeader, BTN_INLINE_LG } from '@/components/layout/Page';
 
 export default function NewAlbumPage() {
   return (
@@ -91,16 +92,16 @@ function NewAlbumForm() {
   // a flash of "Upgrade" before the snapshot resolves.
   if (!isSubAlbumFlow && topLevelCount === null) {
     return (
-      <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+      <Page width="narrow" className="pb-32">
         <BackButton />
         <div className="text-center py-12 text-kaya-sand text-sm">Loading…</div>
-      </div>
+      </Page>
     );
   }
 
   if (!gate.allowed) {
     return (
-      <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+      <Page width="narrow" className="pb-32">
         <BackButton />
         <h1 className="font-display text-2xl font-black tracking-tight mt-3 mb-4">
           {isSubAlbumFlow ? 'New sub-album' : 'New album'}
@@ -110,7 +111,7 @@ function NewAlbumForm() {
           ctaMode="notify"
           onNotify={() => alert('We\'ll email you when Family plan launches.')}
         />
-      </div>
+      </Page>
     );
   }
 
@@ -140,11 +141,12 @@ function NewAlbumForm() {
     ? 'Whole family'
     : `${accessList.length} ${accessList.length === 1 ? 'person' : 'people'} selected`;
 
+  // Web-Fit (2026-08-23): narrow tier (form) + inline submit at lg.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="narrow" className="pb-32">
       <BackButton />
 
-      <div className="mt-3 mb-5">
+      <PageHeader className="mt-3 mb-5">
         <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-sand">Keepsake</p>
         <h1 className="font-display text-2xl lg:text-[34px] font-black tracking-tight">
           {isSubAlbumFlow ? 'New sub-album' : 'New album'}
@@ -152,7 +154,7 @@ function NewAlbumForm() {
         {parentAlbum && (
           <p className="text-sm text-kaya-sand mt-1">Inside <strong className="text-kaya-chocolate">{parentAlbum.name}</strong></p>
         )}
-      </div>
+      </PageHeader>
 
       <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 flex flex-col gap-4">
         <div>
@@ -203,13 +205,15 @@ function NewAlbumForm() {
         <div className="bg-red-50 border border-red-300 text-red-800 text-xs rounded-md p-3 mt-3">{error}</div>
       )}
 
+      <div className="lg:flex lg:justify-end">
       <button
         onClick={handleSave}
         disabled={saving}
-        className="w-full h-12 mt-5 bg-kaya-chocolate text-kaya-gold-light rounded-kaya-sm font-display font-black text-sm hover:bg-kaya-chocolate-light transition-colors disabled:opacity-50"
+        className={`w-full h-12 mt-5 bg-kaya-chocolate text-kaya-gold-light rounded-kaya-sm font-display font-black text-sm hover:bg-kaya-chocolate-light transition-colors disabled:opacity-50 ${BTN_INLINE_LG}`}
       >
         {saving ? 'Creating…' : 'Create album'}
       </button>
+      </div>
 
       <AccessPickerSheet
         open={pickerOpen}
@@ -222,6 +226,6 @@ function NewAlbumForm() {
         onSave={(mode, list) => { setAccessMode(mode); setAccessList(list); setPickerOpen(false); }}
         onClose={() => setPickerOpen(false)}
       />
-    </div>
+    </Page>
   );
 }

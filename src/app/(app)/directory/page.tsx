@@ -28,6 +28,7 @@ import {
   parseContacts, type DirectoryCategory, type ParsedContact, type ImportFormat,
 } from '@/lib/directory';
 import ContactPickerButton from '@/components/pantry/ContactPickerButton';
+import { Page, PageHeader } from '@/components/layout/Page';
 
 export default function DirectoryPage() {
   const { profile, isGuest } = useAuth();
@@ -170,9 +171,31 @@ export default function DirectoryPage() {
     downloadVCard(`kaya-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, body);
   };
 
+  // Web-Fit (2026-08-23): wide tier. Desktop: Add / Import live in the
+  // page header; contact cards go 3-up. Mobile markup/order unchanged —
+  // the header copies are desktop-only, the mobile button pair is `lg:hidden`.
+  const headerActions = (
+    <>
+      <button
+        onClick={() => { setImporting((v) => !v); setAdding(false); setEditingId(null); }}
+        disabled={isGuest}
+        className="h-10 px-5 rounded-hive-pill bg-hive-paper border border-hive-line text-hive-navy font-nunito font-extrabold text-[12px] disabled:opacity-50"
+      >
+        ⬆ Import contacts
+      </button>
+      <button
+        onClick={() => { setAdding((v) => !v); setEditingId(null); setImporting(false); setPrefill(null); }}
+        disabled={isGuest}
+        className="h-10 px-5 rounded-hive-pill bg-pantry-leaf hover:bg-pantry-leaf-dk text-white font-nunito font-black text-[13px] disabled:opacity-50 shadow-[0_8px_20px_-8px_rgba(91,168,140,0.5)]"
+      >
+        {adding ? 'Close' : '+ Add contact'}
+      </button>
+    </>
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32 lg:pb-12">
-      <div className="mb-3">
+    <Page width="wide" className="pb-32 lg:pb-12">
+      <PageHeader actions={headerActions}>
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">
           Family · directory
         </p>
@@ -182,10 +205,10 @@ export default function DirectoryPage() {
         <p className="text-[12px] lg:text-[13px] text-hive-muted mt-1">
           Every service the {family?.name || 'family'} household relies on — one tap to WhatsApp or save to your phone.
         </p>
-      </div>
+      </PageHeader>
 
-      {/* Actions */}
-      <div className="grid grid-cols-2 gap-2 mb-2">
+      {/* Actions — mobile pair; desktop uses the header buttons. */}
+      <div className="grid grid-cols-2 gap-2 mb-2 lg:hidden">
         <button
           onClick={() => { setAdding((v) => !v); setEditingId(null); setImporting(false); setPrefill(null); }}
           disabled={isGuest}
@@ -280,10 +303,10 @@ export default function DirectoryPage() {
                   ⬇ Save all to phone
                 </button>
               </div>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-2">
                 {group.items.map((c) =>
                   editingId === c.id ? (
-                    <div key={c.id} className="lg:col-span-2">
+                    <div key={c.id} className="lg:col-span-2 xl:col-span-3">
                       <ContactForm
                         existing={c}
                         onSave={(d) => saveContact(d, c)}
@@ -312,7 +335,7 @@ export default function DirectoryPage() {
           {toast}
         </div>
       )}
-    </div>
+    </Page>
   );
 }
 

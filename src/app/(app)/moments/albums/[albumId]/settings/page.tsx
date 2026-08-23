@@ -19,6 +19,7 @@ import { getFamilyMembers, UserProfile } from '@/lib/firestore';
 import { canUseCustomAccess, resolvePlan } from '@/lib/keepsakeLimits';
 import BackButton from '@/components/ui/BackButton';
 import AccessPickerSheet from '@/components/moments/AccessPickerSheet';
+import { Page, PageHeader, PageSplit } from '@/components/layout/Page';
 
 export default function AlbumSettingsPage() {
   const params = useParams<{ albumId: string }>();
@@ -65,19 +66,19 @@ export default function AlbumSettingsPage() {
 
   if (!loaded) {
     return (
-      <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+      <Page width="content" className="pb-32">
         <BackButton />
         <div className="text-center py-12 text-kaya-sand text-sm">Loading…</div>
-      </div>
+      </Page>
     );
   }
 
   if (!album) {
     return (
-      <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+      <Page width="content" className="pb-32">
         <BackButton />
         <p className="text-center py-12 text-kaya-sand text-sm">Album not found.</p>
-      </div>
+      </Page>
     );
   }
 
@@ -119,14 +120,59 @@ export default function AlbumSettingsPage() {
     ? 'Whole family'
     : `${accessList.length} ${accessList.length === 1 ? 'person' : 'people'}`;
 
+  // Web-Fit (2026-08-23): content tier — form stays main, the Save /
+  // Delete actions sit in the right rail at lg (railMobile="last" keeps
+  // the mobile order: form → error → actions).
+  const actionsRail = (
+    <div className="flex flex-col gap-2 mt-5 lg:mt-0">
+      <button
+        onClick={handleSaveMeta}
+        disabled={!canEdit || saving}
+        className="h-12 bg-kaya-chocolate text-kaya-gold-light rounded-kaya-sm font-display font-black text-sm hover:bg-kaya-chocolate-light transition-colors disabled:opacity-50"
+      >
+        {saving ? 'Saving…' : 'Save changes'}
+      </button>
+
+      {canEdit && (
+        confirmDelete ? (
+          <div className="bg-red-50 border border-red-300 rounded-kaya-sm p-3">
+            <p className="text-xs text-red-900 mb-3 font-bold">
+              Delete <strong>{album.name}</strong>? All {album.photoCount} photos and any sub-albums will be removed permanently.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setConfirmDelete(false)}
+                className="flex-1 h-10 bg-white border border-kaya-warm-dark rounded-kaya-sm text-xs font-display font-black hover:bg-kaya-warm"
+              >Cancel</button>
+              <button
+                onClick={handleDelete}
+                disabled={saving}
+                className="flex-1 h-10 bg-red-700 text-white rounded-kaya-sm text-xs font-display font-black hover:bg-red-800 disabled:opacity-50"
+              >{saving ? 'Deleting…' : 'Delete album'}</button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="h-11 bg-white border border-red-300 text-red-700 rounded-kaya-sm font-display font-bold text-xs hover:bg-red-50 transition-colors"
+          >
+            Delete album
+          </button>
+        )
+      )}
+    </div>
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="content" className="pb-32">
       <BackButton />
 
-      <div className="mt-3 mb-5">
+      <PageHeader className="mt-3 mb-5">
         <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-sand">Settings</p>
         <h1 className="font-display text-2xl lg:text-[34px] font-black tracking-tight">{album.name}</h1>
-      </div>
+      </PageHeader>
+
+      <PageSplit rail={actionsRail} railMobile="last">
 
       {!canEdit && (
         <div className="bg-amber-50 border border-amber-300 text-amber-800 text-xs rounded-md p-3 mb-3">
@@ -180,44 +226,7 @@ export default function AlbumSettingsPage() {
       {error && (
         <div className="bg-red-50 border border-red-300 text-red-800 text-xs rounded-md p-3 mt-3">{error}</div>
       )}
-
-      <div className="flex flex-col gap-2 mt-5">
-        <button
-          onClick={handleSaveMeta}
-          disabled={!canEdit || saving}
-          className="h-12 bg-kaya-chocolate text-kaya-gold-light rounded-kaya-sm font-display font-black text-sm hover:bg-kaya-chocolate-light transition-colors disabled:opacity-50"
-        >
-          {saving ? 'Saving…' : 'Save changes'}
-        </button>
-
-        {canEdit && (
-          confirmDelete ? (
-            <div className="bg-red-50 border border-red-300 rounded-kaya-sm p-3">
-              <p className="text-xs text-red-900 mb-3 font-bold">
-                Delete <strong>{album.name}</strong>? All {album.photoCount} photos and any sub-albums will be removed permanently.
-              </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setConfirmDelete(false)}
-                  className="flex-1 h-10 bg-white border border-kaya-warm-dark rounded-kaya-sm text-xs font-display font-black hover:bg-kaya-warm"
-                >Cancel</button>
-                <button
-                  onClick={handleDelete}
-                  disabled={saving}
-                  className="flex-1 h-10 bg-red-700 text-white rounded-kaya-sm text-xs font-display font-black hover:bg-red-800 disabled:opacity-50"
-                >{saving ? 'Deleting…' : 'Delete album'}</button>
-              </div>
-            </div>
-          ) : (
-            <button
-              onClick={() => setConfirmDelete(true)}
-              className="h-11 bg-white border border-red-300 text-red-700 rounded-kaya-sm font-display font-bold text-xs hover:bg-red-50 transition-colors"
-            >
-              Delete album
-            </button>
-          )
-        )}
-      </div>
+      </PageSplit>
 
       <AccessPickerSheet
         open={pickerOpen}
@@ -230,6 +239,6 @@ export default function AlbumSettingsPage() {
         onSave={(mode, list) => { setAccessMode(mode); setAccessList(list); setPickerOpen(false); }}
         onClose={() => setPickerOpen(false)}
       />
-    </div>
+    </Page>
   );
 }

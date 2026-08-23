@@ -20,6 +20,7 @@ import DocActionSheet from '@/components/DocActionSheet';
 import DocViewer from '@/components/DocViewer';
 import { downloadImage } from '@/lib/downloadImage';
 import type { Timestamp } from 'firebase/firestore';
+import { PAGE_WIDTH_CLASS } from '@/components/layout/Page';
 
 // Curated, kid-friendly emoji set — no heavy picker dependency.
 const EMOJIS = '😀 😄 😁 😆 😂 🤣 😊 🙂 😉 😍 🥰 😘 😋 😎 🤩 🥳 🤗 🤔 😴 😮 😯 😢 😭 😤 😡 👍 👎 👏 🙌 🙏 👌 🤝 💪 ✌️ 🤞 👋 ❤️ 🧡 💛 💚 💙 💜 ✨ ⭐ 🌟 🔥 💯 🎉 🎊 🎁 🐝 🐶 🐱 🦄 🌈 🌸 🌻 ☀️ 🍯 🍅 🍎 🍌 🍓 🍕 🍪 🍦 ⚽ 🏀 🎮 📚 💰 🪙 🛒 ✅'.split(' ');
@@ -351,7 +352,7 @@ export default function MessageThreadPage() {
                 : (otherPresence.showPresence && lastSeenText(otherPresence.lastActiveAt, now)) || 'Direct message · just you two');
 
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-6 flex flex-col" style={{ minHeight: '60vh' }}>
+    <div className={`mx-auto max-w-md w-full ${PAGE_WIDTH_CLASS.narrow} px-4 lg:px-8 pt-4 lg:pt-6 flex flex-col`} style={{ minHeight: '60vh' }}>
       {/* Header */}
       <div className="flex items-center gap-3 pb-3 mb-3 border-b border-kaya-warm-dark/50">
         <div className="relative shrink-0">
