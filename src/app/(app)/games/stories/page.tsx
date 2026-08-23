@@ -8,6 +8,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { localDateKey } from '@/lib/games';
 import { toDisplayDate } from '@/lib/dates';
 import { storyExpired, type SavedStory } from '@/lib/stories';
+import { Page } from '@/components/layout/Page';
 
 // Story Keepsakes gallery — any family member can re-read the collaborative
 // stories saved from Story Builder, with the AI's warm score + a fun title.
@@ -108,9 +109,12 @@ export default function StoryGalleryPage() {
     return () => { cancelled = true; };
   }, [familyId]);
 
+  // Web-Fit (2026-08-23): content tier. Desktop shows the keepsakes as a
+  // 2-up gallery (cards expand in place, so `items-start` keeps neighbours
+  // from stretching). Mobile markup/order unchanged.
   return (
     <div className="min-h-screen bg-gradient-to-b from-games-bg to-transparent">
-      <div className="mx-auto max-w-md w-full px-4 pt-4 pb-28">
+      <Page width="content" className="pb-28">
         <Link href="/games" className="text-sm font-bold text-games-ink-soft">&larr; Games</Link>
 
         <div className="rounded-kaya-lg p-5 my-4 text-white text-center bg-gradient-to-br from-games-violet to-[#9333EA]">
@@ -131,11 +135,11 @@ export default function StoryGalleryPage() {
             </Link>
           </div>
         ) : (
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-3 lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start">
             {stories.map((s) => <StoryCard key={s.id} story={s} />)}
           </div>
         )}
-      </div>
+      </Page>
     </div>
   );
 }
