@@ -38,9 +38,7 @@ function radarSvg(traits: LeaderTraits | null, size = 220): string {
     const anchor = Math.abs(x - cx) < 6 ? 'middle' : x < cx ? 'end' : 'start';
     return `<text x="${x.toFixed(1)}" y="${(y + 3).toFixed(1)}" text-anchor="${anchor}" font-size="10" font-weight="900" fill="#2E3D5C" font-family="Nunito,system-ui,sans-serif">${txt}</text>`;
   }).join('');
-  // Side margins so the left/right axis labels ("🎤 Host 5", "🧭 Firm 2") never clip.
-  const M = 56;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size + 2 * M}" height="${size}" viewBox="${-M} 0 ${size + 2 * M} ${size}">
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
   <g fill="none" stroke="#E8E0CF" stroke-width="1"><polygon points="${ring(1)}"/><polygon points="${ring(0.66)}"/><polygon points="${ring(0.33)}"/></g>
   <polygon points="${poly}" fill="rgba(184,134,11,.28)" stroke="${GOLD}" stroke-width="2"/>
   ${labels}
@@ -49,7 +47,7 @@ function radarSvg(traits: LeaderTraits | null, size = 220): string {
 
 function cardSvg(p: { name: string; emoji: string; style: string; life: LeaderLifetime | null; traits: LeaderTraits | null; familyName?: string }): string {
   const W = 680; const H = 760;
-  const radar = radarSvg(p.traits, 300).replace(/^<svg[^>]*>/, '<g transform="translate(190,250)">').replace('</svg>', '</g>');
+  const radar = radarSvg(p.traits, 300).replace('<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">', '<g transform="translate(190,250)">').replace('</svg>', '</g>');
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
   const counters = p.life
     ? [`Selected ${p.life.selected}×`, `Led ${p.life.meetingsLed} meeting${p.life.meetingsLed === 1 ? '' : 's'}`, `${p.life.notesApproved} notes approved`, p.life.honest ? `Honest ✓ ×${p.life.honest}` : '', p.life.missionsDone ? `Mission ✓ ×${p.life.missionsDone}` : ''].filter(Boolean).join(' · ')
@@ -155,7 +153,7 @@ export default function LeadershipCard({ familyId, childId, childName, childEmoj
         )}
         {(history.length > 0 || open) && (
           <div className="lg:flex lg:items-start lg:gap-5">
-            <div className="mx-auto lg:mx-0 w-[332px] max-w-full shrink-0 [&>svg]:max-w-full [&>svg]:h-auto" dangerouslySetInnerHTML={{ __html: radar }} />
+            <div className="mx-auto lg:mx-0 w-[220px] shrink-0" dangerouslySetInnerHTML={{ __html: radar }} />
             <div className="flex-1 mt-2 lg:mt-0">
               {TRAIT_ORDER.map((k) => {
                 const v = traits ? traits[k] : null;
