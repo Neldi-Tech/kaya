@@ -238,9 +238,17 @@ export interface Family {
    *  reference emailGroups; emails are extra outside addresses that get
    *  the privacy-trimmed template (first name + points, no app links). */
   pointsEmailAudience?: {
-    rating?: { kidItsAbout?: boolean; groupIds?: string[]; emails?: string[] };
-    award?: { kidItsAbout?: boolean; groupIds?: string[]; emails?: string[] };
+    rating?: { kidItsAbout?: boolean; groupIds?: string[]; emails?: string[]; fullEmails?: string[] };
+    award?: { kidItsAbout?: boolean; groupIds?: string[]; emails?: string[]; fullEmails?: string[] };
   };
+  /** 🔥 Points Emails 2.0 (approved 2026-08-23): family-tier rating email
+   *  style — 'heat' (every task in colour + reasons + week; default) or
+   *  'totals' (today's simple card). Outside addresses always get totals. */
+  pointsEmailDetail?: 'heat' | 'totals';
+  /** 🧒 Kids see the feedback (R8) — what the kid tier carries. Parent-
+   *  only, family-level; every switch defaults ON. The kid's ADDRESS still
+   *  comes only from the COPPA pointer (kidEmailUpdates). */
+  kidFeedback?: { includeReasons?: boolean; askReflection?: boolean; inAppInbox?: boolean };
   /** ⏰ Catch-Up Board (approved 2026-08-10). Pins = catch-ups a parent
    *  tapped "🗣️ Raise on Sunday" — the Catch-Up Corner meeting step
    *  reads them (keyed by childId) and clears after the meeting.

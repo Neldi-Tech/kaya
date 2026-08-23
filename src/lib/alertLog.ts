@@ -26,6 +26,23 @@ export interface KidRewardEmailFacts {
   detail: string;
   balance?: number;
   streak?: number;
+  /** 🔥 Kid Heat Report (Points Emails 2.0, template v2) — present on
+   *  rating sends; the trace renders the heat view when it's there. */
+  heat?: HeatEmailFacts & { includeReasons?: boolean; askReflection?: boolean };
+}
+
+/** 🔥 Heat Report facts (Points Emails 2.0, 2026-08-23) — compact copy of
+ *  what the family/outside/kid rating emails rendered, for the as-sent
+ *  trace. Tasks are EMPTY on the outside tier (privacy). */
+export interface HeatEmailFacts {
+  kidName: string; kidFirst: string; kidEmoji?: string;
+  period: 'morning' | 'evening'; dateLabel: string; ratedByFirst: string;
+  points: number; scorePct: number | null;
+  tally: { ex: number; gd: number; bd: number; sk: number };
+  tasks: { icon: string; label: string; value: 'excellent' | 'good' | 'bad' | 'skip'; pts: number; note?: string }[];
+  comment?: string;
+  focus?: { icon: string; label: string; line: string };
+  pointsMode?: 'full' | 'badges-only' | 'encouragement';
 }
 
 /** 🌞 Kid morning-digest facts (KID PR3). */
@@ -50,6 +67,9 @@ export interface AlertLogChannels {
     kidFacts?: KidRewardEmailFacts;
     /** Kid morning digests (kind 'kid_digest'). */
     kidDigestFacts?: KidDigestEmailFacts;
+    /** 🔥 Family/outside rating emails (kind 'points_email'). */
+    heatFacts?: HeatEmailFacts;
+    detail?: 'heat' | 'totals';
   };
   inapp?: {
     on: boolean; sent: boolean;
@@ -63,14 +83,17 @@ export interface AlertLogChannels {
 
 export interface AlertLogEntry {
   id: string;
-  kind: 'alert' | 'recovered' | 'kid_reward' | 'kid_digest' | 'kid_statement' | 'storage_quota';
+  kind: 'alert' | 'recovered' | 'kid_reward' | 'kid_digest' | 'kid_statement' | 'storage_quota' | 'points_email';
+  /** 🔥 Points Emails 2.0 — which audience tier a 'points_email' row was. */
+  tier?: 'family' | 'outside';
+  ratingId?: string;
   // ── meter fields (kinds 'alert' / 'recovered') ──
   meterId?: string;
   meterLabel?: string;
   meterType?: string;
   unit?: string;
   firedAt: number;                       // ms epoch
-  trigger: 'reading' | 'sweep' | 'reward' | 'digest' | 'statement' | 'system';
+  trigger: 'reading' | 'sweep' | 'reward' | 'digest' | 'statement' | 'system' | 'rating' | 'award';
   balance?: number;
   threshold?: number;
   // ── kid fields (kinds 'kid_reward' / 'kid_digest', KID PR2/PR3) ──

@@ -76,8 +76,9 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://www.ourkaya.com';
 const resend = resendKey ? new Resend(resendKey) : null;
 
 /** Bump together with renderKidRewardEmail's markup AND the KidRewardTab
- *  renderer in /pantry/utility-meters/alerts (F9 discipline). */
-export const KID_REWARD_TEMPLATE_VERSION = 1;
+ *  renderer in /pantry/utility-meters/alerts (F9 discipline).
+ *  v2 (2026-08-23): rating sends carry `kidFacts.heat` (Kid Heat Report). */
+export const KID_REWARD_TEMPLATE_VERSION = 2;
 
 export interface KidRewardFacts {
   kidName: string;
@@ -186,73 +187,10 @@ export async function sendKidRewardEmail(
   } catch { /* never throws into a reward flow */ }
 }
 
-// ═══ ⭐ Instant rating email (Points Audience, 2026-08-09) ═════════════════
-//
-// Fired (fire-and-forget) from the /api/kids/rating-email route when a
-// routine is rated AND the family turned on '🧒 the kid it's about' for
-// rating emails. Kid-voiced, numbers only (no free text crosses the
-// route), resolved through the same COPPA pointer, traced in alertLog as
-// kind:'kid_reward' (trigger:'rating') so the 📜 alerts page renders it
-// with the existing reward tab — no new template surface.
-
-export async function sendKidRatingEmail(
-  db: AdminDb,
-  familyId: string,
-  childId: string,
-  rating: { period: 'morning' | 'evening'; points: number },
-): Promise<void> {
-  try {
-    const famData = (await db.collection('families').doc(familyId).get()).data() as
-      (FamilyDataSlice & Record<string, unknown>) | undefined;
-    if (famData?.pointsEmailAudience?.rating?.kidItsAbout !== true) return;
-    const resolved = await resolveKidEmailAddress(db, familyId, childId, famData);
-    if (!resolved) return;
-
-    const kid = (await db.collection('families').doc(familyId)
-      .collection('children').doc(childId).get()).data() as
-      { name?: string; totalPoints?: number; streak?: number } | undefined;
-    const morning = rating.period === 'morning';
-    const facts: KidRewardFacts = {
-      kidName: kid?.name || 'you',
-      emoji: morning ? '🌞' : '🌙',
-      headline: `+${rating.points} points`,
-      detail: `your ${morning ? 'morning' : 'evening'} routine was rated — keep shining!`,
-      ...(kid?.totalPoints != null ? { balance: kid.totalPoints } : {}),
-      ...(kid?.streak ? { streak: kid.streak } : {}),
-    };
-    const subject = `${facts.emoji} You earned +${rating.points} points ${morning ? 'this morning' : 'tonight'}!`.slice(0, 140);
-
-    let sent = false; let error: string | undefined;
-    if (!resend) { error = 'resend-not-configured'; }
-    else {
-      try {
-        await resend.emails.send({
-          from: RESEND_FROM, to: [resolved.email], subject,
-          html: renderKidRewardEmail(facts),
-        });
-        sent = true;
-      } catch (e) { error = e instanceof Error ? e.message : 'send-failed'; }
-    }
-
-    await writeKidAlertLog(db, familyId, {
-      kind: 'kid_reward',
-      childId, childName: kid?.name || 'Kid',
-      firedAt: Date.now(),
-      trigger: 'rating',
-      sourceLabel: resolved.sourceLabel,
-      channels: {
-        email: {
-          on: true, sent,
-          ...(error ? { error } : {}),
-          to: [{ name: kid?.name || 'Kid', email: resolved.email }],
-          subject,
-          templateVersion: KID_REWARD_TEMPLATE_VERSION,
-          kidFacts: facts,
-        },
-      },
-    });
-  } catch { /* never throws into a rating flow */ }
-}
+// ⭐ Instant rating email — MOVED (Points Emails 2.0, 2026-08-23): the
+// rated kid's email is now the Kid Heat Report, composed by
+// lib/pointsEmail.server inside the /api/points/rating-email gateway
+// (same COPPA pointer, same kind:'kid_reward' trace, templateVersion 2).
 
 // ═══ 🌞 Morning routine digest (KID PR3) ═══════════════════════════════════
 //

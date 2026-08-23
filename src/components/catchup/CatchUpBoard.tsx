@@ -64,6 +64,34 @@ export default function CatchUpBoard() {
 
   const say = (msg: string) => { setFlash(msg); setTimeout(() => setFlash(null), 2500); };
 
+  // 🔥 Points Emails 2.0 (2026-08-23) — "🗣️ Raise on Sunday" from the Heat
+  // Report email lands here as /reminders?raise=<childId>:<routineId>. One
+  // tap in the inbox → the (kid, routine) pin joins Sunday's Catch-Up
+  // Corner, exactly like the button below. Parents only; once per load.
+  const [raiseDone, setRaiseDone] = useState(false);
+  useEffect(() => {
+    if (raiseDone || !family?.id || !profile?.familyId || profile.role !== 'parent') return;
+    if (typeof window === 'undefined') return;
+    const raw = new URLSearchParams(window.location.search).get('raise');
+    if (!raw) return;
+    const [childId, routineId] = raw.split(':');
+    const kid = children.find((c) => c.id === childId);
+    const routine = (family.routines || []).find((r) => r.id === routineId);
+    if (!kid || !routine) return;
+    setRaiseDone(true);
+    const key = `routine:${routine.id}`;
+    const pins = { ...(family.catchUpPins || {}) };
+    const list = pins[kid.id] || [];
+    if (list.some((p) => p.key === key)) { say(`🗣️ ${routine.label} is already on Sunday's Catch-Up Corner for ${kid.name.split(' ')[0]}.`); return; }
+    pins[kid.id] = [...list, { key, icon: routine.icon || '⭐', label: routine.label }];
+    updateFamily(profile.familyId, { catchUpPins: pins })
+      .then(() => say(`🗣️ ${routine.label} → Sunday's Catch-Up Corner for ${kid.name.split(' ')[0]}.`))
+      .catch(() => say('Could not pin it — please try again.'));
+    // Clean the URL so a refresh doesn't re-pin.
+    try { window.history.replaceState({}, '', window.location.pathname); } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [family?.id, family?.routines, family?.catchUpPins, children, profile?.familyId, profile?.role, raiseDone]);
+
   const remindNow = (kid: KidCatchUps, item: CatchUpItem) => {
     const child = children.find((c) => c.id === kid.childId);
     const kidUid = (child as { uid?: string } | undefined)?.uid;

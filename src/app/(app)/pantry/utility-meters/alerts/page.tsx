@@ -31,6 +31,16 @@ const timeOf = (ms: number): string =>
 const emojiOf = (e: AlertLogEntry): string =>
   e.meterType ? meterEmoji(e.meterType as UtilityMeterType) : '🔌';
 
+// 📬 Kid + 🔥 points emails share one row shape; label by kind/trigger.
+const kindEmoji = (e: AlertLogEntry): string =>
+  e.kind === 'points_email' ? '🔥'
+    : e.kind === 'kid_reward' ? (e.trigger === 'rating' ? '🔥' : '🏅')
+      : e.kind === 'kid_statement' ? '🧾' : '🌞';
+const kindLabel = (e: AlertLogEntry): string =>
+  e.kind === 'points_email' ? `${e.tier === 'outside' ? 'outside' : 'family'} rating email`
+    : e.kind === 'kid_reward' ? (e.trigger === 'rating' ? 'kid Heat Report' : 'reward email')
+      : e.kind === 'kid_statement' ? 'Hive statement' : 'morning digest';
+
 export default function AlertLogPage() {
   const { profile, isGuest } = useAuth();
   const isParent = profile?.role === 'parent';
@@ -128,7 +138,7 @@ export default function AlertLogPage() {
               );
             }
             // 📬 Kid emails (KID PR2/PR3) — same log, their own row shape.
-            if (e.kind === 'kid_reward' || e.kind === 'kid_digest' || e.kind === 'kid_statement') {
+            if (e.kind === 'kid_reward' || e.kind === 'kid_digest' || e.kind === 'kid_statement' || e.kind === 'points_email') {
               const em = e.channels?.email;
               return (
                 <button
@@ -138,9 +148,9 @@ export default function AlertLogPage() {
                   className="w-full text-left bg-hive-paper border border-hive-line rounded-hive p-3 mb-2 hover:border-hive-honey"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="text-base">{e.kind === 'kid_reward' ? '🏅' : e.kind === 'kid_statement' ? '🧾' : '🌞'}</span>
+                    <span className="text-base">{kindEmoji(e)}</span>
                     <span className="font-nunito font-extrabold text-[13px] text-hive-navy truncate">
-                      {e.childName || 'Kid'} · {e.kind === 'kid_reward' ? 'reward email' : e.kind === 'kid_statement' ? 'Hive statement' : 'morning digest'}
+                      {e.childName || 'Kid'} · {kindLabel(e)}
                     </span>
                     {em?.sent ? (
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-nunito font-black bg-[#E7F5EC] text-pantry-leaf-dk border border-pantry-leaf-dk/30">✅ sent</span>
@@ -207,12 +217,12 @@ export default function AlertLogPage() {
               <div className="w-12 h-1 rounded-full bg-hive-line"></div>
             </div>
             <div className="px-4">
-              {open.kind === 'kid_reward' || open.kind === 'kid_digest' || open.kind === 'kid_statement' ? (
+              {open.kind === 'kid_reward' || open.kind === 'kid_digest' || open.kind === 'kid_statement' || open.kind === 'points_email' ? (
                 <div className="flex items-center gap-2">
-                  <span className="text-xl">{open.kind === 'kid_reward' ? '🏅' : open.kind === 'kid_statement' ? '🧾' : '🌞'}</span>
+                  <span className="text-xl">{kindEmoji(open)}</span>
                   <div className="flex-1 min-w-0">
                     <p className="font-nunito font-black text-[15px] text-hive-navy">
-                      {open.childName || 'Kid'} — {open.kind === 'kid_reward' ? 'reward email' : open.kind === 'kid_statement' ? 'Hive statement' : 'morning digest'}
+                      {open.childName || 'Kid'} — {kindLabel(open)}
                     </p>
                     <p className="text-[11px] text-hive-muted font-bold">
                       {toDisplayDate(dayKeyOf(open.firedAt))} {timeOf(open.firedAt)}
@@ -251,7 +261,7 @@ export default function AlertLogPage() {
                   ))}
                 </div>
               )}
-              {(open.kind === 'kid_reward' || open.kind === 'kid_digest' || open.kind === 'kid_statement') && <div className="mt-3" />}
+              {(open.kind === 'kid_reward' || open.kind === 'kid_digest' || open.kind === 'kid_statement' || open.kind === 'points_email') && <div className="mt-3" />}
 
               {(tab === 'email' || open.kind !== 'alert') && <EmailTab e={open} />}
               {tab === 'chat' && open.kind === 'alert' && <ChatTab e={open} />}
@@ -291,6 +301,78 @@ function ChanChip({ label, c, count }: { label: string; c?: { on: boolean; sent:
 function EmailTab({ e }: { e: AlertLogEntry }) {
   const em = e.channels?.email;
   if (!em) return <Missing what="email" />;
+  // 🔥 Points Emails 2.0 — family/outside rating emails (kind 'points_email')
+  // + the kid Heat Report (kind 'kid_reward', template v2 with kidFacts.heat).
+  const heat = em.heatFacts || em.kidFacts?.heat;
+  if (heat) {
+    const isKid = !!em.kidFacts?.heat;
+    const mode = heat.pointsMode || 'full';
+    const tone = (v: string) => v === 'excellent' ? { bg: '#E3F5EA', bd: '#BFE6CC', fg: '#2E9E5B', t: '🌟' }
+      : v === 'good' ? { bg: '#FFF3CC', bd: '#F1DD98', fg: '#9A7300', t: '👍' }
+        : v === 'bad' ? (isKid && mode === 'encouragement' ? { bg: '#FFF0E0', bd: '#F5D3AE', fg: '#B86A1C', t: '🌱' } : { bg: '#FDE8EC', bd: '#F3C0C9', fg: '#B8434F', t: '👎' })
+          : { bg: '#F1EEE6', bd: '#DDD7CA', fg: '#B8B2A4', t: '—' };
+    const showPts = !isKid || mode === 'full';
+    const reasons = heat.tasks.filter((t) => t.note && (!isKid || em.kidFacts?.heat?.includeReasons !== false));
+    return (
+      <div>
+        <div className="rounded-t-xl border border-b-0 border-hive-line bg-hive-cream px-3 py-2 text-[10px] text-hive-muted font-bold leading-relaxed">
+          To: {em.to.length > 0 ? em.to.map((r) => (r.name && r.name !== r.email ? `${r.name} <${r.email}>` : r.email)).join(' · ') : '—'}<br />
+          Subject: {em.subject}<br />
+          {em.sent ? '✅ sent' : `❌ not sent${em.error ? ` · ${em.error}` : ''}`} · template v{em.templateVersion}{em.detail === 'totals' && !isKid ? ' · totals only' : ''}
+        </div>
+        <div className="rounded-b-xl border border-hive-line bg-white p-3 font-nunito">
+          <p className="text-[9.5px] uppercase tracking-[0.14em] font-black" style={{ color: '#9B8A72' }}>
+            {heat.period === 'morning' ? '☀️' : '🌙'} {isKid ? 'Your' : `${heat.kidFirst}’s`} {heat.period} · {heat.dateLabel} · rated by {heat.ratedByFirst}
+          </p>
+          <div className="rounded-2xl p-4 mt-2 flex items-center gap-3" style={{ background: isKid ? 'linear-gradient(135deg,#F7B733,#F0A32A)' : 'linear-gradient(135deg,#1E120B,#3D241A)', color: isKid ? '#2A1A00' : '#fff' }}>
+            <div>
+              <div className="text-3xl font-black leading-none">{showPts ? `+${heat.points}` : '✨'}</div>
+              <div className="text-[9.5px] uppercase tracking-[0.14em] font-bold mt-1" style={{ opacity: .8 }}>{showPts ? 'routine points' : 'your ' + heat.period}</div>
+            </div>
+            <div className="ml-auto text-right text-[12px] font-bold">{heat.kidFirst}{heat.scorePct != null && showPts ? ` · score ${heat.scorePct}%` : ''}</div>
+          </div>
+          {heat.tasks.length > 0 ? (
+            <div className="grid grid-cols-4 gap-1.5 mt-3">
+              {heat.tasks.map((t, i) => { const c = tone(t.value); return (
+                <div key={i} className="rounded-xl p-1.5 text-center" style={{ background: c.bg, border: `1px solid ${c.bd}` }}>
+                  <div className="text-base leading-none">{t.icon}</div>
+                  <div className="text-[9.5px] font-bold leading-tight mt-0.5 truncate">{t.label}</div>
+                  <div className="text-[9.5px] font-black mt-0.5" style={{ color: c.fg }}>{showPts ? (t.value === 'skip' ? '—' : `+${t.pts}`) : c.t}</div>
+                </div>
+              ); })}
+            </div>
+          ) : (
+            <p className="text-[11px] text-hive-muted font-bold mt-3">Outside tier — counts only, no task names (privacy).</p>
+          )}
+          <div className="flex flex-wrap gap-1 mt-2">
+            {heat.tally.ex > 0 && <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full" style={{ background: '#E3F5EA', color: '#2E9E5B' }}>🌟 {heat.tally.ex}</span>}
+            {heat.tally.gd > 0 && <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full" style={{ background: '#FFF3CC', color: '#9A7300' }}>👍 {heat.tally.gd}</span>}
+            {heat.tally.bd > 0 && <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full" style={{ background: '#FDE8EC', color: '#B8434F' }}>{isKid && mode === 'encouragement' ? '🌱' : '👎'} {heat.tally.bd}</span>}
+          </div>
+          {reasons.length > 0 && (
+            <div className="mt-3">
+              <p className="text-[11px] font-black">🗒️ The reasons</p>
+              {reasons.map((t, i) => (
+                <div key={i} className="mt-1.5 pl-2.5 py-1.5 rounded-r-lg" style={{ borderLeft: `3px solid ${tone(t.value).fg}`, background: '#FFFDF7' }}>
+                  <p className="text-[11px] font-extrabold">{tone(t.value).t} {t.icon} {t.label}</p>
+                  <p className="text-[11px] leading-snug" style={{ color: '#3B3430' }}>{t.note}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          {heat.comment && !isKid && <p className="mt-2 text-[11px] italic leading-snug" style={{ color: '#3B3430' }}>“{heat.comment}”</p>}
+          {heat.focus && (
+            <div className="mt-3 rounded-xl px-3 py-2" style={{ background: 'linear-gradient(135deg,#FFF4D6,#FFE9B3)', border: '1px solid #F1DD98' }}>
+              <p className="text-[11px] font-extrabold">🌱 Tomorrow’s focus: {heat.focus.icon} {heat.focus.label}{heat.focus.line ? ` — ${heat.focus.line}` : ''}</p>
+            </div>
+          )}
+        </div>
+        <p className="text-[10px] text-hive-muted font-bold mt-2 opacity-80">
+          {isKid ? 'Kid Heat Report — manage in Settings → Email notifications → 🧒 Kids see the feedback.' : 'Heat Report — week strip + reflection render from live data in the email; this trace keeps the facts.'}
+        </p>
+      </div>
+    );
+  }
   // 🌞 Kid morning digest (KID PR3) — its own template, re-rendered from
   // the stored facts + version, like everything else in this log.
   if (em.kidDigestFacts) {
