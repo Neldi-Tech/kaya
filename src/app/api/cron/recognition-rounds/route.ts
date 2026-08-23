@@ -20,13 +20,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
 import { Resend } from 'resend';
 import { getAdminFirestore } from '@/lib/firebaseAdmin';
+import {
+  buildDismissMemory, isSuppressed, dismissKey, DISMISS_MEMORY_DAYS,
+  type DismissalRecord, type RoundDismissal,
+} from '@/lib/recognitionDismiss';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 const TZ = 'Africa/Dar_es_Salaam';
-const ROUND_TEMPLATE_VERSION = 1;
+const ROUND_TEMPLATE_VERSION = 2; // 2 = ✕ dismiss-aware (DL PR-A)
 
 type Rating = {
   childId: string;
@@ -133,6 +137,18 @@ async function handle(req: NextRequest) {
       });
       if (kids.length === 0) continue;
 
+      // 🧠 DL PR-A — what the parents taught Kaya: dismissals in the last
+      // 60 days → coverage clocks, paused kids, paused kinds, dismissed
+      // crowns. Applied before every pick below.
+      const dismissSnap = await famRef.collection('recognitionDismissals')
+        .where('at', '>=', now.getTime() - DISMISS_MEMORY_DAYS * 86400_000).get()
+        .catch(() => null);
+      const mem = buildDismissMemory(
+        (dismissSnap?.docs || []).map((d) => d.data() as DismissalRecord),
+        now.getTime(),
+      );
+      const suppressed = (kidId: string, kind: string) => isSuppressed(mem, kidId, kind, now.getTime());
+
       // 🎁 FX PR-6 — gift recommendation engine: active store rewards vs
       // each kid's spendable, EXCLUDING gifts recorded on their cards in
       // the last 45 days (the system remembers what was given).
@@ -176,7 +192,9 @@ async function handle(req: NextRequest) {
         if (ms > (lastAwardMs.get(a.childId) || 0)) lastAwardMs.set(a.childId, ms);
       }
       const daysSince = (kidId: string): number => {
-        const ms = lastAwardMs.get(kidId);
+        // 🧠 "already recognized" / "away" dismissals count as the last
+        // award FOR COVERAGE ONLY (no points, no card).
+        const ms = Math.max(lastAwardMs.get(kidId) || 0, mem.coverageClock.get(kidId) || 0);
         if (!ms) return 999; // never (within the window) — leads coverage
         return Math.floor((now.getTime() - ms) / 86400_000);
       };
@@ -199,9 +217,9 @@ async function handle(req: NextRequest) {
       const items: RoundItem[] = [];
       const used = new Set<string>();
 
-      const covKid = [...kids].sort((a, b) => daysSince(b.id) - daysSince(a.id))[0];
-      const covDays = daysSince(covKid.id);
-      if (covDays >= 4) {
+      const covKid = kids.filter((k) => !suppressed(k.id, 'coverage')).sort((a, b) => daysSince(b.id) - daysSince(a.id))[0];
+      const covDays = covKid ? daysSince(covKid.id) : 0;
+      if (covKid && covDays >= 4) {
         items.push({
           kidId: covKid.id, kidName: covKid.name, emoji: covKid.emoji, kind: 'coverage',
           ...(giftIdeaFor(covKid.id) ? { giftIdea: giftIdeaFor(covKid.id) } : {}),
@@ -218,7 +236,7 @@ async function handle(req: NextRequest) {
 
       const bestPick = (): RoundItem | null => {
         const ranked = kids
-          .filter((k) => !used.has(k.id))
+          .filter((k) => !used.has(k.id) && !suppressed(k.id, 'best'))
           .map((k) => ({ k, r: thisWeek(k.id) }))
           .filter((x) => x.r.rated >= 4)
           .sort((a, b) => b.r.pct - a.r.pct)[0];
@@ -231,7 +249,7 @@ async function handle(req: NextRequest) {
       };
       const improvedPick = (): RoundItem | null => {
         const ranked = kids
-          .filter((k) => !used.has(k.id))
+          .filter((k) => !used.has(k.id) && !suppressed(k.id, 'improved'))
           .map((k) => ({ k, a: priorWeek(k.id), b: thisWeek(k.id) }))
           .filter((x) => x.a.rated >= 4 && x.b.rated >= 4 && x.b.pct - x.a.pct >= 10)
           .sort((x, y) => (y.b.pct - y.a.pct) - (x.b.pct - x.a.pct))[0];
@@ -244,7 +262,7 @@ async function handle(req: NextRequest) {
       };
       const comebackPick = (): RoundItem | null => {
         for (const k of kids) {
-          if (used.has(k.id)) continue;
+          if (used.has(k.id) || suppressed(k.id, 'comeback')) continue;
           const rows = (byKid.get(k.id) || []).slice().sort((a, b) => a.date.localeCompare(b.date));
           const days = new Map<string, { exc: number; bad: number }>();
           for (const r of rows) {
@@ -283,13 +301,16 @@ async function handle(req: NextRequest) {
       const prevSnap = await famRef.collection('recognitionRounds')
         .orderBy('date', 'desc').limit(1).get();
       if (!prevSnap.empty) {
-        const prev = prevSnap.docs[0].data() as { date: string; items?: RoundItem[] };
+        const prev = prevSnap.docs[0].data() as { date: string; items?: RoundItem[]; dismissed?: Record<string, RoundDismissal> };
         const prevStart = new Date(`${prev.date}T00:00:00`).getTime();
         const cardsSnap = await famRef.collection('shineCards')
           .where('at', '>=', prevStart).get();
         const celebratedKids = new Set(cardsSnap.docs.map((d) => (d.data() as { kidId?: string }).kidId));
         for (const it of prev.items || []) {
           if (celebratedKids.has(it.kidId) || used.has(it.kidId)) continue;
+          // ✕ dismissed last round → parent already answered it; never carry.
+          if (prev.dismissed?.[dismissKey(it.kidId, it.kind)]) continue;
+          if (suppressed(it.kidId, it.kind)) continue;
           items.push({
             ...it,
             line: `${it.line} · ⏳ still waiting since ${prev.date.slice(8)}/${prev.date.slice(5, 7)}`,
@@ -306,11 +327,11 @@ async function handle(req: NextRequest) {
         const termsSnap = await famRef.collection('leaderTerms').where('sealedAt', '>=', since10).get();
         const sealed = termsSnap.docs
           .map((d) => ({ id: d.id, ...(d.data() as { childId: string; name: string; emoji: string; style?: string; celebrated?: boolean; counts?: { approved: number; adjusted: number }; ledMeeting?: boolean; honest?: boolean; mission?: { done?: boolean }; sealedAt?: number }) }))
-          .filter((t) => !t.celebrated)
+          .filter((t) => !t.celebrated && !mem.dismissedTerms.has(t.id))
           .sort((a, b) => (b.sealedAt || 0) - (a.sealedAt || 0));
         const seenKid = new Set<string>();
         for (const t of sealed) {
-          if (seenKid.has(t.childId)) continue;
+          if (seenKid.has(t.childId) || suppressed(t.childId, 'leader')) continue;
           seenKid.add(t.childId);
           const n = (t.counts?.approved || 0) + (t.counts?.adjusted || 0);
           items.push({
@@ -336,6 +357,7 @@ async function handle(req: NextRequest) {
         sentTo: audience.map((u) => u.uid),
         channels: cfg.channels,
         templateVersion: ROUND_TEMPLATE_VERSION,
+        learnedFrom: mem.count,
         createdAt: FieldValue.serverTimestamp(),
       });
       fired++;

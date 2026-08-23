@@ -7,6 +7,7 @@
 // SVG → PNG for Moments posts, chat drops and downloads.
 
 import { auth } from './firebase';
+import { openRoundItems, type DismissCode, type DismissalRecord, type RoundDismissal } from '@/lib/recognitionDismiss';
 
 export type ShineTheme = 'classic' | 'night' | 'safari' | 'confetti' | 'crown';
 
@@ -108,6 +109,14 @@ export const getRound = (familyId: string, date: string) =>
 export const listRounds = (familyId: string) =>
   recognitionApi<{ ok: true; rounds: RecognitionRound[] }>('round-list', { familyId })
     .then((r) => r.rounds);
+// ✕ DL PR-A — dismiss a wrong proposal (+ reason) / undo / read the log.
+export const dismissRoundItem = (familyId: string, date: string, kidId: string, kind: string, code: DismissCode, note?: string) =>
+  recognitionApi<{ ok: true; id?: string }>('round-dismiss', { familyId, date, kidId, kind, code, ...(note ? { note } : {}) });
+export const undismissRoundItem = (familyId: string, date: string, kidId: string, kind: string) =>
+  recognitionApi('round-undismiss', { familyId, date, kidId, kind });
+export const listDismissals = (familyId: string) =>
+  recognitionApi<{ ok: true; records: Array<DismissalRecord & { id: string }> }>('dismissals-list', { familyId })
+    .then((r) => r.records);
 
 export interface RecognitionRound {
   id: string;
@@ -115,6 +124,10 @@ export interface RecognitionRound {
   lens: 'best' | 'improved' | 'comeback';
   items: Array<{ kidId: string; kidName: string; emoji: string; kind: string; line: string; daysSince?: number; giftIdea?: { label: string; rewardId: string }; termId?: string }>;
   sentTo: string[];
+  /** ✕ DL PR-A — `${kidId}:${kind}` → who/why/when. Adults only. */
+  dismissed?: Record<string, RoundDismissal & { logId?: string }>;
+  /** 🧠 how many dismissal records shaped this round. */
+  learnedFrom?: number;
 }
 
 // ── Waiting round (RR PR-5) ───────────────────────────────────────
@@ -142,7 +155,8 @@ export async function getWaitingRound(
   if (role === 'helper' && !(latest.sentTo || []).includes(uid)) return null;
   const cards = await listShineCards(familyId).catch(() => [] as ShineCard[]);
   const celebrated = new Set(cards.filter((c) => c.at >= start).map((c) => c.kidId));
-  const waitingKids = latest.items.filter((i) => !celebrated.has(i.kidId));
+  // ✕ dismissed items are answered — they never count as waiting.
+  const waitingKids = openRoundItems(latest, celebrated);
   if (waitingKids.length === 0) return null;
   return { round: latest, celebratedKidIds: [...celebrated] };
 }
