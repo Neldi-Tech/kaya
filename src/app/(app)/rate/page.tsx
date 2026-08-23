@@ -58,7 +58,12 @@ export default function RatePage() {
   );
   // Date stepper — defaults to today; stepping back shows a past day's ratings
   // read-only (history). Only today is editable.
-  const [selectedDate, setSelectedDate] = useState<string>(() => todayString());
+  // HP2 (2026-08-23) — Routine-fill day taps deep-link here with
+  // ?date=YYYY-MM-DD (never the future; falls back to today).
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    const q = searchParams.get('date');
+    return q && /^\d{4}-\d{2}-\d{2}$/.test(q) && q <= todayString() ? q : todayString();
+  });
   const [ratings, setRatings] = useState<Record<string, RatingValue>>({});
   // Per-item notes — required on 'bad' (so meetings can address what went
   // wrong), optional on 'excellent' (so wins get context). Keyed by
