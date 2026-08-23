@@ -217,7 +217,7 @@ export function DataRows({
 export const DATA_ROW = 'lg:border-0 lg:rounded-none lg:shadow-none';
 
 /** Row hover (use on interactive rows inside <DataRows>). */
-export const DATA_ROW_HOVER = 'lg:hover:bg-black/[0.025] transition-colors';
+export const DATA_ROW_HOVER = 'lg:hover:bg-black/[0.025] lg:transition-colors';
 
 /** Full-width on mobile, inline on desktop — the standard button rule. */
 export const BTN_INLINE_LG = 'lg:w-auto lg:px-6';
