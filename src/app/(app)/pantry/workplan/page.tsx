@@ -26,6 +26,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { ChevronDown, ChevronUp, Settings as SettingsIcon } from 'lucide-react';
@@ -34,6 +35,7 @@ import WorkplanEditor from '@/components/helpers/WorkplanEditor';
 import PerformanceCard from '@/components/helpers/PerformanceCard';
 import TodaysWorkplanCard from '@/components/helpers/TodaysWorkplanCard';
 import RoutineFillTab from '@/components/helpers/RoutineFillTab';
+import ScoreTab from '@/components/helpers/ScoreTab';
 import DayStepper from '@/components/helpers/DayStepper';
 import { listHelpers, getHelperLink } from '@/lib/helpers';
 import { getHelperPerformance, perfFace, type HelperPerformanceWindow } from '@/lib/helperPerformance';
@@ -87,6 +89,12 @@ export default function PantryWorkplanPage() {
   // not a hierarchy. Chevron toggles add/remove from this set so a
   // parent can hide a row that's getting in the way.
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+  // HP2 — deep link from the weekly email: ?helper=<uid>&tab=score|fill|reviews
+  // opens that helper on that tab (initial render only).
+  const searchParams = useSearchParams();
+  const deepHelper = searchParams.get('helper');
+  const deepTabRaw = searchParams.get('tab');
+  const deepTab: HelperTab | null = deepTabRaw === 'score' || deepTabRaw === 'fill' || deepTabRaw === 'reviews' || deepTabRaw === 'today' ? deepTabRaw : null;
   // HP2 D1/D2 (2026-08-23) — the family's performance policy drives
   // which helpers show performance surfaces at all (tracked) and
   // whether a helper may see their own (helpersSeeOwnScore).
@@ -202,6 +210,7 @@ export default function PantryWorkplanPage() {
               isHelperTracked(policy, h.uid)
               && (profile?.role === 'parent' || policy?.helpersSeeOwnScore !== false)
             }
+            initialTab={deepHelper === h.uid && deepTab ? deepTab : undefined}
             selectedDate={selectedDate}
             expanded={!collapsedIds.has(h.uid)}
             onToggle={() => setCollapsedIds((prev) => {
@@ -238,7 +247,7 @@ export default function PantryWorkplanPage() {
 }
 
 // ── Single person row ────────────────────────────────
-function PersonCard({ helper, familyId, expanded, onToggle, isParent, showPerf, selectedDate }: {
+function PersonCard({ helper, familyId, expanded, onToggle, isParent, showPerf, initialTab, selectedDate }: {
   helper: HelperLink;
   familyId: string;
   expanded: boolean;
@@ -249,6 +258,8 @@ function PersonCard({ helper, familyId, expanded, onToggle, isParent, showPerf, 
   /** HP2 D1/D2 — false hides every performance surface (face, %,
    *  feedback strip, performance card); the workplan stays. */
   showPerf: boolean;
+  /** HP2 — open on this tab (deep link from emails). */
+  initialTab?: HelperTab;
   /** Calendar day chosen in the page's day-stepper. */
   selectedDate: Date;
 }) {
@@ -261,7 +272,7 @@ function PersonCard({ helper, familyId, expanded, onToggle, isParent, showPerf, 
   // HP2 D15 — four tabs inside the card. Today = the screen that was
   // here before (unchanged); the others are the long views. Tabs only
   // exist when performance is shown for this helper.
-  const [tab, setTab] = useState<HelperTab>('today');
+  const [tab, setTab] = useState<HelperTab>(initialTab ?? 'today');
   const activeTab: HelperTab = showPerf ? tab : 'today';
   return (
     <div className="bg-hive-paper border border-hive-line rounded-hive-lg overflow-hidden">
@@ -304,6 +315,9 @@ function PersonCard({ helper, familyId, expanded, onToggle, isParent, showPerf, 
 
           {activeTab === 'fill' && (
             <RoutineFillTab familyId={familyId} helper={helper} isParent={isParent} />
+          )}
+          {activeTab === 'score' && (
+            <ScoreTab familyId={familyId} helper={helper} isParent={isParent} />
           )}
 
           {activeTab === 'today' && <>
@@ -387,7 +401,7 @@ type HelperTab = 'today' | 'fill' | 'score' | 'reviews';
 const HELPER_TABS: { id: HelperTab; label: string; parentOnly?: boolean; soon?: boolean }[] = [
   { id: 'today',   label: 'Today' },
   { id: 'fill',    label: 'Routine fill' },
-  { id: 'score',   label: 'Score', soon: true },
+  { id: 'score',   label: 'Score' },
   { id: 'reviews', label: 'Kid reviews', parentOnly: true, soon: true },
 ];
 function HelperTabs({ tab, onChange, isParent }: { tab: HelperTab; onChange: (t: HelperTab) => void; isParent: boolean }) {

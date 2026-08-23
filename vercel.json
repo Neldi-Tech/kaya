@@ -25,6 +25,10 @@
       "schedule": "0 17 * * *"
     },
     {
+      "path": "/api/cron/perf-weekly",
+      "schedule": "0 4 * * 1"
+    },
+    {
       "path": "/api/cron/market-quotes",
       "schedule": "0 21 * * *"
     },

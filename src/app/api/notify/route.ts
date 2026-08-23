@@ -34,11 +34,44 @@ type NotifyType =
   | 'moment-new'
   | 'utility-bill-due'
   | 'perf-digest'
+  | 'perf-weekly'
+  | 'kid-review-done'
   | 'meeting-recap'
   | 'payroll-test'
   | 'payroll-raised'
   | 'mark-paid-due'
   | 'salary-paid';
+
+/** HP2 (2026-08-23) — one helper's row in the WEEKLY report email. */
+interface WeeklyHelper {
+  name: string;
+  preset?: string;
+  scorePct: number | null;
+  faceEmoji: string;
+  faceLabel: string;
+  /** Δ vs previous settled week; null when unknown. */
+  delta: number | null;
+  /** 7 codes G/A/R/O/N/T/F (Mon→Sun). */
+  fillCodes: string;
+  fillPct: number | null;
+  line: string;
+  kidStars: string | null;
+  helperUid?: string;
+}
+
+/** HP2 D13 — a kid's weekly review of a helper, emailed the moment it's sent. */
+interface KidReviewDone {
+  kidName: string;
+  helperName: string;
+  starsText: string;          // ⭐⭐⭐⭐
+  pct: number;
+  weekLabel: string;          // 17–23 Aug 2026
+  answers: { q: string; emoji: string; label: string }[];
+  liked?: string[];
+  change?: string[];
+  note?: string;
+  helperUid?: string;
+}
 
 /** One helper's line in the daily performance digest email. */
 interface DigestHelper {
@@ -138,6 +171,11 @@ interface NotifyData {
   parentName?: string;
   dateLabel?: string;
   digestHelpers?: DigestHelper[];
+  // HP2 weekly report + kid review (2026-08-23)
+  rangeLabel?: string;
+  weekKey?: string;
+  weeklyHelpers?: WeeklyHelper[];
+  kidReview?: KidReviewDone;
   // Meeting recap book (b6)
   recap?: MeetingRecapData;
   // Payroll notifications (2026-06-08)
@@ -257,6 +295,21 @@ export async function POST(req: NextRequest) {
         ? 'Your daily helper performance summary'
         : `${n} helper${n === 1 ? '' : 's'} · how today went`,
       body: perfDigestBody(data),
+    });
+  } else if (type === 'perf-weekly') {
+    const n = data.weeklyHelpers?.length ?? 0;
+    subject = `📊 Weekly helper report${data.familyName ? ` · ${data.familyName}` : ''}${data.rangeLabel ? ` · ${data.rangeLabel}` : ''}`;
+    html = renderEmail({
+      preheader: n === 0 ? 'Your weekly helper report' : `${n} helper${n === 1 ? '' : 's'} · how last week went`,
+      body: perfWeeklyBody(data),
+    });
+  } else if (type === 'kid-review-done') {
+    const k = data.kidReview;
+    if (!k) return NextResponse.json({ error: 'kidReview data missing' }, { status: 400 });
+    subject = `💬 ${k.kidName} reviewed ${k.helperName} — ${k.starsText} this week`;
+    html = renderEmail({
+      preheader: `${k.kidName}'s weekly review of ${k.helperName} · ${k.pct}% · ${k.weekLabel}`,
+      body: kidReviewDoneBody(k),
     });
   } else if (type === 'meeting-recap') {
     if (!data.recap) {
@@ -563,6 +616,76 @@ function perfDigestBody(d: NotifyData): string {
       Scores cover settled days (today in progress is excluded). Manage this email in Settings → Notifications.
     </p>
   `;
+}
+
+// ── HP2 · weekly helper report (templateVersion 1) ─────────────────
+function fillDots(codes: string): string {
+  const color = (c: string) => c === 'G' ? '#3FAF6C' : c === 'A' ? '#E9A23B' : c === 'R' ? '#E36F6F' : c === 'T' ? '#FFFFFF' : '#E6E8EE';
+  return codes.split('').map((c) => `<span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:${color(c)};${c === 'T' ? 'border:1.5px dashed #E9A23B;' : ''}margin-right:3px;vertical-align:middle;"></span>`).join('');
+}
+function perfWeeklyBody(d: NotifyData): string {
+  const helpers = d.weeklyHelpers ?? [];
+  const greeting = d.parentName ? `Morning ${esc(d.parentName)} 👋` : 'Morning 👋';
+  if (helpers.length === 0) {
+    return `
+      <p style="margin:0 0 16px;font-size:14px;color:#9B8A72;line-height:1.5;">${greeting}</p>
+      <p style="margin:0;font-size:14px;color:#1A1412;line-height:1.55;">No tracked helpers to report on yet. Choose who's tracked in Settings → Performance.</p>`;
+  }
+  const rows = helpers.map((h) => {
+    const scoreColor = h.scorePct === null ? '#9B8A72' : h.scorePct >= 70 ? '#3FAF6C' : h.scorePct >= 50 ? '#D4A017' : '#E36F6F';
+    const scoreText = h.scorePct === null ? '—' : `${h.scorePct}%`;
+    const delta = h.delta === null ? '' : h.delta > 0
+      ? `<span style="color:#3FAF6C;font-weight:900;">▲${h.delta}</span>` : h.delta < 0
+      ? `<span style="color:#E36F6F;font-weight:900;">▼${Math.abs(h.delta)}</span>` : `<span style="color:#9B8A72;font-weight:900;">▬</span>`;
+    const open = h.helperUid ? `<a href="${APP_URL}/pantry/workplan?helper=${encodeURIComponent(h.helperUid)}&tab=score" style="color:#2E7D4F;text-decoration:none;font-weight:700;font-size:12px;">Open ${esc(h.name.split(' ')[0])} →</a>` : '';
+    return `
+      <tr>
+        <td style="padding:14px 0;border-bottom:1px solid #F0EAE0;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+            <tr>
+              <td style="vertical-align:top;font-size:24px;width:34px;">${esc(h.faceEmoji)}</td>
+              <td style="vertical-align:top;">
+                <div style="font-size:14px;font-weight:700;color:#1A1412;">${esc(h.name)} <span style="font-family:'Outfit',Helvetica,Arial,sans-serif;font-size:16px;font-weight:900;color:${scoreColor};">${esc(scoreText)}</span> <span style="font-size:12px;color:#9B8A72;">${esc(h.faceLabel)}</span> ${delta}</div>
+                <div style="margin-top:5px;">${fillDots(h.fillCodes)}<span style="font-size:11px;color:#9B8A72;margin-left:4px;">routine fill${h.fillPct !== null ? ` ${h.fillPct}%` : ''}</span></div>
+                <div style="font-size:12px;color:#9B8A72;margin-top:4px;">${esc(h.line)}${h.kidStars ? ` · 👧 ${esc(h.kidStars)}` : ''}</div>
+                ${open ? `<div style="margin-top:6px;">${open}</div>` : ''}
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>`;
+  }).join('');
+  return `
+    <p style="margin:0 0 6px;font-size:14px;color:#9B8A72;line-height:1.5;">${greeting}</p>
+    <p style="margin:0 0 18px;font-size:14px;color:#1A1412;line-height:1.55;">
+      Here's how last week went${d.rangeLabel ? ` (${esc(d.rangeLabel)})` : ''}.
+    </p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">${rows}</table>
+    <p style="margin:18px 0 0;text-align:center;">
+      <a href="${APP_URL}/pantry/workplan" style="display:inline-block;background:#2E7D4F;color:#fff;text-decoration:none;font-weight:700;font-size:13px;padding:11px 22px;border-radius:999px;">Open Workplan →</a>
+    </p>
+    <p style="margin:14px 0 0;font-size:12px;color:#C4B89A;text-align:center;">
+      Settled week Mon–Sun · 🟢 all routine slots filled · 🟡 some missed · 🔴 none · ⚪ off-day. Share any helper's week from their Score tab. Manage this email in Settings → Notifications.
+    </p>`;
+}
+
+// ── HP2 · kid review done (templateVersion 1) ───────────────────────
+function kidReviewDoneBody(k: KidReviewDone): string {
+  const answers = k.answers.map((a) => `<tr><td style="padding:4px 8px 4px 0;font-size:20px;vertical-align:middle;">${esc(a.emoji)}</td><td style="padding:4px 0;font-size:13px;color:#1A1412;vertical-align:middle;"><b>${esc(a.label)}</b> <span style="color:#9B8A72;">— ${esc(a.q)}</span></td></tr>`).join('');
+  const chips = (label: string, items?: string[]) => items && items.length
+    ? `<p style="margin:8px 0 0;font-size:13px;color:#1A1412;"><b>${label}:</b> ${items.map(esc).join(' · ')}</p>` : '';
+  const open = k.helperUid ? `${APP_URL}/pantry/workplan?helper=${encodeURIComponent(k.helperUid)}&tab=reviews` : `${APP_URL}/pantry/workplan`;
+  return `
+    <p style="margin:0 0 6px;font-size:14px;color:#9B8A72;line-height:1.5;">${esc(k.kidName)} just sent their weekly review of <b style="color:#1A1412;">${esc(k.helperName)}</b> · ${esc(k.weekLabel)}.</p>
+    <p style="margin:0 0 14px;font-family:'Outfit',Helvetica,Arial,sans-serif;font-size:22px;font-weight:900;color:#1A1412;">${esc(k.starsText)} <span style="font-size:14px;color:#9B8A72;font-weight:700;">${k.pct}%</span></p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0">${answers}</table>
+    ${chips('Liked', k.liked)}
+    ${chips('To change', k.change)}
+    ${k.note ? `<p style="margin:10px 0 0;font-size:13px;color:#1A1412;font-style:italic;">“${esc(k.note)}”</p>` : ''}
+    <p style="margin:18px 0 0;">
+      <a href="${open}" style="display:inline-block;background:#5A3CB8;color:#fff;text-decoration:none;font-weight:700;font-size:13px;padding:11px 22px;border-radius:999px;">See all kid reviews →</a>
+    </p>
+    <p style="margin:14px 0 0;font-size:12px;color:#C4B89A;">Only parents see kids' reviews — ${esc(k.helperName.split(' ')[0])} is never shown them. Manage this email in Settings → Notifications.</p>`;
 }
 
 function utilityBillDueBody(d: NotifyData): string {
