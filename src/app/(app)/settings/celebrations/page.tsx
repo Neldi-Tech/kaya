@@ -14,6 +14,7 @@ import {
   celebrationSettingsFor, defaultCelebrationSettings, ageFromBirthday,
 } from '@/lib/celebrate';
 import { useCelebrate } from '@/components/celebrate/CelebrationProvider';
+import { Page } from '@/components/layout/Page';
 
 const STYLES: Array<{ k: CelebrationStyle; ic: string; label: string }> = [
   { k: 'celebration', ic: '🎉', label: 'Celebration' },
@@ -67,8 +68,10 @@ export default function CelebrationsSettingsPage() {
   const seg = (active: boolean) =>
     `flex-1 h-9 rounded-kaya-sm text-[12px] font-bold border transition ${active ? 'bg-kaya-chocolate text-white border-transparent' : 'bg-white text-kaya-sand border-kaya-warm-dark'}`;
 
+  // Web-Fit (2026-08-23): narrow tier (settings form) + inline submit
+  // row at lg. Mobile unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="narrow">
       <h1 className="font-display font-extrabold text-[20px] flex items-center gap-2">🎉 Celebrations</h1>
       <p className="text-[12px] text-kaya-sand mt-0.5 mb-4">How Kaya cheers each child on when they earn points.</p>
 
@@ -132,13 +135,13 @@ export default function CelebrationsSettingsPage() {
             </button>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex gap-2 lg:justify-end">
             <button type="button" onClick={preview}
               className="h-12 px-4 rounded-kaya bg-white border-2 border-kaya-warm-dark text-kaya-chocolate font-display font-extrabold text-[13px] hover:bg-kaya-warm transition">
               ▶ Preview
             </button>
             <button type="button" onClick={save} disabled={saving}
-              className="flex-1 h-12 rounded-kaya bg-kaya-chocolate text-white font-display font-extrabold text-[14px] disabled:opacity-50 hover:brightness-110 transition">
+              className="flex-1 lg:flex-none lg:px-6 h-12 rounded-kaya bg-kaya-chocolate text-white font-display font-extrabold text-[14px] disabled:opacity-50 hover:brightness-110 transition">
               {saving ? 'Saving…' : saved ? 'Saved ✓' : `Save for ${kid?.name || 'kid'}`}
             </button>
           </div>
@@ -147,6 +150,6 @@ export default function CelebrationsSettingsPage() {
           </p>
         </>
       )}
-    </div>
+    </Page>
   );
 }

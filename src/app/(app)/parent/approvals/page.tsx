@@ -16,6 +16,7 @@ import BackButton from '@/components/ui/BackButton';
 import RequestsHistory from '@/components/parent/RequestsHistory';
 import { subscribeToPendingGameApprovals } from '@/lib/gamesApprovals';
 import type { GamePlay } from '@/lib/games';
+import { Page } from '@/components/layout/Page';
 
 export default function ParentApprovalsPage() {
   const { pendingApprovals: allPending } = useHive();
@@ -40,8 +41,11 @@ export default function ParentApprovalsPage() {
   const waitingCount = pendingApprovals.length + gamePlays.length;
   const nothing = waitingCount === 0;
 
+  // Web-Fit (2026-08-23): content tier. Header keeps its inline "Rates →"
+  // action; pending cards lay out 2-up at lg (each card keeps its
+  // designed width). Mobile markup unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="content">
       <div className="lg:hidden"><BackButton /></div>
       <div className="mb-5 lg:mb-7 flex items-baseline justify-between gap-3">
         <div>
@@ -94,7 +98,7 @@ export default function ParentApprovalsPage() {
       ) : (
         <div className="space-y-6">
           {pendingApprovals.length > 0 && (
-            <div className="space-y-3">
+            <div className="space-y-3 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-3 lg:items-start">
               {pendingApprovals.map((r) => (
                 <ApprovalRequestCard key={r.id} req={r} />
               ))}
@@ -111,7 +115,7 @@ export default function ParentApprovalsPage() {
                   Open queue →
                 </Link>
               </div>
-              <div className="space-y-3">
+              <div className="space-y-3 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-3 lg:items-start">
                 {gamePlays.map((p) => (
                   <GameApprovalCard key={p.id} play={p} />
                 ))}
@@ -120,6 +124,6 @@ export default function ParentApprovalsPage() {
           )}
         </div>
       )}
-    </div>
+    </Page>
   );
 }

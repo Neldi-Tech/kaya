@@ -16,6 +16,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { getCodeStatus, codeAction } from '@/lib/coppa/client';
 import { takeFreshCode } from '@/lib/coppa/freshCode';
+import { PAGE_WIDTH_CLASS } from '@/components/layout/Page';
 
 type Status = 'active' | 'paused' | 'revoked' | 'none' | 'loading';
 
@@ -71,8 +72,10 @@ export default function CodeManagePage() {
     );
   }
 
+  // Web-Fit (2026-08-23): narrow tier. This page has its own centred
+  // scaffold (max-w-xl · py-10), so only the lg max-width is added.
   return (
-    <div className="max-w-xl mx-auto px-5 sm:px-8 py-10 font-body text-center">
+    <div className={`max-w-xl mx-auto px-5 sm:px-8 py-10 font-body text-center ${PAGE_WIDTH_CLASS.narrow}`}>
       {/* ── Just issued ─────────────────────────────────────────── */}
       {code ? (
         <>

@@ -21,6 +21,7 @@ import { toDisplayDate } from '@/lib/dates';
 import { subscribeMeter, meterSummaryLabel, type MeterDoc } from '@/lib/meetingMeter';
 import { getSongLibrary, songIdFromUrl, type SongLibraryEntry } from '@/lib/meetingSongLibrary';
 import { songThumbnailUrl } from '@/lib/songEmbed';
+import { Page } from '@/components/layout/Page';
 
 export default function MeetingNotesPage() {
   const params = useParams<{ id: string }>();
@@ -216,8 +217,10 @@ export default function MeetingNotesPage() {
   const songUrl = (meeting.reflection?.contents?.songs || '').trim();
   const thumb = songUrl.startsWith('http') ? songThumbnailUrl(songUrl) : null;
 
+  // Web-Fit (2026-08-23): narrow tier (a read-only notes sheet). Mobile
+  // classes unchanged (px-4 pt-4 pb-24 print:pt-0).
   return (
-    <div className="mx-auto max-w-md lg:max-w-2xl w-full px-4 pt-4 pb-24 print:pt-0">
+    <Page width="narrow" className="pb-24 print:pt-0">
       <div className="print:hidden"><BackButton /></div>
 
       {/* Header */}
@@ -463,7 +466,7 @@ export default function MeetingNotesPage() {
           onClose={() => setShareOpen(false)}
         />
       )}
-    </div>
+    </Page>
   );
 }
 

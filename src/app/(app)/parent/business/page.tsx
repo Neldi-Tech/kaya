@@ -22,6 +22,7 @@ import { giveAward, Child } from '@/lib/firestore';
 import { formatCash } from '@/components/hive/format';
 import { formatWorth, ROUNDING_LABEL } from '@/components/business/money';
 import { typeMeta, STATUS_META } from '@/components/business/meta';
+import { Page, PageSplit } from '@/components/layout/Page';
 
 export default function ParentBusinessConsolePage() {
   const router = useRouter();
@@ -61,8 +62,22 @@ export default function ParentBusinessConsolePage() {
 
   const activeCount = businesses.filter((b) => b.status === 'active').length;
 
+  // Web-Fit (2026-08-23): content tier, main + rail. The two settings
+  // cards (HP award · display rounding) that sat above the list become
+  // the right rail at lg; approvals / family grid / history stay main.
+  // Mobile DOM order unchanged (railMobile="first" = where they were).
+  const rail = (
+    <>
+      {/* House Points for stock-take effort — parent reviews weekly, or auto. */}
+      <HpAwardSettings familyId={familyId!} hpAward={bizConfig.hpAward} />
+
+      {/* How worth/value numbers are shown — readability vs precision. */}
+      <DisplayRoundingSettings familyId={familyId!} value={bizConfig.displayRounding} currency={config.currency} />
+    </>
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 font-lato text-hive-navy">
+    <Page width="content" className="font-lato text-hive-navy">
       <div className="mb-5 flex items-baseline justify-between gap-3">
         <div>
           <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">Parent · Kaya Business</p>
@@ -77,12 +92,7 @@ export default function ParentBusinessConsolePage() {
         </Link>
       </div>
 
-      {/* House Points for stock-take effort — parent reviews weekly, or auto. */}
-      <HpAwardSettings familyId={familyId!} hpAward={bizConfig.hpAward} />
-
-      {/* How worth/value numbers are shown — readability vs precision. */}
-      <DisplayRoundingSettings familyId={familyId!} value={bizConfig.displayRounding} currency={config.currency} />
-
+      <PageSplit rail={rail} railMobile="first" sticky={false}>
       {/* Approvals first — the thing a parent comes here to do. */}
       <h2 className="font-nunito font-extrabold text-[14px] mb-2">Approvals</h2>
       {pending.length === 0 ? (
@@ -162,7 +172,8 @@ export default function ParentBusinessConsolePage() {
           </div>
         </>
       )}
-    </div>
+      </PageSplit>
+    </Page>
   );
 }
 
