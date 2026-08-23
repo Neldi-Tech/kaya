@@ -33,6 +33,7 @@ import { toDisplayDate } from '@/lib/dates';
 import { ReconcileTimerChip } from '@/components/pantry/ReconcileTimer';
 import { runPayrollGenerator, type GeneratorRun } from '@/lib/payroll';
 import { useConfirm } from '@/contexts/ConfirmContext';
+import { Page, PageHeader, PageSplit, DataRows, DATA_ROW, DATA_ROW_HOVER } from '@/components/layout/Page';
 import { listHelpers } from '@/lib/helpers';
 
 // Auto-name comes from createDraftRequest (`PAY-NNNN · DDMMYY`).
@@ -263,39 +264,33 @@ export default function PayrollHomePage() {
     }
   };
 
-  return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
-      <div className="mb-3">
-        <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">
-          Household · Payroll
-        </p>
-        <h1 className="font-nunito font-black text-2xl lg:text-[34px] tracking-tight mt-0.5">
-          {role === 'parent' ? 'Payroll requests' : 'My pay'}
-        </h1>
-        <p className="text-hive-muted text-sm mt-1">
-          {role === 'parent'
-            ? 'Advances, loans, bonuses, reimbursements from helpers — approved by parents, posted to the budget.'
-            : 'Request an advance, loan, bonus, or reimbursement. Only you and the parents see your requests.'}
-        </p>
-        {role === 'helper' && (
-          <div className="mt-2 bg-hive-paper border border-hive-line rounded-xl p-2.5 flex items-center gap-2">
-            <span className="text-base">🔒</span>
-            <span className="text-[11px] text-hive-muted font-bold">
-              Private to you. Other helpers in your family don't see your requests.
-            </span>
-          </div>
-        )}
-      </div>
+  // Web-Fit (2026-08-23): wide tier, main + rail. Desktop: the "＋ New …"
+  // button lives in the header; the helper pay timeline / generator
+  // banner sit in the right rail; request piles render as dense rows.
+  // Mobile DOM order unchanged (rail is `railMobile="first"`).
+  const headerActions = !isGuest ? (
+    <button
+      type="button"
+      onClick={startDraft}
+      disabled={creating}
+      className="bg-pantry-leaf text-white rounded-hive h-10 px-5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60 hover:bg-pantry-leaf-dk transition-colors"
+    >
+      {creating ? 'Starting…' : (role === 'helper' ? '＋ New advance / loan / bonus' : '＋ New payroll entry')}
+    </button>
+  ) : undefined;
 
+  const rail = (
+    <>
       {/* Top CTA: visible without scrolling (2026-05-19). Payroll has
           no TemplatePicker (each request is unique per helper); the
-          auto-payroll generator handles the "recurring" use case. */}
+          auto-payroll generator handles the "recurring" use case.
+          Desktop: the button is in the page header instead. */}
       {!isGuest && (
         <button
           type="button"
           onClick={startDraft}
           disabled={creating}
-          className="w-full bg-pantry-leaf text-white rounded-hive py-3 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60 mb-4"
+          className="lg:hidden w-full bg-pantry-leaf text-white rounded-hive py-3 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60 mb-4"
         >
           {creating ? 'Starting…' : (role === 'helper' ? '＋ New advance / loan / bonus' : '＋ New payroll entry')}
         </button>
@@ -335,6 +330,34 @@ export default function PayrollHomePage() {
           </p>
         </div>
       )}
+    </>
+  );
+
+  return (
+    <Page width="wide">
+      <PageHeader actions={headerActions}>
+        <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">
+          Household · Payroll
+        </p>
+        <h1 className="font-nunito font-black text-2xl lg:text-[34px] tracking-tight mt-0.5">
+          {role === 'parent' ? 'Payroll requests' : 'My pay'}
+        </h1>
+        <p className="text-hive-muted text-sm mt-1">
+          {role === 'parent'
+            ? 'Advances, loans, bonuses, reimbursements from helpers — approved by parents, posted to the budget.'
+            : 'Request an advance, loan, bonus, or reimbursement. Only you and the parents see your requests.'}
+        </p>
+        {role === 'helper' && (
+          <div className="mt-2 bg-hive-paper border border-hive-line rounded-xl p-2.5 flex items-center gap-2">
+            <span className="text-base">🔒</span>
+            <span className="text-[11px] text-hive-muted font-bold">
+              Private to you. Other helpers in your family don't see your requests.
+            </span>
+          </div>
+        )}
+      </PageHeader>
+
+      <PageSplit rail={rail} railMobile="first" sticky={false}>
 
       {role === 'parent' && pending.length > 0 && (
         <Section title="Awaiting your nod" tone="amber" count={pending.length}>
@@ -413,7 +436,7 @@ export default function PayrollHomePage() {
             <button
               type="button"
               onClick={() => setShowAllRecent((v) => !v)}
-              className="w-full bg-hive-paper border border-hive-line rounded-hive py-2 mt-1 text-pantry-leaf-dk font-nunito font-extrabold text-xs"
+              className={`w-full bg-hive-paper border border-hive-line rounded-hive py-2 mt-1 lg:mt-0 text-pantry-leaf-dk font-nunito font-extrabold text-xs ${DATA_ROW}`}
             >
               {showAllRecent
                 ? '▴ Show less'
@@ -424,12 +447,12 @@ export default function PayrollHomePage() {
       )}
 
       {/* Bottom fallback CTA — convenience after scroll. */}
-      <div className="mt-4 mb-32">
+      <div className="mt-4 mb-32 lg:mb-12">
         <button
           type="button"
           onClick={startDraft}
           disabled={creating || isGuest}
-          className="w-full bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60"
+          className="lg:hidden w-full bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60"
         >
           {creating ? 'Starting…' : (role === 'helper' ? '＋ New advance / loan / bonus' : '＋ New payroll entry')}
         </button>
@@ -439,6 +462,7 @@ export default function PayrollHomePage() {
           </p>
         )}
       </div>
+      </PageSplit>
 
       {markPaidTarget && (
         <MarkPaidModal
@@ -448,7 +472,7 @@ export default function PayrollHomePage() {
           onConfirm={(d) => confirmMarkPaid(markPaidTarget, d)}
         />
       )}
-    </div>
+    </Page>
   );
 }
 
@@ -538,12 +562,12 @@ function Section({
     : tone === 'leaf' ? 'text-pantry-leaf-dk'
     : 'text-hive-muted';
   return (
-    <div className="mt-5">
+    <div className="mt-5 lg:first:mt-0">
       <div className={`text-[11px] font-nunito font-extrabold uppercase tracking-[2px] mb-2 flex items-center gap-2 ${toneClass}`}>
         <span>{title}</span>
         <span className="bg-hive-paper border border-hive-line rounded-full px-2 py-0.5 text-[10px] text-hive-muted">{count}</span>
       </div>
-      <div className="flex flex-col gap-2">{children}</div>
+      <DataRows tone="hive">{children}</DataRows>
     </div>
   );
 }
@@ -590,10 +614,10 @@ function RequestRow({
   const paidOn = req.paidAt?.toDate?.();
   const canMarkPaid = !!onMarkPaid && isSalary && !paidOn;
   return (
-    <div className={`flex items-stretch gap-1.5 ${dimmed ? 'opacity-70' : ''}`}>
+    <div className={`flex items-stretch gap-1.5 lg:gap-0 ${dimmed ? 'opacity-70' : ''}`}>
       <Link
         href={`/pantry/purchase/${req.id}`}
-        className="flex-1 bg-hive-paper border border-hive-line rounded-hive p-3.5 flex items-center gap-3 no-underline"
+        className={`flex-1 bg-hive-paper border border-hive-line rounded-hive p-3.5 flex items-center gap-3 no-underline lg:px-4 lg:py-3 ${DATA_ROW} ${DATA_ROW_HOVER}`}
       >
         <div className="w-10 h-10 rounded-xl bg-pantry-leaf-soft flex items-center justify-center text-base flex-shrink-0">
           🤝
@@ -632,7 +656,7 @@ function RequestRow({
         <button
           type="button"
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); void onMarkPaid!(); }}
-          className="flex-shrink-0 bg-hive-navy text-hive-cream rounded-hive px-3 font-nunito font-black text-[11px] hover:opacity-90"
+          className={`flex-shrink-0 bg-hive-navy text-hive-cream rounded-hive px-3 font-nunito font-black text-[11px] hover:opacity-90 ${DATA_ROW}`}
           aria-label="Mark this salary paid"
           title="Mark paid — captures today as the payment day"
         >
@@ -642,7 +666,7 @@ function RequestRow({
       {canEdit && (
         <Link
           href={`/pantry/purchase/${req.id}`}
-          className="flex-shrink-0 bg-[#FFF7E8] border border-hive-honey/60 rounded-hive px-3 flex items-center text-[#8A6D1E] font-nunito font-black no-underline hover:bg-hive-honey/15"
+          className={`flex-shrink-0 bg-[#FFF7E8] border border-hive-honey/60 rounded-hive px-3 flex items-center text-[#8A6D1E] font-nunito font-black no-underline hover:bg-hive-honey/15 lg:border-l ${DATA_ROW}`}
           aria-label="Edit this posted entry — dates, payment day, budget month"
           title="Edit posted entry — dates · payment day · budget month"
         >
@@ -653,7 +677,7 @@ function RequestRow({
         <button
           type="button"
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); void onDelete(); }}
-          className="flex-shrink-0 bg-hive-paper border border-hive-line rounded-hive px-3 text-hive-rose font-nunito font-black hover:bg-hive-rose/10 hover:border-hive-rose"
+          className={`flex-shrink-0 bg-hive-paper border border-hive-line rounded-hive px-3 text-hive-rose font-nunito font-black hover:bg-hive-rose/10 hover:border-hive-rose lg:border-l ${DATA_ROW}`}
           aria-label="Delete this draft"
           title="Delete draft"
         >

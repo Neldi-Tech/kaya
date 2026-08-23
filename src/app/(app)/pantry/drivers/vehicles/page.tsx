@@ -20,6 +20,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useConfirm } from '@/contexts/ConfirmContext';
+import { Page, PageHeader, PageSplit, DataRows, DATA_ROW } from '@/components/layout/Page';
 import {
   type Vehicle, type VehicleType, type VehicleFuel,
   VEHICLE_TYPES, VEHICLE_FUELS, VEHICLE_COLORS,
@@ -135,9 +136,23 @@ export default function VehiclesPage() {
     );
   }
 
+  // Web-Fit (2026-08-23): content tier, main + rail. Desktop: "＋ Add a
+  // vehicle" in the header; the add form sits in the right rail; the
+  // vehicle list renders as dense rows. Mobile DOM order unchanged
+  // (rail is `railMobile="first"` — the form/button sat above the list).
+  const headerActions = !adding ? (
+    <button
+      type="button"
+      onClick={() => setAdding(true)}
+      className="bg-pantry-leaf text-white rounded-hive h-10 px-5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 hover:bg-pantry-leaf-dk transition-colors"
+    >
+      ＋ Add a vehicle
+    </button>
+  ) : undefined;
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
-      <div className="mb-3">
+    <Page width="content" className="pb-32">
+      <PageHeader actions={headerActions}>
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">
           Household · Drivers · Vehicles
         </p>
@@ -151,11 +166,13 @@ export default function VehiclesPage() {
         <Link href="/pantry/drivers" className="text-[12px] text-pantry-leaf-dk font-bold no-underline hover:underline mt-2 inline-block">
           ← Back to Drivers
         </Link>
-      </div>
+      </PageHeader>
 
+      <PageSplit railMobile="first" sticky={false} rail={(
+      <>
       {/* Add form */}
       {adding ? (
-        <div className="bg-hive-paper border border-pantry-leaf rounded-hive p-4 mt-4">
+        <div className="bg-hive-paper border border-pantry-leaf rounded-hive p-4 mt-4 lg:mt-0">
           <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pantry-leaf-dk mb-3">New vehicle</p>
           <label className="block mb-2">
             <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">Type</span>
@@ -310,11 +327,13 @@ export default function VehiclesPage() {
       ) : (
         <button
           onClick={() => setAdding(true)}
-          className="w-full mt-4 bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30"
+          className="lg:hidden w-full mt-4 bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30"
         >
           ＋ Add a vehicle
         </button>
       )}
+      </>
+      )}>
 
       {/* Vehicle list */}
       {loading ? (
@@ -330,19 +349,20 @@ export default function VehiclesPage() {
         </div>
       ) : (
         Object.entries(grouped).map(([type, list]) => (
-          <div key={type} className="mt-5">
+          <div key={type} className="mt-5 lg:first:mt-0">
             <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-pantry-leaf-dk mb-2">
               {vehicleEmoji(type as VehicleType)} {list.length} {list.length === 1 ? 'vehicle' : 'vehicles'}
             </p>
-            <div className="flex flex-col gap-2">
+            <DataRows tone="hive">
               {list.map((v) => (
                 <VehicleRow key={v.id} vehicle={v} familyId={profile!.familyId!} odo={odoByVehicle[v.id] ?? null} />
               ))}
-            </div>
+            </DataRows>
           </div>
         ))
       )}
-    </div>
+      </PageSplit>
+    </Page>
   );
 }
 
@@ -430,7 +450,7 @@ function VehicleRow({ vehicle, familyId, odo }: {
     ? `${odo.reading.value.toLocaleString()} ${odo.unit} · ${relativeDayLabel(odo.reading.dayKey)}`
     : null;
   return (
-    <div className={`bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3 ${vehicle.active ? '' : 'opacity-60'}`}>
+    <div className={`bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3 lg:px-4 lg:py-3 ${DATA_ROW} ${vehicle.active ? '' : 'opacity-60'}`}>
       <div className="w-10 h-10 rounded-xl bg-pantry-leaf-soft flex items-center justify-center text-base">
         {vehicleEmoji(vehicle.type)}
       </div>

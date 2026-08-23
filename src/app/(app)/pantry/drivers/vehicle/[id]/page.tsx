@@ -33,6 +33,7 @@ import { computeServiceDue, localTodayIso } from '@/lib/vehicleService';
 import { readFamilyUnits, kmToDisplay, formatDistance } from '@/lib/units';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import { toDisplayDate } from '@/lib/dates';
+import { Page, PageHeader, PageSplit } from '@/components/layout/Page';
 
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -205,8 +206,41 @@ export default function VehicleInsightPage() {
   }).filter((x) => x.costPerKm != null) as { v: Vehicle; costPerKm: number }[];
   const fleetMax = fleet.reduce((m, x) => Math.max(m, x.costPerKm), 0);
 
+  // Web-Fit (2026-08-23): content tier, main + rail. Desktop: health card
+  // + metrics + charts stay in the main column; the fleet comparison card
+  // sits in the right rail. Mobile DOM order unchanged (`railMobile="last"`).
+  const fleetRail = fleet.length >= 2 ? (
+        <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-3">
+          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted mb-2">
+            Fleet this month · cost / {distU}
+          </p>
+          {fleet.sort((a, b) => b.costPerKm - a.costPerKm).map(({ v, costPerKm }) => (
+            <div key={v.id} className="mb-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[13px] font-nunito font-extrabold">
+                  {vehicleEmoji(v.type)} {v.label}{v.id === vehicleId ? ' · this one' : ''}
+                </span>
+                <span className="text-[12px] text-hive-muted font-bold">
+                  <b>{formatCents(Math.round(costPerKm * (distU === 'mi' ? 1.609344 : 1)), currency)}</b>/{distU}
+                </span>
+              </div>
+              <div className="h-2 bg-hive-cream rounded-full overflow-hidden mt-1">
+                <div
+                  className={`h-full rounded-full ${costPerKm === fleetMax ? 'bg-hive-honey' : 'bg-pantry-leaf'}`}
+                  style={{ width: `${Math.max(6, (costPerKm / fleetMax) * 100)}%` }}
+                />
+              </div>
+            </div>
+          ))}
+          <p className="text-[10px] text-hive-muted font-bold mt-1">
+            Needs odometer readings this month on each vehicle to compare.
+          </p>
+        </div>
+  ) : null;
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="content" className="pb-32">
+      <PageHeader className="">
       <Link href="/pantry/drivers" className="text-pantry-leaf-dk font-nunito font-extrabold text-xs">
         ← Drivers
       </Link>
@@ -219,6 +253,9 @@ export default function VehicleInsightPage() {
       <p className="text-hive-muted text-sm mt-1 mb-4">
         {[vehicle.makeModel, vehicle.plate, fuelWord].filter(Boolean).join(' · ')}
       </p>
+      </PageHeader>
+
+      <PageSplit rail={fleetRail} railMobile="last">
 
       {/* ── Smart 1 · Vehicle Health Card ─────────────────────────── */}
       <div className={`border rounded-hive p-4 mb-3 ${
@@ -401,34 +438,7 @@ export default function VehicleInsightPage() {
         </div>
       )}
 
-      {fleet.length >= 2 && (
-        <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-3">
-          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted mb-2">
-            Fleet this month · cost / {distU}
-          </p>
-          {fleet.sort((a, b) => b.costPerKm - a.costPerKm).map(({ v, costPerKm }) => (
-            <div key={v.id} className="mb-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[13px] font-nunito font-extrabold">
-                  {vehicleEmoji(v.type)} {v.label}{v.id === vehicleId ? ' · this one' : ''}
-                </span>
-                <span className="text-[12px] text-hive-muted font-bold">
-                  <b>{formatCents(Math.round(costPerKm * (distU === 'mi' ? 1.609344 : 1)), currency)}</b>/{distU}
-                </span>
-              </div>
-              <div className="h-2 bg-hive-cream rounded-full overflow-hidden mt-1">
-                <div
-                  className={`h-full rounded-full ${costPerKm === fleetMax ? 'bg-hive-honey' : 'bg-pantry-leaf'}`}
-                  style={{ width: `${Math.max(6, (costPerKm / fleetMax) * 100)}%` }}
-                />
-              </div>
-            </div>
-          ))}
-          <p className="text-[10px] text-hive-muted font-bold mt-1">
-            Needs odometer readings this month on each vehicle to compare.
-          </p>
-        </div>
-      )}
-    </div>
+      </PageSplit>
+    </Page>
   );
 }

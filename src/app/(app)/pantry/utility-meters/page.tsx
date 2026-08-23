@@ -12,6 +12,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useConfirm } from '@/contexts/ConfirmContext';
+import { Page, PageHeader, PageSplit, DataRows, DATA_ROW } from '@/components/layout/Page';
 import {
   type UtilityMeter, type UtilityMeterType,
   METER_TYPES, meterEmoji,
@@ -156,9 +157,23 @@ export default function UtilityMetersPage() {
     );
   }
 
+  // Web-Fit (2026-08-23): wide tier, main + rail. Desktop: "＋ Add a
+  // meter" in the header; the add form sits in the right rail; the meter
+  // list renders as dense rows. Mobile DOM order unchanged (rail is
+  // `railMobile="first"` — the form/button sat above the list).
+  const headerActions = !adding ? (
+    <button
+      type="button"
+      onClick={() => setAdding(true)}
+      className="bg-hive-honey text-white rounded-hive h-10 px-5 font-nunito font-black text-sm shadow-lg shadow-hive-honey/30 hover:brightness-110 transition"
+    >
+      ＋ Add a meter
+    </button>
+  ) : undefined;
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
-      <div className="mb-3">
+    <Page width="wide" className="pb-32">
+      <PageHeader actions={headerActions}>
         <Link href="/pantry/utility/setup" className="text-[12px] text-pantry-leaf-dk font-bold no-underline hover:underline inline-block mb-2">
           ← Utilities setup
         </Link>
@@ -185,11 +200,13 @@ export default function UtilityMetersPage() {
         >
           📜 Alert log · what was sent, to whom ›
         </Link>
-      </div>
+      </PageHeader>
 
+      <PageSplit railMobile="first" railWidth={360} sticky={false} rail={(
+      <>
       {/* Add form */}
       {adding ? (
-        <div className="bg-hive-paper border border-hive-honey rounded-hive p-4 mt-4">
+        <div className="bg-hive-paper border border-hive-honey rounded-hive p-4 mt-4 lg:mt-0">
           <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-honey-dk mb-3">New meter</p>
           <label className="block mb-2">
             <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">Type</span>
@@ -365,11 +382,13 @@ export default function UtilityMetersPage() {
       ) : (
         <button
           onClick={() => setAdding(true)}
-          className="w-full mt-4 bg-hive-honey text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-hive-honey/30"
+          className="lg:hidden w-full mt-4 bg-hive-honey text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-hive-honey/30"
         >
           ＋ Add a meter
         </button>
       )}
+      </>
+      )}>
 
       {/* Meter list */}
       {loading ? (
@@ -384,19 +403,20 @@ export default function UtilityMetersPage() {
         </div>
       ) : (
         Object.entries(grouped).map(([type, list]) => (
-          <div key={type} className="mt-5">
+          <div key={type} className="mt-5 lg:first:mt-0">
             <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-honey-dk mb-2">
               {meterEmoji(type as UtilityMeterType)} {list.length} {list.length === 1 ? 'meter' : 'meters'}
             </p>
-            <div className="flex flex-col gap-2">
+            <DataRows tone="hive">
               {list.map((m) => (
                 <MeterRow key={m.id} meter={m} familyId={profile!.familyId!} currency={currency} suppliers={suppliers} last={lastByMeter[m.id] ?? null} parents={parentProfiles} alertCfg={family?.alertEmails} />
               ))}
-            </div>
+            </DataRows>
           </div>
         ))
       )}
-    </div>
+      </PageSplit>
+    </Page>
   );
 }
 
@@ -581,7 +601,7 @@ function MeterRow({ meter, familyId, currency, suppliers, last, parents, alertCf
     : null;
 
   return (
-    <div className="bg-hive-paper border border-hive-line rounded-hive p-3 flex items-start gap-3">
+    <div className={`bg-hive-paper border border-hive-line rounded-hive p-3 flex items-start gap-3 lg:px-4 lg:py-3 ${DATA_ROW}`}>
       <div className="w-10 h-10 rounded-xl bg-[#FFF3D9] flex items-center justify-center text-base shrink-0">
         {meterEmoji(meter.type)}
       </div>

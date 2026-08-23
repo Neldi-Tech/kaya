@@ -28,6 +28,7 @@ import { createList, thisWeekKey, type GroceryListItem, type Cadence } from '@/l
 import type { Region } from '@/lib/pantryDirectory';
 import { formatCents } from '@/components/pantry/format';
 import { useHive } from '@/contexts/HiveContext';
+import { Page, PageHeader, PageSplit, PageGrid } from '@/components/layout/Page';
 
 interface Template {
   id: string;
@@ -215,20 +216,11 @@ export default function TemplatesPage() {
     }
   };
 
-  return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32 lg:pb-12">
-      <div className="mb-3">
-        <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">
-          Pantry · Templates
-        </p>
-        <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1">
-          Pick a template 📋
-        </h1>
-        <p className="text-[12px] lg:text-[13px] text-hive-muted mt-1">
-          Pre-built lists by region, size, lifestyle, cadence. Tap one to preview.
-        </p>
-      </div>
-
+  // Web-Fit (2026-08-23): wide tier, main + rail. Desktop: search +
+  // filter chips sit in the right rail (chips wrap); template grids go
+  // 3-up. Mobile DOM order unchanged (rail is `railMobile="first"`).
+  const filtersRail = (
+    <>
       {/* Search */}
       <input
         value={search}
@@ -262,16 +254,34 @@ export default function TemplatesPage() {
           <Chip key={c} active={cadence === c} onClick={() => setCadence(c)}>{CADENCE_LABEL[c]}</Chip>
         ))}
       </ChipRow>
+    </>
+  );
+
+  return (
+    <Page width="wide" className="pb-32 lg:pb-12">
+      <PageHeader>
+        <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">
+          Pantry · Templates
+        </p>
+        <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1">
+          Pick a template 📋
+        </h1>
+        <p className="text-[12px] lg:text-[13px] text-hive-muted mt-1">
+          Pre-built lists by region, size, lifestyle, cadence. Tap one to preview.
+        </p>
+      </PageHeader>
+
+      <PageSplit rail={filtersRail} railMobile="first">
 
       {/* ⭐ Popular row — always visible regardless of filters */}
-      <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.6px] text-hive-honey-dk mt-4 mb-2">
+      <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.6px] text-hive-honey-dk mt-4 mb-2 lg:mt-0">
         ⭐ Popular picks
       </p>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 mb-4">
+      <PageGrid cols={{ base: 1, lg: 3 }} className="gap-2 mb-4">
         {POPULAR.map((t) => (
           <TemplateCard key={t.id} template={t} onTap={() => setPreview(t)} />
         ))}
-      </div>
+      </PageGrid>
 
       {/* All matching templates */}
       <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.6px] text-hive-muted mt-2 mb-2">
@@ -283,17 +293,18 @@ export default function TemplatesPage() {
           <p className="text-[12px] text-hive-muted">No templates match these filters.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+        <PageGrid cols={{ base: 1, lg: 3 }} className="gap-2">
           {visible.slice(0, 60).map((t) => (
             <TemplateCard key={t.id} template={t} onTap={() => setPreview(t)} />
           ))}
           {visible.length > 60 && (
-            <p className="text-center text-[11px] text-hive-muted py-3 lg:col-span-2">
+            <p className="text-center text-[11px] text-hive-muted py-3 lg:col-span-3">
               + {visible.length - 60} more · narrow your filters to see them
             </p>
           )}
-        </div>
+        </PageGrid>
       )}
+      </PageSplit>
 
       {/* Preview drawer */}
       {preview && (
@@ -305,7 +316,7 @@ export default function TemplatesPage() {
           onClose={() => setPreview(null)}
         />
       )}
-    </div>
+    </Page>
   );
 }
 
@@ -424,7 +435,7 @@ function ChipRow({ label, children }: { label: string; children: React.ReactNode
       <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.2px] text-hive-muted mb-1">
         {label}
       </p>
-      <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">{children}</div>
+      <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1 lg:flex-wrap lg:overflow-visible">{children}</div>
     </div>
   );
 }

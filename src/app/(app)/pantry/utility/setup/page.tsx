@@ -21,6 +21,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
 import BillsActivity from '@/components/pantry/BillsActivity';
+import { Page, PageHeader } from '@/components/layout/Page';
 
 export default function UtilitySetupHub() {
   const router = useRouter();
@@ -48,8 +49,11 @@ export default function UtilitySetupHub() {
     );
   }
 
+  // Web-Fit (2026-08-23): narrow tier (setup chooser) — container +
+  // header only. Mobile unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="narrow" className="pb-32">
+      <PageHeader className="">
       <Link href="/pantry/utility" className="text-hive-honey-dk font-nunito font-extrabold text-xs">
         ← Back to Utility
       </Link>
@@ -59,6 +63,7 @@ export default function UtilitySetupHub() {
       <p className="text-hive-muted text-sm mt-1">
         Two kinds of utility. Pick which one you're adding — the difference is who pays and when.
       </p>
+      </PageHeader>
 
       {/* Recurring bills card */}
       <Link
@@ -119,6 +124,6 @@ export default function UtilitySetupHub() {
       {profile?.familyId && (
         <BillsActivity familyId={profile.familyId} byUid={profile.uid} currency={config.currency} isParent />
       )}
-    </div>
+    </Page>
   );
 }

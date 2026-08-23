@@ -28,6 +28,7 @@ import {
   type Vehicle, subscribeToVehicles, updateVehicle, setVehicleNextService, vehicleEmoji,
 } from '@/lib/vehicles';
 import { readDriversConfig, setDriversConfig } from '@/lib/purchase';
+import { Page, PageHeader, PageSplit, BTN_INLINE_LG } from '@/components/layout/Page';
 import { readFamilyUnits, kmToDisplay, displayToKm } from '@/lib/units';
 import { toDisplayDate } from '@/lib/dates';
 import { fetchOdometerStats } from '@/lib/driversOdometer';
@@ -222,29 +223,11 @@ export default function VehiclesServiceSetupPage() {
 
   const distWord = distU === 'km' ? 'km' : 'miles';
 
-  return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
-      <Link href="/pantry/setup" className="text-pantry-leaf-dk font-nunito font-extrabold text-xs">
-        ← Setup
-      </Link>
-      <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk mt-3">
-        Setup · Vehicles & service
-      </p>
-      <h1 className="font-nunito font-black text-2xl lg:text-[34px] tracking-tight mt-0.5">
-        🚗 Vehicles & service
-      </h1>
-      <p className="text-hive-muted text-sm mt-1 mb-1.5">
-        Per-vehicle schedule + reminders (a boda ≠ a Prado). Due = {distWord} or months —
-        whichever comes first.
-      </p>
-      <Link
-        href="/pantry/drivers/vehicles"
-        className="text-[12px] text-pantry-leaf-dk font-bold no-underline hover:underline inline-block mb-4"
-      >
-        🚙 Manage the vehicle registry (add / edit / photo) →
-      </Link>
-
-      {/* Family-wide odometer rule (Screen F toggle). */}
+  // Web-Fit (2026-08-23): content tier, main + rail. Desktop: the
+  // family-wide odometer rule sits in the right rail; per-vehicle
+  // schedule cards stay in the main column with an inline Save. Mobile
+  // DOM order unchanged (rail is `railMobile="first"`).
+  const odoRail = (
       <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-3">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -269,6 +252,34 @@ export default function VehiclesServiceSetupPage() {
           </button>
         </div>
       </div>
+  );
+
+  return (
+    <Page width="content" className="pb-32">
+      <PageHeader className="">
+      <Link href="/pantry/setup" className="text-pantry-leaf-dk font-nunito font-extrabold text-xs">
+        ← Setup
+      </Link>
+      <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk mt-3">
+        Setup · Vehicles & service
+      </p>
+      <h1 className="font-nunito font-black text-2xl lg:text-[34px] tracking-tight mt-0.5">
+        🚗 Vehicles & service
+      </h1>
+      <p className="text-hive-muted text-sm mt-1 mb-1.5">
+        Per-vehicle schedule + reminders (a boda ≠ a Prado). Due = {distWord} or months —
+        whichever comes first.
+      </p>
+      <Link
+        href="/pantry/drivers/vehicles"
+        className="text-[12px] text-pantry-leaf-dk font-bold no-underline hover:underline inline-block mb-4"
+      >
+        🚙 Manage the vehicle registry (add / edit / photo) →
+      </Link>
+      </PageHeader>
+
+      {/* Family-wide odometer rule (Screen F toggle) — in the rail. */}
+      <PageSplit rail={odoRail} railMobile="first">
 
       {vehicles.length === 0 && (
         <div className="bg-hive-paper border border-dashed border-hive-line rounded-hive p-6 text-center">
@@ -501,17 +512,20 @@ export default function VehiclesServiceSetupPage() {
               </button>
             ))}
 
+            <div className="lg:flex lg:justify-end">
             <button
               type="button"
               onClick={() => save(v)}
               disabled={savingId === v.id}
-              className="w-full bg-pantry-leaf text-white rounded-hive py-2.5 font-nunito font-black text-sm mt-3 disabled:opacity-60"
+              className={`w-full bg-pantry-leaf text-white rounded-hive py-2.5 font-nunito font-black text-sm mt-3 disabled:opacity-60 ${BTN_INLINE_LG}`}
             >
               {savingId === v.id ? 'Saving…' : savedId === v.id ? '✓ Saved' : 'Save schedule'}
             </button>
+            </div>
           </div>
         );
       })}
-    </div>
+      </PageSplit>
+    </Page>
   );
 }

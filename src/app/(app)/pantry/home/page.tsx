@@ -30,6 +30,7 @@ import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import TemplatePicker from '@/components/pantry/TemplatePicker';
 import { ReconcileTimerChip } from '@/components/pantry/ReconcileTimer';
 import { useConfirm } from '@/contexts/ConfirmContext';
+import { Page, PageHeader, PageSplit, DataRows, DATA_ROW, DATA_ROW_HOVER } from '@/components/layout/Page';
 
 // Auto-name comes from createDraftRequest (`HOM-NNNN · DDMMYY`).
 
@@ -127,29 +128,28 @@ export default function HomeModulePage() {
     }
   };
 
-  return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
-      <div className="mb-3">
-        <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-[#9B6B3F]">
-          Household · Home & Wellness
-        </p>
-        <h1 className="font-nunito font-black text-2xl lg:text-[34px] tracking-tight mt-0.5">
-          Home &amp; Wellness
-        </h1>
-        <p className="text-hive-muted text-sm mt-1">
-          {role === 'parent'
-            ? 'Furniture, appliances, décor, fittings + self-care & wellness — the bigger home buys.'
-            : 'Build a request for home items, send for the nod, then reconcile after.'}
-        </p>
-      </div>
+  // Web-Fit (2026-08-23): wide tier, main + rail. Desktop: "＋ New home
+  // request" lives in the header; the CTA/templates block sits in the
+  // right rail; request piles render as dense rows. Mobile DOM order
+  // unchanged (rail is `railMobile="first"`).
+  const headerActions = profile?.familyId && !isGuest ? (
+    <button
+      type="button"
+      onClick={startDraft}
+      disabled={creating}
+      className="bg-[#9B6B3F] text-white rounded-hive h-10 px-5 font-nunito font-black text-sm shadow-lg shadow-[#9B6B3F]/30 disabled:opacity-60 hover:brightness-110 transition"
+    >
+      {creating ? 'Starting…' : '＋ New home request'}
+    </button>
+  ) : undefined;
 
-      {profile?.familyId && !isGuest && (
+  const rail = profile?.familyId && !isGuest ? (
         <div className="mb-4">
           <button
             type="button"
             onClick={startDraft}
             disabled={creating}
-            className="w-full bg-[#9B6B3F] text-white rounded-hive py-3 font-nunito font-black text-sm shadow-lg shadow-[#9B6B3F]/30 disabled:opacity-60 mb-2"
+            className="lg:hidden w-full bg-[#9B6B3F] text-white rounded-hive py-3 font-nunito font-black text-sm shadow-lg shadow-[#9B6B3F]/30 disabled:opacity-60 mb-2"
           >
             {creating ? 'Starting…' : '＋ New home request'}
           </button>
@@ -167,7 +167,25 @@ export default function HomeModulePage() {
             }}
           />
         </div>
-      )}
+  ) : null;
+
+  return (
+    <Page width="wide">
+      <PageHeader actions={headerActions}>
+        <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-[#9B6B3F]">
+          Household · Home & Wellness
+        </p>
+        <h1 className="font-nunito font-black text-2xl lg:text-[34px] tracking-tight mt-0.5">
+          Home &amp; Wellness
+        </h1>
+        <p className="text-hive-muted text-sm mt-1">
+          {role === 'parent'
+            ? 'Furniture, appliances, décor, fittings + self-care & wellness — the bigger home buys.'
+            : 'Build a request for home items, send for the nod, then reconcile after.'}
+        </p>
+      </PageHeader>
+
+      <PageSplit rail={rail} railMobile="first" sticky={false}>
 
       {role === 'parent' && pending.length > 0 && (
         <Section title="Awaiting your nod" tone="amber" count={pending.length}>
@@ -233,7 +251,7 @@ export default function HomeModulePage() {
             <button
               type="button"
               onClick={() => setShowAllRecent((v) => !v)}
-              className="w-full bg-hive-paper border border-hive-line rounded-hive py-2 mt-1 text-[#9B6B3F] font-nunito font-extrabold text-xs"
+              className={`w-full bg-hive-paper border border-hive-line rounded-hive py-2 mt-1 lg:mt-0 text-[#9B6B3F] font-nunito font-extrabold text-xs ${DATA_ROW}`}
             >
               {showAllRecent
                 ? '▴ Show less'
@@ -243,12 +261,12 @@ export default function HomeModulePage() {
         </Section>
       )}
 
-      <div className="mt-4 mb-32">
+      <div className="mt-4 mb-32 lg:mb-12">
         <button
           type="button"
           onClick={startDraft}
           disabled={creating || isGuest}
-          className="w-full bg-[#9B6B3F] text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-[#9B6B3F]/30 disabled:opacity-60"
+          className="lg:hidden w-full bg-[#9B6B3F] text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-[#9B6B3F]/30 disabled:opacity-60"
         >
           {creating ? 'Starting…' : '＋ New home request'}
         </button>
@@ -258,7 +276,8 @@ export default function HomeModulePage() {
           </p>
         )}
       </div>
-    </div>
+      </PageSplit>
+    </Page>
   );
 }
 
@@ -278,12 +297,12 @@ function Section({
     : tone === 'leaf' ? 'text-pantry-leaf-dk'
     : 'text-hive-muted';
   return (
-    <div className="mt-5">
+    <div className="mt-5 lg:first:mt-0">
       <div className={`text-[11px] font-nunito font-extrabold uppercase tracking-[2px] mb-2 flex items-center gap-2 ${toneClass}`}>
         <span>{title}</span>
         <span className="bg-hive-paper border border-hive-line rounded-full px-2 py-0.5 text-[10px] text-hive-muted">{count}</span>
       </div>
-      <div className="flex flex-col gap-2">{children}</div>
+      <DataRows tone="hive">{children}</DataRows>
     </div>
   );
 }
@@ -301,10 +320,10 @@ function RequestRow({
   const total = req.actualTotalCents ?? req.estimatedTotalCents;
   const isClosed = req.status === 'closed' || req.status === 'rejected';
   return (
-    <div className={`flex items-stretch gap-1.5 ${dimmed ? 'opacity-70' : ''}`}>
+    <div className={`flex items-stretch gap-1.5 lg:gap-0 ${dimmed ? 'opacity-70' : ''}`}>
       <Link
         href={`/pantry/purchase/${req.id}`}
-        className="flex-1 bg-hive-paper border border-hive-line rounded-hive p-3.5 flex items-center gap-3 no-underline"
+        className={`flex-1 bg-hive-paper border border-hive-line rounded-hive p-3.5 flex items-center gap-3 no-underline lg:px-4 lg:py-3 ${DATA_ROW} ${DATA_ROW_HOVER}`}
       >
         <div className="w-10 h-10 rounded-xl bg-[#F6EBDD] flex items-center justify-center text-base flex-shrink-0">
           🛋️
@@ -334,7 +353,7 @@ function RequestRow({
           type="button"
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); void onRecycle(); }}
           disabled={recycling}
-          className="flex-shrink-0 bg-hive-paper border border-hive-line rounded-hive px-3 text-[#9B6B3F] font-nunito font-black hover:bg-[#F6EBDD] hover:border-[#E0C4A3] disabled:opacity-50"
+          className={`flex-shrink-0 bg-hive-paper border border-hive-line rounded-hive px-3 text-[#9B6B3F] font-nunito font-black hover:bg-[#F6EBDD] hover:border-[#E0C4A3] disabled:opacity-50 lg:border-l ${DATA_ROW}`}
           aria-label="Recycle — re-buy these items"
           title="Recycle · re-buy these items"
         >
@@ -345,7 +364,7 @@ function RequestRow({
         <button
           type="button"
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); void onDelete(); }}
-          className="flex-shrink-0 bg-hive-paper border border-hive-line rounded-hive px-3 text-hive-rose font-nunito font-black hover:bg-hive-rose/10 hover:border-hive-rose"
+          className={`flex-shrink-0 bg-hive-paper border border-hive-line rounded-hive px-3 text-hive-rose font-nunito font-black hover:bg-hive-rose/10 hover:border-hive-rose lg:border-l ${DATA_ROW}`}
           aria-label="Delete this draft"
           title="Delete draft"
         >

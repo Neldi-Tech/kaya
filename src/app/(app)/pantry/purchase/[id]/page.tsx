@@ -69,6 +69,7 @@ import { uploadReceipt, clearReceipt } from '@/lib/receiptUpload';
 import ReceiptScanModal from '@/components/pantry/ReceiptScanModal';
 import type { ScanResult } from '@/lib/receiptScan';
 import BudgetBalanceMeter from '@/components/pantry/BudgetBalanceMeter';
+import { Page, PageSplit } from '@/components/layout/Page';
 import PaidByPicker, { type PaidByValue } from '@/components/household/PaidByPicker';
 import { toDisplayDate } from '@/lib/dates';
 
@@ -990,8 +991,418 @@ export default function PurchaseDetailPage() {
       : sumEstimated(req.items);
   const vPct = isClosed ? variancePct(req) : 0;
 
+  // Web-Fit (2026-08-23): content tier, main + rail. Desktop: the
+  // item list + builders stay in the main column; the total card,
+  // receipt photo and status action buttons sit in the right rail.
+  // Mobile DOM order unchanged (rail is `railMobile="last"`, i.e. exactly
+  // where those blocks already were).
+  const rail = (
+    <>
+      {/* Total card — the de-facto receipt summary. Shows the actual
+          total prominently + an approved-vs-actual variance line below
+          (both %-chip AND absolute amount labelled "saved" / "over").
+          (2026-05-19 — Elia's "show savings or overrun amount, not
+          just %" ask + "update in the receipt".) The variance line
+          renders during reconcile too so the helper sees the running
+          budget impact, not only post-close. */}
+      {req.items.length > 0 && (() => {
+        const approved = req.estimatedTotalCents ?? sumEstimated(req.items);
+        const showVariance =
+          (reconcilable || isClosed || isPendingClose) &&
+          approved > 0 &&
+          // Direct-to-budget posts have no estimate-vs-actual step — the
+          // posted amount IS the spend, so a savings/overrun line is
+          // meaningless. (2026-05-21)
+          !req.postedDirect &&
+          // During reconcile, only once the helper has filled actuals
+          // for at least one line — avoids a misleading "−100% saved"
+          // on an empty actuals page.
+          (isClosed || req.items.some((i) => i.actualCents != null && i.actualQty != null));
+        const varianceCents = total - approved;
+        const variancePctNow = approved > 0 ? Math.round((varianceCents / approved) * 100) : 0;
+        const variancePositive = varianceCents > 0;
+        const exactly = varianceCents === 0;
+        return (
+          <div className="mt-4 lg:mt-0 rounded-hive p-4 flex items-center justify-between bg-pantry-leaf-soft border border-pantry-leaf">
+            <div>
+              <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pantry-leaf-dk">
+                {reconcilable || isClosed ? 'Actual total' : 'Estimated total'}
+              </div>
+              {(reconcilable || isClosed || isPendingClose) && approved > 0 && (
+                <div className="text-[11px] text-hive-muted font-bold mt-1">
+                  approved {formatCents(approved, currency)}
+                </div>
+              )}
+            </div>
+            <div className="text-right">
+              {/* Estimated total renders to a "budget-neat" bucket
+                  (round-up to nearest 10/100/1000 depending on
+                  magnitude) so the parent sees a clean number when
+                  planning. Actuals stay precise — they're facts.
+                  (2026-05-19 — Elia's "round up totals in the nearest
+                  100 to make the budget neat".) */}
+              <div className="font-nunito font-black text-2xl text-hive-ink">
+                {(reconcilable || isClosed || isPendingClose)
+                  ? formatCents(total, currency)
+                  : <>≈ {formatCentsBudgetNeat(total, currency)}</>}
+              </div>
+              {showVariance && (
+                <div className="mt-1 flex items-center justify-end gap-1.5 text-[11px] font-nunito font-extrabold">
+                  <span className={`px-1.5 py-0.5 rounded ${
+                    exactly
+                      ? 'bg-hive-cream text-hive-muted'
+                      : variancePositive
+                        ? 'bg-[#FCEAEA] text-hive-rose'
+                        : 'bg-[#E6F7EE] text-hive-green'
+                  }`}>
+                    {variancePositive ? '+' : ''}{variancePctNow}%
+                  </span>
+                  <span className={exactly
+                    ? 'text-hive-muted'
+                    : variancePositive ? 'text-hive-rose' : 'text-hive-green'}>
+                    {exactly
+                      ? 'on the dot'
+                      : variancePositive
+                        ? `+${formatCents(varianceCents, currency)} over`
+                        : `${formatCents(-varianceCents, currency)} saved`}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Receipt photo — shown during reconcile + closed states.
+          (2026-05-19) Helper attaches the paper trail during reconcile;
+          parent sees it post-close as audit evidence. Hidden in earlier
+          states (draft / pending / approved) since there's nothing to
+          photograph yet. The thumbnail is the uploaded receipt itself
+          — tap to open in a new tab for full-size review. */}
+      {(reconcilable || isClosed || isPendingClose) && (
+        <div className="mt-3 bg-hive-paper border border-hive-line rounded-hive p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">
+              📷 Receipt photo
+            </div>
+            {req.receiptUrl && !isClosed && (
+              <button
+                type="button"
+                onClick={handleReceiptClear}
+                disabled={receiptBusy}
+                className="text-hive-rose text-[10px] font-nunito font-extrabold disabled:opacity-50"
+              >
+                ✕ Remove
+              </button>
+            )}
+          </div>
+          {req.receiptUrl ? (
+            <div className="flex items-start gap-3">
+              <button
+                type="button"
+                onClick={() => downloadImage(req.receiptUrl!, suggestedPhotoFilename()).catch((err) => console.error('Receipt download failed', err))}
+                aria-label="Download receipt"
+                className="block w-24 h-24 rounded-lg overflow-hidden border border-hive-line bg-hive-cream flex-shrink-0 p-0 cursor-pointer"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={req.receiptUrl} alt="Receipt" className="w-full h-full object-cover" />
+              </button>
+              <div className="flex-1 min-w-0 text-[11px] text-hive-muted font-bold">
+                <p>Tap the photo to save the receipt.</p>
+                {!isClosed && (
+                  <label className="inline-block mt-2 cursor-pointer text-pantry-leaf-dk font-extrabold underline">
+                    📷 Replace receipt
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      disabled={receiptBusy}
+                      onChange={(e) => { void handleReceiptUpload(e.target.files?.[0] ?? null); e.target.value = ''; }}
+                    />
+                  </label>
+                )}
+              </div>
+            </div>
+          ) : isClosed ? (
+            /* Closed without a receipt — the audit trail has a gap.
+               Show a passive placeholder rather than an active upload
+               card; receipts are an in-reconcile artefact. */
+            <div className="border-2 border-dashed border-hive-line rounded-hive p-3 text-center bg-hive-cream/40">
+              <div className="text-2xl mb-1 opacity-60">📷</div>
+              <div className="font-nunito font-extrabold text-sm text-hive-muted">
+                No receipt attached
+              </div>
+              <div className="text-[11px] text-hive-muted/80 font-bold mt-0.5">
+                The shop closed without an uploaded photo.
+              </div>
+            </div>
+          ) : (
+            <label className={`block w-full border-2 border-dashed rounded-hive p-4 text-center cursor-pointer transition-colors ${
+              receiptBusy
+                ? 'border-hive-line text-hive-muted opacity-60 cursor-default'
+                : 'border-pantry-leaf/40 text-pantry-leaf-dk hover:bg-pantry-leaf-soft/40'
+            }`}>
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                disabled={receiptBusy}
+                onChange={(e) => { void handleReceiptUpload(e.target.files?.[0] ?? null); e.target.value = ''; }}
+              />
+              <div className="text-2xl mb-1">📷</div>
+              <div className="font-nunito font-extrabold text-sm">
+                {receiptBusy ? 'Uploading…' : 'Add receipt photo'}
+              </div>
+              <div className="text-[11px] text-hive-muted font-bold mt-0.5">
+                Snap or pick from your gallery. Helps the parent close the audit trail.
+              </div>
+            </label>
+          )}
+          {receiptError && (
+            <p className="text-[11px] text-hive-rose font-bold mt-2">{receiptError}</p>
+          )}
+        </div>
+      )}
+
+      {/* Action buttons per status */}
+      <div className="mt-4 flex flex-col gap-2">
+        {isDraft && (
+          <>
+            <button
+              type="button"
+              onClick={send}
+              disabled={busy || req.items.length === 0 || isGuest || odoSendBlocked}
+              className="bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60"
+            >
+              {sw ? 'Tuma kwa ukaguzi →' : 'Send for approval →'}
+            </button>
+            {odoMissingMandatory && (
+              <p className="text-[11px] text-hive-honey-dk font-bold text-center -mt-0.5">
+                🧭 {sw
+                  ? 'Jaza usomaji wa odometa kwanza — unahitajika kwenye familia hii.'
+                  : 'Enter the odometer reading first — it’s required in this family.'}
+              </p>
+            )}
+
+            {/* Parent fast-path: skip approval + reconcile and post the
+                spend straight to the budget. Helpers never see this. */}
+            {role === 'parent' && directCents === null && (
+              <button
+                type="button"
+                onClick={() => setDirectCents(sumEstimated(req.items))}
+                disabled={busy || req.items.length === 0 || isGuest}
+                className="bg-hive-paper border border-pantry-leaf-soft text-pantry-leaf-dk rounded-hive py-3.5 font-nunito font-black text-sm disabled:opacity-60"
+              >
+                Post straight to budget →
+              </button>
+            )}
+            {role === 'parent' && directCents !== null && (
+              <div className="bg-hive-paper border border-hive-line rounded-hive p-3">
+                <label className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">
+                  Amount to post to budget
+                </label>
+                <div className="mt-1 flex items-center gap-1 bg-hive-cream border border-hive-line rounded-lg px-2 py-1.5">
+                  <span className="text-xs text-hive-muted font-bold">{currency}</span>
+                  <NumberInput
+                    value={directCents / 100}
+                    onChange={(n) => setDirectCents(Math.round(n * 100))}
+                    allowDecimal={currencyAllowsDecimals(currency)}
+                    placeholder="0"
+                    ariaLabel="Amount to post to budget"
+                    className="flex-1 bg-transparent font-nunito font-extrabold text-sm focus:outline-none w-0"
+                  />
+                </div>
+                <p className="text-[10px] text-hive-muted font-bold mt-1">
+                  Skips approval + reconcile — records this directly against the budget.
+                </p>
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <button
+                    type="button"
+                    onClick={() => setDirectCents(null)}
+                    disabled={busy}
+                    className="border border-hive-line rounded-lg py-2 font-nunito font-bold text-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={postDirect}
+                    disabled={busy || directCents <= 0}
+                    className="bg-pantry-leaf text-white rounded-lg py-2 font-nunito font-black text-sm disabled:opacity-60"
+                  >
+                    Post to budget →
+                  </button>
+                </div>
+              </div>
+            )}
+            {isCreator && (
+              <button
+                type="button"
+                onClick={deleteOwn}
+                disabled={busy}
+                className="text-hive-rose font-nunito font-bold text-xs py-2"
+              >
+                Delete draft
+              </button>
+            )}
+          </>
+        )}
+        {isPending && role === 'parent' && rejectNote === null && (
+          <>
+            {req.approvedBy?.includes(profile?.uid || '') ? (
+              <button
+                disabled
+                className="bg-pantry-leaf-soft text-pantry-leaf-dk border border-pantry-leaf-soft rounded-hive py-3.5 font-nunito font-black text-sm cursor-default"
+              >
+                ✓ You approved · waiting for second parent
+              </button>
+            ) : (
+              <button
+                onClick={approve}
+                disabled={busy}
+                className="bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm"
+              >
+                {approvalMode === 'both' && (req.approvedBy?.length ?? 0) === 1
+                  ? 'Add my approval (finalises)'
+                  : approvalMode === 'both'
+                    ? 'Approve · 1 of 2'
+                    : 'Approve ✓'}
+              </button>
+            )}
+            {/* Reject is the parent-only action during approval review.
+                Creators get a separate "Delete request" button below
+                (renders even when the parent is the creator — they can
+                still self-delete what they wrongly created). */}
+            <button onClick={() => setRejectNote('')} disabled={busy} className="text-hive-rose font-nunito font-bold text-xs py-2">Reject with note</button>
+          </>
+        )}
+        {/* Creator-self-delete for a pending request — the helper
+            (or parent) realised they sent the wrong thing and wants
+            to take it back before anyone acts on it. Independent
+            from parent Reject (which is for declining someone else's
+            request and keeps an audit trail + rejection note). */}
+        {isPending && isCreator && rejectNote === null && (
+          <button
+            type="button"
+            onClick={deleteOwn}
+            disabled={busy}
+            className="text-hive-rose font-nunito font-bold text-xs py-2"
+          >
+            Delete request (took it back)
+          </button>
+        )}
+        {isPending && role === 'parent' && rejectNote !== null && (
+          <div className="bg-hive-paper border border-hive-line rounded-hive p-3">
+            <textarea
+              autoFocus
+              value={rejectNote}
+              onChange={(e) => setRejectNote(e.target.value)}
+              placeholder="Why are you rejecting? (helps the helper try again)"
+              className="w-full border border-hive-line rounded-lg p-2 text-sm font-nunito font-bold mb-2"
+              rows={3}
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setRejectNote(null)} className="border border-hive-line rounded-lg py-2 font-nunito font-bold text-sm">Cancel</button>
+              <button onClick={reject} disabled={busy} className="bg-hive-rose text-white rounded-lg py-2 font-nunito font-black text-sm">Reject</button>
+            </div>
+          </div>
+        )}
+        {isApproved && role === 'helper' && (
+          <button onClick={startRec} disabled={busy} className="bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30">
+            Start reconcile →
+          </button>
+        )}
+        {isApproved && role === 'parent' && (
+          <button onClick={startRec} disabled={busy} className="bg-hive-paper border border-pantry-leaf-soft text-pantry-leaf-dk rounded-hive py-3.5 font-nunito font-black text-sm">
+            Start reconcile (on helper's behalf)
+          </button>
+        )}
+        {/* Force reject — only when approved, parent only, only after
+            approval. Visually de-emphasised (small text-link style) so
+            it doesn't compete with Start reconcile. Two confirmations
+            fire inside forceReject() — see lib/purchase.ts comment. */}
+        {isApproved && role === 'parent' && (
+          <button
+            type="button"
+            onClick={forceReject}
+            disabled={busy}
+            className="text-hive-rose text-xs font-nunito font-extrabold underline underline-offset-2 mt-1 self-center"
+          >
+            ⚠ Force reject (approved by mistake)
+          </button>
+        )}
+        {isReconciling && (
+          <button onClick={submitClose} disabled={busy} className="bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30">
+            {sw ? 'Tuma kwa ukaguzi →' : 'Submit for review →'}
+          </button>
+        )}
+        {/* Delete a reopened request — appears only after a parent has
+            reopened a closed request (reopenedAt set). "Reopen first"
+            is the deliberate guard: closed requests can't be deleted
+            outright. (Reopen v1, 2026-05-20) */}
+        {isReconciling && req.reopenedAt && role === 'parent' && (
+          <button
+            type="button"
+            onClick={deleteOwn}
+            disabled={busy}
+            className="text-hive-rose font-nunito font-bold text-xs py-2"
+          >
+            🗑 Delete request
+          </button>
+        )}
+        {/* Recycle a closed invoice → re-buy the same basket. Closed
+            invoices only (the "old invoices" you'd re-order), excludes
+            auto-generated payroll. Available to parent + helper since
+            both create requests. Spawns a fresh draft seeded from last
+            actuals and navigates straight into it. (Recycle v1,
+            2026-05-22) */}
+        {isClosed && req.module !== 'payroll' && profile?.familyId && profile?.uid && (
+          <button
+            type="button"
+            onClick={recycle}
+            disabled={busy}
+            className="bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60"
+          >
+            ♻️ Recycle · re-buy these items
+          </button>
+        )}
+        {/* Reopen a closed request — parent-only, excludes payroll in
+            v1. Flips back to reconciling + unwinds the close (bill back
+            to Outstanding, budget un-counts). (Reopen v1, 2026-05-20) */}
+        {isClosed && role === 'parent' && req.module !== 'payroll' && (
+          <button
+            type="button"
+            onClick={reopen}
+            disabled={busy}
+            className="bg-hive-paper border border-hive-honey text-hive-honey-dk rounded-hive py-3 font-nunito font-black text-sm"
+          >
+            ↩ Reopen to edit
+          </button>
+        )}
+
+        {/* Save & exit — explicit "pause" affordance for draft +
+            reconcile states. Inputs already auto-save on every
+            change; this is the affirmative UX so the helper /
+            parent feels safe stepping away mid-edit (no internet,
+            another task, etc.) and resuming later. Routes back to
+            the module home with the request safely persisted. */}
+        {(isDraft || isReconciling) && (
+          <button
+            type="button"
+            onClick={() => router.push(moduleListRoute(req.module))}
+            className="text-hive-muted text-xs font-nunito font-extrabold underline underline-offset-2 mt-1 self-center"
+          >
+            💾 Save &amp; exit · pick up later
+          </button>
+        )}
+      </div>
+    </>
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="content" className="pb-32">
       {/* Header — back link is module-aware. A UTL request points back
           to /pantry/utility ("‹ Utility"), an OUT to /pantry/outdoor
           ("‹ Outdoor"), etc. Pantry stays on /pantry/purchase since
@@ -1038,6 +1449,8 @@ export default function PurchaseDetailPage() {
           <span>{req.items.length} {req.items.length === 1 ? 'item' : 'items'} · {STATUS_LABEL[req.status]}</span>
         </p>
       </div>
+
+      <PageSplit rail={rail} railMobile="last" sticky={false}>
 
       {/* Budget balance for this category — stay aware while building +
           reconciling (2026-05-23). Helpers must NOT see family / module
@@ -1665,407 +2078,8 @@ export default function PurchaseDetailPage() {
         </div>
       )}
 
-      {/* Total card — the de-facto receipt summary. Shows the actual
-          total prominently + an approved-vs-actual variance line below
-          (both %-chip AND absolute amount labelled "saved" / "over").
-          (2026-05-19 — Elia's "show savings or overrun amount, not
-          just %" ask + "update in the receipt".) The variance line
-          renders during reconcile too so the helper sees the running
-          budget impact, not only post-close. */}
-      {req.items.length > 0 && (() => {
-        const approved = req.estimatedTotalCents ?? sumEstimated(req.items);
-        const showVariance =
-          (reconcilable || isClosed || isPendingClose) &&
-          approved > 0 &&
-          // Direct-to-budget posts have no estimate-vs-actual step — the
-          // posted amount IS the spend, so a savings/overrun line is
-          // meaningless. (2026-05-21)
-          !req.postedDirect &&
-          // During reconcile, only once the helper has filled actuals
-          // for at least one line — avoids a misleading "−100% saved"
-          // on an empty actuals page.
-          (isClosed || req.items.some((i) => i.actualCents != null && i.actualQty != null));
-        const varianceCents = total - approved;
-        const variancePctNow = approved > 0 ? Math.round((varianceCents / approved) * 100) : 0;
-        const variancePositive = varianceCents > 0;
-        const exactly = varianceCents === 0;
-        return (
-          <div className="mt-4 rounded-hive p-4 flex items-center justify-between bg-pantry-leaf-soft border border-pantry-leaf">
-            <div>
-              <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pantry-leaf-dk">
-                {reconcilable || isClosed ? 'Actual total' : 'Estimated total'}
-              </div>
-              {(reconcilable || isClosed || isPendingClose) && approved > 0 && (
-                <div className="text-[11px] text-hive-muted font-bold mt-1">
-                  approved {formatCents(approved, currency)}
-                </div>
-              )}
-            </div>
-            <div className="text-right">
-              {/* Estimated total renders to a "budget-neat" bucket
-                  (round-up to nearest 10/100/1000 depending on
-                  magnitude) so the parent sees a clean number when
-                  planning. Actuals stay precise — they're facts.
-                  (2026-05-19 — Elia's "round up totals in the nearest
-                  100 to make the budget neat".) */}
-              <div className="font-nunito font-black text-2xl text-hive-ink">
-                {(reconcilable || isClosed || isPendingClose)
-                  ? formatCents(total, currency)
-                  : <>≈ {formatCentsBudgetNeat(total, currency)}</>}
-              </div>
-              {showVariance && (
-                <div className="mt-1 flex items-center justify-end gap-1.5 text-[11px] font-nunito font-extrabold">
-                  <span className={`px-1.5 py-0.5 rounded ${
-                    exactly
-                      ? 'bg-hive-cream text-hive-muted'
-                      : variancePositive
-                        ? 'bg-[#FCEAEA] text-hive-rose'
-                        : 'bg-[#E6F7EE] text-hive-green'
-                  }`}>
-                    {variancePositive ? '+' : ''}{variancePctNow}%
-                  </span>
-                  <span className={exactly
-                    ? 'text-hive-muted'
-                    : variancePositive ? 'text-hive-rose' : 'text-hive-green'}>
-                    {exactly
-                      ? 'on the dot'
-                      : variancePositive
-                        ? `+${formatCents(varianceCents, currency)} over`
-                        : `${formatCents(-varianceCents, currency)} saved`}
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Receipt photo — shown during reconcile + closed states.
-          (2026-05-19) Helper attaches the paper trail during reconcile;
-          parent sees it post-close as audit evidence. Hidden in earlier
-          states (draft / pending / approved) since there's nothing to
-          photograph yet. The thumbnail is the uploaded receipt itself
-          — tap to open in a new tab for full-size review. */}
-      {(reconcilable || isClosed || isPendingClose) && (
-        <div className="mt-3 bg-hive-paper border border-hive-line rounded-hive p-3">
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">
-              📷 Receipt photo
-            </div>
-            {req.receiptUrl && !isClosed && (
-              <button
-                type="button"
-                onClick={handleReceiptClear}
-                disabled={receiptBusy}
-                className="text-hive-rose text-[10px] font-nunito font-extrabold disabled:opacity-50"
-              >
-                ✕ Remove
-              </button>
-            )}
-          </div>
-          {req.receiptUrl ? (
-            <div className="flex items-start gap-3">
-              <button
-                type="button"
-                onClick={() => downloadImage(req.receiptUrl!, suggestedPhotoFilename()).catch((err) => console.error('Receipt download failed', err))}
-                aria-label="Download receipt"
-                className="block w-24 h-24 rounded-lg overflow-hidden border border-hive-line bg-hive-cream flex-shrink-0 p-0 cursor-pointer"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={req.receiptUrl} alt="Receipt" className="w-full h-full object-cover" />
-              </button>
-              <div className="flex-1 min-w-0 text-[11px] text-hive-muted font-bold">
-                <p>Tap the photo to save the receipt.</p>
-                {!isClosed && (
-                  <label className="inline-block mt-2 cursor-pointer text-pantry-leaf-dk font-extrabold underline">
-                    📷 Replace receipt
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      className="hidden"
-                      disabled={receiptBusy}
-                      onChange={(e) => { void handleReceiptUpload(e.target.files?.[0] ?? null); e.target.value = ''; }}
-                    />
-                  </label>
-                )}
-              </div>
-            </div>
-          ) : isClosed ? (
-            /* Closed without a receipt — the audit trail has a gap.
-               Show a passive placeholder rather than an active upload
-               card; receipts are an in-reconcile artefact. */
-            <div className="border-2 border-dashed border-hive-line rounded-hive p-3 text-center bg-hive-cream/40">
-              <div className="text-2xl mb-1 opacity-60">📷</div>
-              <div className="font-nunito font-extrabold text-sm text-hive-muted">
-                No receipt attached
-              </div>
-              <div className="text-[11px] text-hive-muted/80 font-bold mt-0.5">
-                The shop closed without an uploaded photo.
-              </div>
-            </div>
-          ) : (
-            <label className={`block w-full border-2 border-dashed rounded-hive p-4 text-center cursor-pointer transition-colors ${
-              receiptBusy
-                ? 'border-hive-line text-hive-muted opacity-60 cursor-default'
-                : 'border-pantry-leaf/40 text-pantry-leaf-dk hover:bg-pantry-leaf-soft/40'
-            }`}>
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                disabled={receiptBusy}
-                onChange={(e) => { void handleReceiptUpload(e.target.files?.[0] ?? null); e.target.value = ''; }}
-              />
-              <div className="text-2xl mb-1">📷</div>
-              <div className="font-nunito font-extrabold text-sm">
-                {receiptBusy ? 'Uploading…' : 'Add receipt photo'}
-              </div>
-              <div className="text-[11px] text-hive-muted font-bold mt-0.5">
-                Snap or pick from your gallery. Helps the parent close the audit trail.
-              </div>
-            </label>
-          )}
-          {receiptError && (
-            <p className="text-[11px] text-hive-rose font-bold mt-2">{receiptError}</p>
-          )}
-        </div>
-      )}
-
-      {/* Action buttons per status */}
-      <div className="mt-4 flex flex-col gap-2">
-        {isDraft && (
-          <>
-            <button
-              type="button"
-              onClick={send}
-              disabled={busy || req.items.length === 0 || isGuest || odoSendBlocked}
-              className="bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60"
-            >
-              {sw ? 'Tuma kwa ukaguzi →' : 'Send for approval →'}
-            </button>
-            {odoMissingMandatory && (
-              <p className="text-[11px] text-hive-honey-dk font-bold text-center -mt-0.5">
-                🧭 {sw
-                  ? 'Jaza usomaji wa odometa kwanza — unahitajika kwenye familia hii.'
-                  : 'Enter the odometer reading first — it’s required in this family.'}
-              </p>
-            )}
-
-            {/* Parent fast-path: skip approval + reconcile and post the
-                spend straight to the budget. Helpers never see this. */}
-            {role === 'parent' && directCents === null && (
-              <button
-                type="button"
-                onClick={() => setDirectCents(sumEstimated(req.items))}
-                disabled={busy || req.items.length === 0 || isGuest}
-                className="bg-hive-paper border border-pantry-leaf-soft text-pantry-leaf-dk rounded-hive py-3.5 font-nunito font-black text-sm disabled:opacity-60"
-              >
-                Post straight to budget →
-              </button>
-            )}
-            {role === 'parent' && directCents !== null && (
-              <div className="bg-hive-paper border border-hive-line rounded-hive p-3">
-                <label className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">
-                  Amount to post to budget
-                </label>
-                <div className="mt-1 flex items-center gap-1 bg-hive-cream border border-hive-line rounded-lg px-2 py-1.5">
-                  <span className="text-xs text-hive-muted font-bold">{currency}</span>
-                  <NumberInput
-                    value={directCents / 100}
-                    onChange={(n) => setDirectCents(Math.round(n * 100))}
-                    allowDecimal={currencyAllowsDecimals(currency)}
-                    placeholder="0"
-                    ariaLabel="Amount to post to budget"
-                    className="flex-1 bg-transparent font-nunito font-extrabold text-sm focus:outline-none w-0"
-                  />
-                </div>
-                <p className="text-[10px] text-hive-muted font-bold mt-1">
-                  Skips approval + reconcile — records this directly against the budget.
-                </p>
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  <button
-                    type="button"
-                    onClick={() => setDirectCents(null)}
-                    disabled={busy}
-                    className="border border-hive-line rounded-lg py-2 font-nunito font-bold text-sm"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={postDirect}
-                    disabled={busy || directCents <= 0}
-                    className="bg-pantry-leaf text-white rounded-lg py-2 font-nunito font-black text-sm disabled:opacity-60"
-                  >
-                    Post to budget →
-                  </button>
-                </div>
-              </div>
-            )}
-            {isCreator && (
-              <button
-                type="button"
-                onClick={deleteOwn}
-                disabled={busy}
-                className="text-hive-rose font-nunito font-bold text-xs py-2"
-              >
-                Delete draft
-              </button>
-            )}
-          </>
-        )}
-        {isPending && role === 'parent' && rejectNote === null && (
-          <>
-            {req.approvedBy?.includes(profile?.uid || '') ? (
-              <button
-                disabled
-                className="bg-pantry-leaf-soft text-pantry-leaf-dk border border-pantry-leaf-soft rounded-hive py-3.5 font-nunito font-black text-sm cursor-default"
-              >
-                ✓ You approved · waiting for second parent
-              </button>
-            ) : (
-              <button
-                onClick={approve}
-                disabled={busy}
-                className="bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm"
-              >
-                {approvalMode === 'both' && (req.approvedBy?.length ?? 0) === 1
-                  ? 'Add my approval (finalises)'
-                  : approvalMode === 'both'
-                    ? 'Approve · 1 of 2'
-                    : 'Approve ✓'}
-              </button>
-            )}
-            {/* Reject is the parent-only action during approval review.
-                Creators get a separate "Delete request" button below
-                (renders even when the parent is the creator — they can
-                still self-delete what they wrongly created). */}
-            <button onClick={() => setRejectNote('')} disabled={busy} className="text-hive-rose font-nunito font-bold text-xs py-2">Reject with note</button>
-          </>
-        )}
-        {/* Creator-self-delete for a pending request — the helper
-            (or parent) realised they sent the wrong thing and wants
-            to take it back before anyone acts on it. Independent
-            from parent Reject (which is for declining someone else's
-            request and keeps an audit trail + rejection note). */}
-        {isPending && isCreator && rejectNote === null && (
-          <button
-            type="button"
-            onClick={deleteOwn}
-            disabled={busy}
-            className="text-hive-rose font-nunito font-bold text-xs py-2"
-          >
-            Delete request (took it back)
-          </button>
-        )}
-        {isPending && role === 'parent' && rejectNote !== null && (
-          <div className="bg-hive-paper border border-hive-line rounded-hive p-3">
-            <textarea
-              autoFocus
-              value={rejectNote}
-              onChange={(e) => setRejectNote(e.target.value)}
-              placeholder="Why are you rejecting? (helps the helper try again)"
-              className="w-full border border-hive-line rounded-lg p-2 text-sm font-nunito font-bold mb-2"
-              rows={3}
-            />
-            <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => setRejectNote(null)} className="border border-hive-line rounded-lg py-2 font-nunito font-bold text-sm">Cancel</button>
-              <button onClick={reject} disabled={busy} className="bg-hive-rose text-white rounded-lg py-2 font-nunito font-black text-sm">Reject</button>
-            </div>
-          </div>
-        )}
-        {isApproved && role === 'helper' && (
-          <button onClick={startRec} disabled={busy} className="bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30">
-            Start reconcile →
-          </button>
-        )}
-        {isApproved && role === 'parent' && (
-          <button onClick={startRec} disabled={busy} className="bg-hive-paper border border-pantry-leaf-soft text-pantry-leaf-dk rounded-hive py-3.5 font-nunito font-black text-sm">
-            Start reconcile (on helper's behalf)
-          </button>
-        )}
-        {/* Force reject — only when approved, parent only, only after
-            approval. Visually de-emphasised (small text-link style) so
-            it doesn't compete with Start reconcile. Two confirmations
-            fire inside forceReject() — see lib/purchase.ts comment. */}
-        {isApproved && role === 'parent' && (
-          <button
-            type="button"
-            onClick={forceReject}
-            disabled={busy}
-            className="text-hive-rose text-xs font-nunito font-extrabold underline underline-offset-2 mt-1 self-center"
-          >
-            ⚠ Force reject (approved by mistake)
-          </button>
-        )}
-        {isReconciling && (
-          <button onClick={submitClose} disabled={busy} className="bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30">
-            {sw ? 'Tuma kwa ukaguzi →' : 'Submit for review →'}
-          </button>
-        )}
-        {/* Delete a reopened request — appears only after a parent has
-            reopened a closed request (reopenedAt set). "Reopen first"
-            is the deliberate guard: closed requests can't be deleted
-            outright. (Reopen v1, 2026-05-20) */}
-        {isReconciling && req.reopenedAt && role === 'parent' && (
-          <button
-            type="button"
-            onClick={deleteOwn}
-            disabled={busy}
-            className="text-hive-rose font-nunito font-bold text-xs py-2"
-          >
-            🗑 Delete request
-          </button>
-        )}
-        {/* Recycle a closed invoice → re-buy the same basket. Closed
-            invoices only (the "old invoices" you'd re-order), excludes
-            auto-generated payroll. Available to parent + helper since
-            both create requests. Spawns a fresh draft seeded from last
-            actuals and navigates straight into it. (Recycle v1,
-            2026-05-22) */}
-        {isClosed && req.module !== 'payroll' && profile?.familyId && profile?.uid && (
-          <button
-            type="button"
-            onClick={recycle}
-            disabled={busy}
-            className="bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60"
-          >
-            ♻️ Recycle · re-buy these items
-          </button>
-        )}
-        {/* Reopen a closed request — parent-only, excludes payroll in
-            v1. Flips back to reconciling + unwinds the close (bill back
-            to Outstanding, budget un-counts). (Reopen v1, 2026-05-20) */}
-        {isClosed && role === 'parent' && req.module !== 'payroll' && (
-          <button
-            type="button"
-            onClick={reopen}
-            disabled={busy}
-            className="bg-hive-paper border border-hive-honey text-hive-honey-dk rounded-hive py-3 font-nunito font-black text-sm"
-          >
-            ↩ Reopen to edit
-          </button>
-        )}
-
-        {/* Save & exit — explicit "pause" affordance for draft +
-            reconcile states. Inputs already auto-save on every
-            change; this is the affirmative UX so the helper /
-            parent feels safe stepping away mid-edit (no internet,
-            another task, etc.) and resuming later. Routes back to
-            the module home with the request safely persisted. */}
-        {(isDraft || isReconciling) && (
-          <button
-            type="button"
-            onClick={() => router.push(moduleListRoute(req.module))}
-            className="text-hive-muted text-xs font-nunito font-extrabold underline underline-offset-2 mt-1 self-center"
-          >
-            💾 Save &amp; exit · pick up later
-          </button>
-        )}
-      </div>
-    </div>
+      </PageSplit>
+    </Page>
   );
 }
 
