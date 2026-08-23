@@ -27,6 +27,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import CatchUpStrip from '@/components/catchup/CatchUpStrip';
+import FeedbackInbox from '@/components/stats/FeedbackInbox';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { auth } from '@/lib/firebase';
@@ -162,6 +163,17 @@ export default function MyStatsPage() {
   // multi-kid families LAND on All. At 5+ kids the chips collapse to
   // All + a dropdown so the header never wraps into a mess.
   const [pickedId, setPickedId] = useState<string | null>(null);
+  // 🔥 Points Emails 2.0 deep links: ?kid=<childId> (parent email → "Open
+  // the full breakdown") and ?reflect=<ratingId> (kid email → 💭 Tell your
+  // side → the 📬 Feedback card opens on that rating).
+  const [reflectTarget, setReflectTarget] = useState<string | null>(null);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const q = new URLSearchParams(window.location.search);
+    const k = q.get('kid'); const r = q.get('reflect');
+    if (k && !isKid) setPickedId(k);
+    if (r) setReflectTarget(r);
+  }, [isKid]);
   const parentPick = pickedId ?? (children.length > 1 ? ALL_KIDS : children[0]?.id ?? null);
   const myChildId = useMemo(() => {
     if (isKid) {
@@ -918,6 +930,33 @@ export default function MyStatsPage() {
             )}
             <p className={`text-[10.5px] font-bold opacity-80 ${bars ? 'mt-2' : 'mt-3 lg:mt-auto lg:pt-3'}`}>📜 Tap for my statement ›</p>
           </button>
+
+          {/* 📬 Feedback — Points Emails 2.0 (E6): the kid's Heat Reports
+              in-app, same colours as the email; hides itself when the
+              family switched it off or there's nothing yet. */}
+          {myChildId && (family as { kidFeedback?: { inAppInbox?: boolean; includeReasons?: boolean; askReflection?: boolean } } | null)?.kidFeedback?.inAppInbox !== false && (
+            <div className="order-3 lg:col-span-2">
+              <FeedbackInbox
+                childId={myChildId}
+                kidFirst={(kid?.name || 'Kid').split(' ')[0]}
+                routines={routines}
+                ratings={lifeRatings}
+                awards={lifeAwards}
+                pointsMode={(family?.pointsMode as 'full' | 'badges-only' | 'encouragement') || 'full'}
+                isKid={isKid}
+                includeReasons={(family as { kidFeedback?: { includeReasons?: boolean } } | null)?.kidFeedback?.includeReasons !== false}
+                canReflect={statsCfg.reflections && ((family as { kidFeedback?: { askReflection?: boolean } } | null)?.kidFeedback?.askReflection !== false || !isKid)}
+                openRatingId={reflectTarget}
+                onReflectionSaved={(ratingId, routineId, text) => {
+                  const patch = (r: DailyRating) => r.id === ratingId
+                    ? { ...r, reflections: { ...(r.reflections || {}), [routineId]: text ? { text, byUid: profile?.uid || '', byName: (profile?.displayName || 'Me').split(' ')[0], at: Date.now() } : null } }
+                    : r;
+                  setRawRatings((prev) => prev.map(patch));
+                  setLifeRatings((prev) => prev.map(patch));
+                }}
+              />
+            </div>
+          )}
 
           {/* 😇 Behaviours — Layout 2.0: wide, risk-first, capped at 5 */}
           <div className="order-5 lg:col-span-2 bg-white border border-kaya-warm-dark rounded-kaya-lg p-4">
