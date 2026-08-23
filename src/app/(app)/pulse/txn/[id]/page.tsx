@@ -21,6 +21,7 @@ import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import { PulseHeader, PulseHero, PulseBreadcrumb } from '@/components/pulse/ui';
 import { toDisplayDate } from '@/lib/dates';
 import SmartReceipt from '@/components/pulse/SmartReceipt';
+import { Page, PageSplit } from '@/components/layout/Page';
 
 const monthKeyOf = (d: Date = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 
@@ -95,8 +96,45 @@ export default function PulseTxnDetailPage() {
 
   const itemLines = req.items?.filter((it) => (it.actualQty ?? it.qty) > 0) ?? [];
 
+  // Web-Fit (2026-08-23): content tier, detail archetype. Desktop: Smart
+  // Receipt + What-If sit in the right rail; hero/meta/items fill the main
+  // column. Mobile DOM order unchanged (`railMobile="last"`).
+  const rail = (
+    <div className="lg:pt-1">
+      {/* Smart Receipt — Kaya AI insight on this purchase (PR 3). */}
+      {bucketContext && (
+        <SmartReceipt
+          txnId={req.id}
+          bucketLabel={MODULE_LABEL[req.module]}
+          currency={currency}
+          facts={{
+            'this purchase': formatCentsBudgetNeat(bucketContext.txnCents, currency),
+            'bucket': MODULE_LABEL[req.module],
+            'bucket cap (month)': bucketContext.cap > 0 ? formatCentsBudgetNeat(bucketContext.cap, currency) : 'no cap set',
+            'bucket spent so far this month': formatCentsBudgetNeat(bucketContext.mtdSpent, currency),
+            'this bucket: number of closed purchases this month': bucketContext.txnCount,
+            'bucket average per purchase (this month)': bucketContext.avgCents > 0 ? formatCentsBudgetNeat(bucketContext.avgCents, currency) : 'n/a',
+            'closed by role': req.createdByRole || 'parent',
+            'items in this purchase': req.items?.length ?? 0,
+            'date': dateLbl,
+          }}
+        />
+      )}
+
+      {/* What-If simulator — pure client math, no AI call. */}
+      {bucketContext && bucketContext.cap > 0 && (
+        <WhatIf
+          txnCents={bucketContext.txnCents}
+          cap={bucketContext.cap}
+          mtdSpent={bucketContext.mtdSpent}
+          currency={currency}
+        />
+      )}
+    </div>
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="content" className="pb-32">
       <PulseBreadcrumb
         trail={[{ href: `/pulse/bucket/${req.module}`, label: MODULE_LABEL[req.module] }]}
         current={req.name || dateLbl}
@@ -107,6 +145,7 @@ export default function PulseTxnDetailPage() {
         subtitle={`${dateLbl}${req.createdByRole ? ' · ' + req.createdByRole : ''}`}
       />
 
+      <PageSplit rail={rail} railMobile="last">
       <div className="mt-4">
         <PulseHero>
           <div className="text-[10px] uppercase tracking-[1px] font-black opacity-85">Amount</div>
@@ -157,37 +196,8 @@ export default function PulseTxnDetailPage() {
           </div>
         </div>
       )}
-
-      {/* Smart Receipt — Kaya AI insight on this purchase (PR 3). */}
-      {bucketContext && (
-        <SmartReceipt
-          txnId={req.id}
-          bucketLabel={MODULE_LABEL[req.module]}
-          currency={currency}
-          facts={{
-            'this purchase': formatCentsBudgetNeat(bucketContext.txnCents, currency),
-            'bucket': MODULE_LABEL[req.module],
-            'bucket cap (month)': bucketContext.cap > 0 ? formatCentsBudgetNeat(bucketContext.cap, currency) : 'no cap set',
-            'bucket spent so far this month': formatCentsBudgetNeat(bucketContext.mtdSpent, currency),
-            'this bucket: number of closed purchases this month': bucketContext.txnCount,
-            'bucket average per purchase (this month)': bucketContext.avgCents > 0 ? formatCentsBudgetNeat(bucketContext.avgCents, currency) : 'n/a',
-            'closed by role': req.createdByRole || 'parent',
-            'items in this purchase': req.items?.length ?? 0,
-            'date': dateLbl,
-          }}
-        />
-      )}
-
-      {/* What-If simulator — pure client math, no AI call. */}
-      {bucketContext && bucketContext.cap > 0 && (
-        <WhatIf
-          txnCents={bucketContext.txnCents}
-          cap={bucketContext.cap}
-          mtdSpent={bucketContext.mtdSpent}
-          currency={currency}
-        />
-      )}
-    </div>
+      </PageSplit>
+    </Page>
   );
 }
 

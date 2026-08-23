@@ -15,6 +15,7 @@ import {
 } from '@/lib/business';
 import { formatCash } from '@/components/hive/format';
 import AICoachCard from '@/components/business/AICoachCard';
+import { Page, PageSplit } from '@/components/layout/Page';
 
 export default function WeeklyReviewPage() {
   const params = useParams();
@@ -59,8 +60,34 @@ export default function WeeklyReviewPage() {
   const cur = config.currency;
   const row = 'flex items-center justify-between py-2 border-b border-dashed border-hive-line last:border-0 text-[13px]';
 
+  // Web-Fit (2026-08-23): content tier, detail archetype. Desktop: the
+  // coach / empty-state card sits in the right rail; mobile keeps it below
+  // the week card exactly as before (`railMobile="last"`).
+  const rail = week.salesCount === 0 && week.costs === 0 ? (
+    <div className="bg-hive-paper border border-hive-line rounded-hive p-6 text-center">
+      <div className="text-3xl mb-1.5">🌱</div>
+      <p className="text-hive-muted text-[13px]">No sales or costs this week yet. Log a few and come back for your recap.</p>
+    </div>
+  ) : (
+    <AICoachCard
+      loop="weekly"
+      coachName={coachName}
+      currency={cur}
+      cta={`Get ${coachName}'s story of the week`}
+      facts={{
+        business: business?.name || 'this business',
+        weekSales: formatCash(week.sales, cur),
+        weekCosts: formatCash(week.costs, cur),
+        weekProfit: formatCash(week.profit, cur),
+        ...(week.margin !== null ? { margin: `${week.margin}%` } : {}),
+        salesThisWeek: week.salesCount,
+        ...(week.topCustomer ? { bestCustomer: week.topCustomer } : {}),
+      }}
+    />
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="content">
       <div className="rounded-hive p-3.5 mb-3 flex items-center gap-3 bg-hive-navy text-hive-cream">
         <div className="text-[22px]">🗓️</div>
         <div className="flex-1 min-w-0">
@@ -72,7 +99,8 @@ export default function WeeklyReviewPage() {
         )}
       </div>
 
-      <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-3">
+      <PageSplit rail={rail} railMobile="last">
+      <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-3 lg:mb-0">
         <div className="flex items-baseline justify-between mb-1">
           <h3 className="font-nunito font-extrabold text-[14px]">This week</h3>
           <span className={`text-[11px] font-nunito font-black px-2 py-0.5 rounded-hive-pill ${week.profit >= 0 ? 'bg-[#E2F0E2] text-[#2F7D32]' : 'bg-[#FCEAD6] text-[#B25E16]'}`}>
@@ -85,29 +113,7 @@ export default function WeeklyReviewPage() {
         {week.margin !== null && <div className={row}><span>Margin</span><span className="font-nunito font-extrabold">{week.margin}%</span></div>}
         {week.topCustomer && <div className={row}><span>Best customer</span><span className="font-nunito font-extrabold">{week.topCustomer}</span></div>}
       </div>
-
-      {week.salesCount === 0 && week.costs === 0 ? (
-        <div className="bg-hive-paper border border-hive-line rounded-hive p-6 text-center">
-          <div className="text-3xl mb-1.5">🌱</div>
-          <p className="text-hive-muted text-[13px]">No sales or costs this week yet. Log a few and come back for your recap.</p>
-        </div>
-      ) : (
-        <AICoachCard
-          loop="weekly"
-          coachName={coachName}
-          currency={cur}
-          cta={`Get ${coachName}'s story of the week`}
-          facts={{
-            business: business?.name || 'this business',
-            weekSales: formatCash(week.sales, cur),
-            weekCosts: formatCash(week.costs, cur),
-            weekProfit: formatCash(week.profit, cur),
-            ...(week.margin !== null ? { margin: `${week.margin}%` } : {}),
-            salesThisWeek: week.salesCount,
-            ...(week.topCustomer ? { bestCustomer: week.topCustomer } : {}),
-          }}
-        />
-      )}
-    </div>
+      </PageSplit>
+    </Page>
   );
 }

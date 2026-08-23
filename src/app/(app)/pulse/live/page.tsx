@@ -23,6 +23,7 @@ import {
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import { PulseHeader } from '@/components/pulse/ui';
 import { projectMonthSpendCents } from '@/lib/pulse';
+import { Page, PageHeader } from '@/components/layout/Page';
 import { updateFamily } from '@/lib/firestore';
 
 const NAVY = '#0F1F44';
@@ -252,17 +253,34 @@ export default function PulseLivePage() {
     return <div className="mx-auto max-w-md px-4 pt-16 text-center text-hive-muted text-sm">Redirecting…</div>;
   }
 
+  // Web-Fit (2026-08-23): wide dashboard. Desktop: Live/Plan tabs move into
+  // the header (desktop copy; mobile strip `lg:hidden`); content flows in a
+  // 2-col band — hero + allowance + per-bucket left, recovery + landing
+  // right. Mobile markup/order unchanged (bands are plain blocks below `lg`).
+  const desktopTabs = (
+    <div className="inline-flex bg-white border border-pulse-gold/30 rounded-2xl p-1">
+      <button className="px-4 py-2 rounded-xl font-nunito font-black text-[12px]" style={{ background: NAVY, color: GOLD }}>
+        📈 Live · this month
+      </button>
+      <Link href="/pulse/plan" className="px-4 py-2 rounded-xl font-nunito font-black text-[12px] text-center text-hive-muted no-underline">
+        🎯 Plan
+      </Link>
+    </div>
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="wide" className="pb-32">
+      <PageHeader className="" actions={desktopTabs}>
       <PulseHeader
         back={{ href: '/pulse', label: 'Dashboard' }}
         eyebrow="📩 Savings Analytics"
         title="Savings Analytics"
         subtitle={`Sun · ${monthShort()}`}
       />
+      </PageHeader>
 
       {/* Tab strip — Live is this page, Plan navigates to /pulse/plan */}
-      <div className="mt-3 flex bg-white border border-pulse-gold/30 rounded-2xl p-1">
+      <div className="mt-3 flex bg-white border border-pulse-gold/30 rounded-2xl p-1 lg:hidden">
         <button className="flex-1 py-2 rounded-xl font-nunito font-black text-[12px]" style={{ background: NAVY, color: GOLD }}>
           📈 Live · this month
         </button>
@@ -271,6 +289,8 @@ export default function PulseLivePage() {
         </Link>
       </div>
 
+      <div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start">
+      <div>
       {/* HERO — projection (narrated v3) */}
       <div className="mt-3 rounded-2xl p-4 text-white" style={{ background: `linear-gradient(135deg, ${NAVY}, #1c3566)` }}>
         <div className="text-[10px] font-black uppercase tracking-[1px]" style={{ color: GOLD }}>
@@ -379,6 +399,8 @@ export default function PulseLivePage() {
         </div>
       )}
 
+      </div>
+      <div>
       {/* Active recovery moves — parent-set temp caps with days remaining +
           Clear button. Sits ABOVE the suggestions so it's clear what's on. */}
       {activeOverrideEntries.length > 0 && (
@@ -420,7 +442,7 @@ export default function PulseLivePage() {
 
       {/* SURPRISE #2 — RECOVERY MOVES · suggestions */}
       {recoveries.length > 0 && (
-        <div className="mt-4 rounded-2xl p-3 relative" style={{ background: '#FDE6E6', border: '1px solid #F3BCBC' }}>
+        <div className="mt-4 lg:first:mt-3 rounded-2xl p-3 relative" style={{ background: '#FDE6E6', border: '1px solid #F3BCBC' }}>
           <span className="absolute -top-2 right-3 text-[8px] font-black px-2 py-[2px] rounded-full text-white" style={{ background: 'linear-gradient(135deg,#9B5DE5,#FF6B6B)' }}>✨ NEW</span>
           <div className="text-[10px] font-black uppercase tracking-[1px]" style={{ color: CORAL }}>
             Recovery moves{planGap > 0 ? ` · close the ${formatCentsBudgetNeat(planGap, currency)} gap` : ''}
@@ -509,7 +531,9 @@ export default function PulseLivePage() {
           )}
         </div>
       )}
-    </div>
+      </div>
+      </div>
+    </Page>
   );
 }
 

@@ -12,6 +12,11 @@ import { useHive } from '@/contexts/HiveContext';
 import { formatCents } from '@/components/pantry/format';
 import { toDisplayDate, dayKeyInTZ } from '@/lib/dates';
 import { PulseHeader, PulseHero } from '@/components/pulse/ui';
+import { Page, PageSplit, DATA_ROW } from '@/components/layout/Page';
+
+// Web-Fit (2026-08-23): lg-only "DataRows" panel look in Pulse's palette
+// (mobile `flex flex-col gap-2` untouched).
+const ROWS_LG = 'lg:gap-0 lg:overflow-hidden lg:rounded-2xl lg:border lg:border-pulse-gold/30 lg:bg-white lg:divide-y lg:divide-pulse-gold/30';
 import {
   type Trackable, type PulseReading, type PulseAlert,
   subscribeToTrackables, subscribeToReadingsForTrackable, subscribeToTrackableAlerts, acknowledgeAlert,
@@ -139,8 +144,57 @@ export default function TrackableDetailPage() {
     await acknowledgeAlert(profile.familyId, alertId, profile.uid);
   };
 
+  // Web-Fit (2026-08-23): content tier, detail archetype. Desktop: the
+  // anomaly + recent readings sit in the right rail (dense rows); cards +
+  // chart fill the main column. Mobile DOM order unchanged (`railMobile="last"`).
+  const rail = (
+    <>
+      {/* Anomaly */}
+      {alerts.length > 0 && (
+        <div className="bg-[#fdecec] border border-[#f3bcbc] rounded-2xl p-3.5 mt-3 lg:mt-4">
+          <div className="flex items-start gap-2">
+            <div className="text-lg">⚠</div>
+            <div className="flex-1">
+              <div className="text-[13px] font-nunito font-black text-[#9c2b2b]">{alerts[0].title}</div>
+              <div className="text-[12px] text-pulse-navy mt-0.5">{alerts[0].body}</div>
+              <button
+                onClick={() => onAck(alerts[0].id)}
+                className="mt-2 text-[11px] font-nunito font-black text-pulse-gold-dk"
+              >
+                Acknowledge ›
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recent readings */}
+      <div className="text-[11px] font-nunito font-black text-pulse-navy uppercase tracking-[1px] mt-5 mb-2 lg:first:mt-4">Recent readings</div>
+      {recent.length === 0 ? (
+        <div className="bg-white border border-pulse-gold/30 rounded-2xl p-5 text-center text-sm text-hive-muted">Nothing logged yet.</div>
+      ) : (
+        <div className={`flex flex-col gap-2 ${ROWS_LG}`}>
+          {recent.map((r) => (
+            <div key={r.id} className={`bg-white border border-pulse-gold/30 rounded-2xl p-3 flex items-center justify-between ${DATA_ROW}`}>
+              <div className="min-w-0">
+                <div className="text-[13px] font-nunito font-black text-pulse-navy">{dayPlusDate(r.dayKey)}</div>
+                <div className="text-[11px] text-hive-muted font-bold">
+                  {r.event === 'topup'
+                    ? `Top-up +${(r.toppedUpUnits ?? 0).toFixed(2)} ${trackable?.unit ?? ''}`
+                    : `${(r.consumedUnits ?? 0).toFixed(2)} ${trackable?.unit ?? ''} used`}
+                  {r.isAnomaly && <span className="text-pulse-coral"> · spike</span>}
+                </div>
+              </div>
+              <div className="font-nunito font-black text-sm text-pulse-navy">{formatCents(r.deltaCost, currency)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="content" className="pb-32">
       <PulseHeader
         back={{ href: '/pulse', label: 'Dashboard' }}
         eyebrow="Trackable detail"
@@ -148,6 +202,7 @@ export default function TrackableDetailPage() {
         subtitle="Last 30 days"
       />
 
+      <PageSplit rail={rail} railMobile="last">
       {/* Daily consumption — today at a glance (+ yesterday + 7-day avg),
           placed before the monthly summary so the day is easy to read first. */}
       <div className="bg-white border border-pulse-gold/30 rounded-2xl p-4 mt-4 shadow-[0_4px_16px_rgba(15,31,68,0.06)]">
@@ -263,47 +318,7 @@ export default function TrackableDetailPage() {
         )}
       </div>
 
-      {/* Anomaly */}
-      {alerts.length > 0 && (
-        <div className="bg-[#fdecec] border border-[#f3bcbc] rounded-2xl p-3.5 mt-3">
-          <div className="flex items-start gap-2">
-            <div className="text-lg">⚠</div>
-            <div className="flex-1">
-              <div className="text-[13px] font-nunito font-black text-[#9c2b2b]">{alerts[0].title}</div>
-              <div className="text-[12px] text-pulse-navy mt-0.5">{alerts[0].body}</div>
-              <button
-                onClick={() => onAck(alerts[0].id)}
-                className="mt-2 text-[11px] font-nunito font-black text-pulse-gold-dk"
-              >
-                Acknowledge ›
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Recent readings */}
-      <div className="text-[11px] font-nunito font-black text-pulse-navy uppercase tracking-[1px] mt-5 mb-2">Recent readings</div>
-      {recent.length === 0 ? (
-        <div className="bg-white border border-pulse-gold/30 rounded-2xl p-5 text-center text-sm text-hive-muted">Nothing logged yet.</div>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {recent.map((r) => (
-            <div key={r.id} className="bg-white border border-pulse-gold/30 rounded-2xl p-3 flex items-center justify-between">
-              <div className="min-w-0">
-                <div className="text-[13px] font-nunito font-black text-pulse-navy">{dayPlusDate(r.dayKey)}</div>
-                <div className="text-[11px] text-hive-muted font-bold">
-                  {r.event === 'topup'
-                    ? `Top-up +${(r.toppedUpUnits ?? 0).toFixed(2)} ${trackable?.unit ?? ''}`
-                    : `${(r.consumedUnits ?? 0).toFixed(2)} ${trackable?.unit ?? ''} used`}
-                  {r.isAnomaly && <span className="text-pulse-coral"> · spike</span>}
-                </div>
-              </div>
-              <div className="font-nunito font-black text-sm text-pulse-navy">{formatCents(r.deltaCost, currency)}</div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+      </PageSplit>
+    </Page>
   );
 }

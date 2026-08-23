@@ -19,6 +19,7 @@ import { uploadBusinessPhoto, uploadBusinessVideo } from '@/lib/businessPhoto';
 import { auth } from '@/lib/firebase';
 import { useCelebrate } from '@/components/celebrate/CelebrationProvider';
 import StockTakeHistory from '@/components/business/StockTakeHistory';
+import { Page, PageSplit, BTN_INLINE_LG } from '@/components/layout/Page';
 
 const DOW = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
@@ -203,18 +204,12 @@ export default function StockTakePage() {
     }
   };
 
-  return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
-      <div className="rounded-hive p-3.5 mb-3 flex items-center gap-3 bg-hive-navy text-hive-cream">
-        <div className="text-[22px]">📋</div>
-        <div className="min-w-0">
-          <div className="font-nunito font-black text-[16px]">Daily stock-take</div>
-          <div className="text-[11px] text-hive-honey-soft/80 truncate">
-            {business?.name || 'Loading…'} · {new Date(`${today}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-          </div>
-        </div>
-      </div>
-
+  // Web-Fit (2026-08-23): content tier, detail archetype. Desktop: streak +
+  // history sit in the right rail; the stock-take form fills the main column
+  // with an inline save. Mobile DOM order unchanged (`railMobile="first"` —
+  // streak + history sat right under the header before).
+  const rail = (
+    <>
       {/* Streak */}
       <div className="rounded-hive p-3.5 mb-3 text-hive-cream" style={{ background: 'linear-gradient(135deg, #1F1A12 0%, #3D3320 100%)' }}>
         <div className="flex items-center justify-between">
@@ -237,7 +232,22 @@ export default function StockTakePage() {
 
       {/* Clickable history — tap a day to see its counts, photos, clips + notes. */}
       <StockTakeHistory takes={takes} today={today} className="mb-3" />
+    </>
+  );
 
+  return (
+    <Page width="content">
+      <div className="rounded-hive p-3.5 mb-3 flex items-center gap-3 bg-hive-navy text-hive-cream">
+        <div className="text-[22px]">📋</div>
+        <div className="min-w-0">
+          <div className="font-nunito font-black text-[16px]">Daily stock-take</div>
+          <div className="text-[11px] text-hive-honey-soft/80 truncate">
+            {business?.name || 'Loading…'} · {new Date(`${today}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+          </div>
+        </div>
+      </div>
+
+      <PageSplit rail={rail} railMobile="first" sticky={false}>
       {!canAct ? (
         <p className="text-hive-muted text-sm text-center py-8">Only the owner or a parent can do the stock-take.</p>
       ) : (
@@ -335,14 +345,17 @@ export default function StockTakePage() {
 
           {error && <p className="text-hive-rose text-[12px] font-bold mb-2">{error}</p>}
 
+          <div className="lg:flex lg:justify-end">
           <button onClick={save} disabled={saving || media.length === 0}
-            className="w-full h-12 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[14px] disabled:opacity-40 hover:brightness-110 active:scale-[0.99] transition">
+            className={`w-full h-12 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[14px] disabled:opacity-40 hover:brightness-110 active:scale-[0.99] transition ${BTN_INLINE_LG}`}>
             {saving ? 'Saving…' : `Save today's stock-take${touched > 0 ? ` (${touched} updated)` : ''}`}
           </button>
-          <p className="text-[11px] text-hive-muted text-center mt-2">Updates your inventory + worth, saves the photo, and keeps your streak going.</p>
+          </div>
+          <p className="text-[11px] text-hive-muted text-center mt-2 lg:text-right lg:pb-8">Updates your inventory + worth, saves the photo, and keeps your streak going.</p>
         </>
       )}
+      </PageSplit>
 
-    </div>
+    </Page>
   );
 }

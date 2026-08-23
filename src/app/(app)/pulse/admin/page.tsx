@@ -16,6 +16,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import { useConfirm } from '@/contexts/ConfirmContext';
 import { formatCents } from '@/components/pantry/format';
+import { Page, PageHeader } from '@/components/layout/Page';
 import { listHelpers } from '@/lib/helpers';
 import type { HelperLink } from '@/lib/firestore';
 import { type PurchaseModule, MODULE_LABEL } from '@/lib/purchase';
@@ -104,8 +105,12 @@ export default function PulseAdminPage() {
   const fid = profile?.familyId ?? '';
   const templateFor = (trackableId: string) => templates.find((t) => t.trackableId === trackableId);
 
+  // Web-Fit (2026-08-23): content tier. Desktop: Meters and Custom
+  // trackables sit side by side (2-col band); mobile stacks them exactly as
+  // before (lg-only classes).
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="content" className="pb-32">
+      <PageHeader className="">
       <div className="flex items-center gap-1.5">
         <PulseMark className="w-5 h-5" />
         <span className="text-[10px] font-nunito font-black uppercase tracking-[2px] text-pulse-gold-dk">Kaya Pulse</span>
@@ -119,11 +124,13 @@ export default function PulseAdminPage() {
         <span className="text-hive-muted">→</span>
         <span className="bg-pulse-gold/15 px-2 py-0.5 rounded-full">3 · Start</span>
       </div>
+      </PageHeader>
 
       {loading ? (
         <p className="text-hive-muted text-sm mt-6">Loading…</p>
       ) : (
-        <>
+        <div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start">
+          <div>
           {/* ── Utility meters ── */}
           <h2 className="font-nunito font-black text-pulse-navy text-base mt-7 mb-1">Meters</h2>
           <p className="text-[12px] text-hive-muted mb-3">
@@ -143,6 +150,8 @@ export default function PulseAdminPage() {
             </div>
           )}
 
+          </div>
+          <div>
           {/* ── Custom trackables ── */}
           <h2 className="font-nunito font-black text-pulse-navy text-base mt-7 mb-1">Custom trackables</h2>
           <p className="text-[12px] text-hive-muted mb-3">Add your own — a water bill, fuel, a vehicle's service distance, anything you want logged.</p>
@@ -152,9 +161,10 @@ export default function PulseAdminPage() {
             ))}
             <AddCustomTrackable familyId={fid} currency={currency} />
           </div>
-        </>
+          </div>
+        </div>
       )}
-    </div>
+    </Page>
   );
 }
 

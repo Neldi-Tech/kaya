@@ -19,6 +19,7 @@ import KidSwitcher from '@/components/hive/KidSwitcher';
 import NetWorthHero from '@/components/business/NetWorthHero';
 import BusinessCard from '@/components/business/BusinessCard';
 import BusinessActivityFeed from '@/components/business/BusinessActivityFeed';
+import { Page, PageHeader } from '@/components/layout/Page';
 
 export default function BusinessPortfolioPage() {
   const { profile } = useAuth();
@@ -74,9 +75,38 @@ export default function BusinessPortfolioPage() {
   if (counts.paused) subParts.push(`${counts.paused} paused`);
   if (counts.closed) subParts.push(`${counts.closed} closed`);
 
+  // Web-Fit (2026-08-23): wide hub. Desktop: the three bottom links
+  // (start / investor / projects) move into the header as actions; the
+  // net-worth hero + "what is your worth" card sit side by side; business
+  // cards go 3-up. Mobile markup/order is unchanged — desktop-only copies
+  // are in `PageHeader actions` (lg+ only), mobile originals get `lg:hidden`.
+  const headerActions = activeKid ? (
+    <>
+      <Link
+        href="/business/invest"
+        className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-hive bg-hive-paper border border-hive-line text-hive-navy font-nunito font-extrabold text-[13px] hover:bg-hive-cream active:scale-[0.99] transition no-underline"
+      >
+        📈 Junior Investor
+      </Link>
+      <Link
+        href="/business/projects"
+        className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-hive bg-hive-paper border border-hive-line text-hive-navy font-nunito font-extrabold text-[13px] hover:bg-hive-cream active:scale-[0.99] transition no-underline"
+      >
+        🎨 Kids Projects
+      </Link>
+      <Link
+        href="/business/new"
+        className="inline-flex items-center justify-center gap-2 h-10 px-5 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[14px] hover:brightness-110 active:scale-[0.99] transition no-underline"
+      >
+        ＋ Start a new business
+      </Link>
+    </>
+  ) : undefined;
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
-      <div className="mb-3 flex items-start justify-between gap-3">
+    <Page width="wide">
+      <PageHeader actions={headerActions}>
+      <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">
             Kaya Business
@@ -94,6 +124,7 @@ export default function BusinessPortfolioPage() {
           </Link>
         )}
       </div>
+      </PageHeader>
 
       <KidSwitcher />
 
@@ -105,7 +136,9 @@ export default function BusinessPortfolioPage() {
         </div>
       ) : (
         <>
-          <div className="mb-3">
+          {/* Desktop hero row: net-worth hero (2/3) + worth explainer (1/3). */}
+          <div className="lg:grid lg:grid-cols-3 lg:gap-4 lg:mb-3">
+          <div className="mb-3 lg:mb-0 lg:col-span-2 lg:h-full">
             <NetWorthHero
               businessWorthCents={businessWorth}
               hiveWorthCents={totalNetWorthCents}
@@ -117,7 +150,7 @@ export default function BusinessPortfolioPage() {
           </div>
 
           {/* What "your worth" means — kid-friendly, one card. */}
-          <div className="bg-[#F4ECD8] border border-hive-honey/60 rounded-hive p-4 mb-3">
+          <div className="bg-[#F4ECD8] border border-hive-honey/60 rounded-hive p-4 mb-3 lg:mb-0">
             <div className="flex items-center justify-between mb-1.5">
               <h3 className="font-nunito font-extrabold text-[14px]">👋 What is &ldquo;your worth&rdquo;?</h3>
               <span className="text-[10px] font-nunito font-black uppercase tracking-wider px-2 py-0.5 rounded-hive-pill bg-hive-navy text-hive-honey-soft">kid-friendly</span>
@@ -127,6 +160,7 @@ export default function BusinessPortfolioPage() {
               and any companies you&apos;ve invested in. The bigger it grows, the more <b>options</b> you
               have: to spend, save, give, or grow it more.
             </p>
+          </div>
           </div>
 
           {/* This-month earnings → Hive (paid sales sweep in full; split advisory). */}
@@ -159,21 +193,22 @@ export default function BusinessPortfolioPage() {
               </p>
             </div>
           ) : (
-            <div className="space-y-2.5 mb-4">
+            <div className="space-y-2.5 mb-4 lg:space-y-0 lg:grid lg:grid-cols-3 lg:gap-3">
               {businesses.map((b) => (
                 <BusinessCard key={b.id} business={b} currency={config.currency} rounding={bizConfig.displayRounding} />
               ))}
             </div>
           )}
 
+          {/* Mobile CTAs — desktop has these in the page header. */}
           <Link
             href="/business/new"
-            className="w-full flex items-center justify-center gap-2 h-12 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[14px] hover:brightness-110 active:scale-[0.99] transition no-underline"
+            className="lg:hidden w-full flex items-center justify-center gap-2 h-12 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[14px] hover:brightness-110 active:scale-[0.99] transition no-underline"
           >
             ＋ Start a new business
           </Link>
 
-          <div className="grid grid-cols-2 gap-2.5 mt-2.5">
+          <div className="grid grid-cols-2 gap-2.5 mt-2.5 lg:hidden">
             <Link
               href="/business/invest"
               className="flex items-center justify-center gap-2 h-11 rounded-hive bg-hive-paper border border-hive-line text-hive-navy font-nunito font-extrabold text-[13px] hover:bg-hive-cream active:scale-[0.99] transition no-underline"
@@ -201,6 +236,6 @@ export default function BusinessPortfolioPage() {
           )}
         </>
       )}
-    </div>
+    </Page>
   );
 }

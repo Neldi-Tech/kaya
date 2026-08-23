@@ -15,6 +15,7 @@ import {
   subscribeToOwnerTasks, subscribeToTrackables, subscribeToPulseProfile,
 } from '@/lib/pulse';
 import { PulseMark } from '@/components/pulse/ui';
+import { Page, PageSplit } from '@/components/layout/Page';
 
 const PULSE_TZ = 'Africa/Dar_es_Salaam'; // Phase 1 single-family tz; multi-tz later
 
@@ -79,8 +80,35 @@ export default function PulseTodayPage() {
   const done = tasks.filter((t) => t.status === 'logged' || t.status === 'closed');
   const ptsToday = done.reduce((s, t) => s + (t.pointsValue || 0), 0);
 
+  // Web-Fit (2026-08-23): content tier. Desktop: the "Done" list sits in the
+  // right rail, "To do" fills the main column. Mobile DOM order unchanged
+  // (`railMobile="last"` — Done was at the bottom before).
+  const doneRail = done.length > 0 ? (
+    <>
+      <div className="text-[11px] font-nunito font-black text-pulse-joy-ink mt-5 mb-2 lg:mt-0">Done</div>
+      <div className="flex flex-col gap-2">
+        {done.map((task) => {
+          const tk = trackById.get(task.trackableId);
+          return (
+            <div
+              key={task.id}
+              className="bg-pulse-joy-purple/5 border border-pulse-joy-purple/15 rounded-2xl p-3 flex items-center justify-between"
+            >
+              <div className="font-nunito font-black text-pulse-joy-ink text-sm truncate">
+                {tk?.emoji ?? '📊'} {tk?.name ?? 'Reading'}
+              </div>
+              <div className="bg-pulse-joy-green text-white text-[11px] font-black px-2.5 py-1 rounded-xl shrink-0">
+                +{task.pointsValue} ✓
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  ) : null;
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="content" className="pb-32">
       <div className="flex items-center gap-1.5">
         <PulseMark className="w-4 h-4" />
         <span className="text-[10px] font-nunito font-black uppercase tracking-[1.5px] text-pulse-joy-purple">Kaya Pulse</span>
@@ -126,7 +154,7 @@ export default function PulseTodayPage() {
           <p className="text-hive-muted text-sm mt-1">New tasks appear each morning.</p>
         </div>
       ) : (
-        <>
+        <PageSplit rail={doneRail} railMobile="last">
           {pending.length === 0 && (
             <div className="rounded-2xl p-4 mb-3 text-center text-white shadow-[0_8px_20px_rgba(107,203,119,0.3)]" style={{ background: 'linear-gradient(135deg,#6BCB77,#4ECDC4)' }}>
               <div className="text-2xl">🎉</div>
@@ -167,31 +195,8 @@ export default function PulseTodayPage() {
               </div>
             </>
           )}
-          {done.length > 0 && (
-            <>
-              <div className="text-[11px] font-nunito font-black text-pulse-joy-ink mt-5 mb-2">Done</div>
-              <div className="flex flex-col gap-2">
-                {done.map((task) => {
-                  const tk = trackById.get(task.trackableId);
-                  return (
-                    <div
-                      key={task.id}
-                      className="bg-pulse-joy-purple/5 border border-pulse-joy-purple/15 rounded-2xl p-3 flex items-center justify-between"
-                    >
-                      <div className="font-nunito font-black text-pulse-joy-ink text-sm truncate">
-                        {tk?.emoji ?? '📊'} {tk?.name ?? 'Reading'}
-                      </div>
-                      <div className="bg-pulse-joy-green text-white text-[11px] font-black px-2.5 py-1 rounded-xl shrink-0">
-                        +{task.pointsValue} ✓
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
-        </>
+        </PageSplit>
       )}
-    </div>
+    </Page>
   );
 }

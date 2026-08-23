@@ -19,6 +19,7 @@ import {
 } from '@/lib/business';
 import { formatCash } from '@/components/hive/format';
 import { useCelebrate } from '@/components/celebrate/CelebrationProvider';
+import { Page, PageSplit, BTN_INLINE_LG } from '@/components/layout/Page';
 
 const PAY: Array<{ k: PaymentMethod; label: string }> = [
   { k: 'cash', label: 'Cash' },
@@ -146,8 +147,23 @@ export default function LogSalePage() {
   const chip = (active: boolean) =>
     `px-3.5 py-2 rounded-hive-pill text-[12.5px] font-nunito font-extrabold border transition ${active ? 'bg-hive-navy text-hive-honey border-transparent' : 'bg-hive-paper text-hive-muted border-hive-line'}`;
 
+  // Web-Fit (2026-08-23): content tier. Desktop: a sticky read-only copy of
+  // the cart totals sits in the right rail (desktop-only duplicate); the
+  // mobile totals card stays where it is (`lg:hidden`); submit goes inline.
+  // Mobile DOM order unchanged (rail is `railMobile="hidden"`).
+  const totalsCard = (
+    <div className="bg-[#F4ECD8] border border-hive-honey/60 rounded-hive p-4 mt-3 lg:mt-0 space-y-1.5 text-[13px]">
+      <div className="flex justify-between"><span>Subtotal ({lines.length} item{lines.length === 1 ? '' : 's'})</span><span className="font-nunito font-bold">{formatCash(subtotalCents, config.currency)}</span></div>
+      {tipCents > 0 && <div className="flex justify-between"><span>Tip 💝</span><span className="font-nunito font-bold">{formatCash(tipCents, config.currency)}</span></div>}
+      <div className="flex justify-between border-t border-dashed border-black/10 pt-1.5"><span>Total</span><span className="font-nunito font-black text-[#2F7D32]">{formatCash(totalCents, config.currency)}</span></div>
+      {method !== 'iou' && (
+        <div className="flex justify-between"><span>→ Honey Pot 🍯</span><span className="font-nunito font-extrabold">{formatCash(totalCents, config.currency)}</span></div>
+      )}
+    </div>
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="content">
       <div className="rounded-hive p-3.5 mb-3 flex items-center gap-3 bg-hive-navy text-hive-cream">
         <div className="text-[22px]">🛒</div>
         <div className="min-w-0">
@@ -159,6 +175,7 @@ export default function LogSalePage() {
       {!canAct ? (
         <p className="text-hive-muted text-sm text-center py-8">Only the owner or a parent can log sales.</p>
       ) : (
+        <PageSplit rail={canAct && lines.length > 0 ? totalsCard : null} railMobile="hidden">
         <>
           <div className={label}>Add what you sold</div>
           {sellable.length === 0 ? (
@@ -244,15 +261,8 @@ export default function LogSalePage() {
               <input value={tip} onChange={(e) => setTip(e.target.value)} inputMode="decimal" placeholder="0"
                 className="w-full h-11 px-3 bg-hive-paper rounded-hive border border-hive-line text-[14px] focus:outline-none focus:ring-2 focus:ring-hive-honey/40" />
 
-              {/* Totals */}
-              <div className="bg-[#F4ECD8] border border-hive-honey/60 rounded-hive p-4 mt-3 space-y-1.5 text-[13px]">
-                <div className="flex justify-between"><span>Subtotal ({lines.length} item{lines.length === 1 ? '' : 's'})</span><span className="font-nunito font-bold">{formatCash(subtotalCents, config.currency)}</span></div>
-                {tipCents > 0 && <div className="flex justify-between"><span>Tip 💝</span><span className="font-nunito font-bold">{formatCash(tipCents, config.currency)}</span></div>}
-                <div className="flex justify-between border-t border-dashed border-black/10 pt-1.5"><span>Total</span><span className="font-nunito font-black text-[#2F7D32]">{formatCash(totalCents, config.currency)}</span></div>
-                {method !== 'iou' && (
-                  <div className="flex justify-between"><span>→ Honey Pot 🍯</span><span className="font-nunito font-extrabold">{formatCash(totalCents, config.currency)}</span></div>
-                )}
-              </div>
+              {/* Totals — mobile copy (desktop shows it in the sticky rail) */}
+              <div className="lg:hidden">{totalsCard}</div>
             </>
           )}
 
@@ -288,12 +298,15 @@ export default function LogSalePage() {
 
           {error && <p className="text-hive-rose text-[12px] font-bold mt-3">{error}</p>}
 
+          <div className="lg:flex lg:justify-end lg:pb-8">
           <button onClick={submit} disabled={saving || lines.length === 0 || subtotalCents <= 0}
-            className="w-full mt-5 h-12 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[14px] disabled:opacity-40 hover:brightness-110 active:scale-[0.99] transition">
+            className={`w-full mt-5 h-12 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[14px] disabled:opacity-40 hover:brightness-110 active:scale-[0.99] transition ${BTN_INLINE_LG}`}>
             {saving ? 'Saving…' : `Save sale → Honey Pot 🍯 ${totalCents > 0 ? formatCash(totalCents, config.currency) : ''}`}
           </button>
+          </div>
         </>
+        </PageSplit>
       )}
-    </div>
+    </Page>
   );
 }

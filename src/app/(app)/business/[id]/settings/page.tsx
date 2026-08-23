@@ -15,6 +15,7 @@ import {
   setBusinessStockTakeSchedule, DEFAULT_STOCKTAKE_SCHEDULE, type StockTakeSchedule,
 } from '@/lib/business';
 import type { DayOfWeek } from '@/lib/firestore';
+import { Page, BTN_INLINE_LG } from '@/components/layout/Page';
 
 function labelForHour(h: number): string {
   const d = new Date(); d.setHours(h, 0, 0, 0);
@@ -155,8 +156,11 @@ export default function BusinessSettingsPage() {
     }
   };
 
+  // Web-Fit (2026-08-23): content tier. Desktop: the three settings cards
+  // sit in a 2-col grid and each card's save button goes inline/right.
+  // Mobile unchanged (lg-only classes).
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="content">
       <div className="rounded-hive p-3.5 mb-3 flex items-center gap-3 bg-hive-navy text-hive-cream">
         <div className="text-[22px]">⚙️</div>
         <div className="flex-1 min-w-0">
@@ -171,7 +175,7 @@ export default function BusinessSettingsPage() {
       {!canEdit ? (
         <p className="text-hive-muted text-sm text-center py-8">Only the owner or a parent can change settings.</p>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-3 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start">
         <div className="bg-hive-paper border border-hive-line rounded-hive p-4">
           <h3 className="font-nunito font-extrabold text-[14px] mb-2">Pricing</h3>
           <div className="grid grid-cols-2 gap-3">
@@ -193,10 +197,12 @@ export default function BusinessSettingsPage() {
             ))}
           </div>
           <p className="text-[11px] text-hive-muted mt-2">Change the price anytime — new sales use it; past sales keep what they sold for.</p>
+          <div className="lg:flex lg:justify-end">
           <button onClick={savePrice} disabled={priceSaving}
-            className="w-full mt-3 h-11 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[13px] disabled:opacity-40 hover:brightness-110 transition">
+            className={`w-full mt-3 h-11 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[13px] disabled:opacity-40 hover:brightness-110 transition ${BTN_INLINE_LG}`}>
             {priceSaving ? 'Saving…' : priceSaved ? '✓ Saved' : 'Save price'}
           </button>
+          </div>
         </div>
 
         {/* Stock-take Workplan schedule — drives the synthetic "Stock-take · [Business]"
@@ -267,10 +273,12 @@ export default function BusinessSettingsPage() {
           {schedError && <p className="text-hive-rose text-[12px] font-bold mt-3">{schedError}</p>}
           {schedSaved && <p className="text-[#2F7D32] text-[12px] font-bold mt-3">✓ Saved</p>}
 
+          <div className="lg:flex lg:justify-end">
           <button onClick={saveSchedule} disabled={schedSaving || (schedEnabled && schedDays.length === 0)}
-            className="w-full mt-4 h-11 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[13px] disabled:opacity-40 hover:brightness-110 transition">
+            className={`w-full mt-4 h-11 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[13px] disabled:opacity-40 hover:brightness-110 transition ${BTN_INLINE_LG}`}>
             {schedSaving ? 'Saving…' : 'Save schedule'}
           </button>
+          </div>
         </div>
 
         <div className="bg-hive-paper border border-hive-line rounded-hive p-4">
@@ -305,13 +313,15 @@ export default function BusinessSettingsPage() {
           {error && <p className="text-hive-rose text-[12px] font-bold mt-3">{error}</p>}
           {saved && <p className="text-[#2F7D32] text-[12px] font-bold mt-3">✓ Saved</p>}
 
+          <div className="lg:flex lg:justify-end">
           <button onClick={save} disabled={saving}
-            className="w-full mt-4 h-11 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[13px] disabled:opacity-40 hover:brightness-110 transition">
+            className={`w-full mt-4 h-11 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[13px] disabled:opacity-40 hover:brightness-110 transition ${BTN_INLINE_LG}`}>
             {saving ? 'Saving…' : 'Save reminder'}
           </button>
+          </div>
         </div>
         </div>
       )}
-    </div>
+    </Page>
   );
 }

@@ -10,6 +10,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
 import { Business, CostType, subscribeToBusiness, logCost } from '@/lib/business';
+import { Page, PageSplit, BTN_INLINE_LG } from '@/components/layout/Page';
 
 const TYPES: Array<{ k: CostType; label: string }> = [
   { k: 'supplies', label: 'Supplies' },
@@ -68,8 +69,20 @@ export default function LogCostPage() {
   const chip = (active: boolean) =>
     `px-3.5 py-2 rounded-hive-pill text-[12.5px] font-nunito font-extrabold border transition ${active ? 'bg-hive-navy text-hive-honey border-transparent' : 'bg-hive-paper text-hive-muted border-hive-line'}`;
 
+  // Web-Fit (2026-08-23): content tier. Desktop: the 💡 margin tip sits in
+  // the right rail (desktop-only duplicate; mobile card stays put, `lg:hidden`);
+  // submit goes inline. Mobile DOM order unchanged.
+  const tipCard = (
+    <div className="bg-[#F4ECD8] border border-hive-line rounded-hive p-4 mt-3 lg:mt-0">
+      <p className="text-[12.5px] text-hive-navy/80 leading-relaxed">
+        💡 Costs don&apos;t come out of your Hive — they&apos;re tracked so you can see your
+        <b> margin</b> (what % of each sale you really keep). Your parent&apos;s float covers them.
+      </p>
+    </div>
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="content">
       <div className="rounded-hive p-3.5 mb-3 flex items-center gap-3 bg-hive-navy text-hive-cream">
         <div className="text-[22px]">🧾</div>
         <div className="min-w-0">
@@ -81,6 +94,7 @@ export default function LogCostPage() {
       {!canAct ? (
         <p className="text-hive-muted text-sm text-center py-8">Only the owner or a parent can log costs.</p>
       ) : (
+        <PageSplit rail={tipCard} railMobile="hidden">
         <>
           <div className={label}>Cost type</div>
           <div className="flex flex-wrap gap-2">
@@ -95,21 +109,19 @@ export default function LogCostPage() {
           <div className={label}>Amount ({config.currency})</div>
           <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="0" className={field} />
 
-          <div className="bg-[#F4ECD8] border border-hive-line rounded-hive p-4 mt-3">
-            <p className="text-[12.5px] text-hive-navy/80 leading-relaxed">
-              💡 Costs don&apos;t come out of your Hive — they&apos;re tracked so you can see your
-              <b> margin</b> (what % of each sale you really keep). Your parent&apos;s float covers them.
-            </p>
-          </div>
+          <div className="lg:hidden">{tipCard}</div>
 
           {error && <p className="text-hive-rose text-[12px] font-bold mt-3">{error}</p>}
 
+          <div className="lg:flex lg:justify-end">
           <button onClick={submit} disabled={saving || cents <= 0}
-            className="w-full mt-5 h-12 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[14px] disabled:opacity-40 hover:brightness-110 active:scale-[0.99] transition">
+            className={`w-full mt-5 h-12 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[14px] disabled:opacity-40 hover:brightness-110 active:scale-[0.99] transition ${BTN_INLINE_LG}`}>
             {saving ? 'Saving…' : 'Save cost'}
           </button>
+          </div>
         </>
+        </PageSplit>
       )}
-    </div>
+    </Page>
   );
 }

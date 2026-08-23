@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
 import { formatCents } from '@/components/pantry/format';
+import { PAGE_WIDTH_CLASS, PageSplit, BTN_INLINE_LG } from '@/components/layout/Page';
 import {
   type PulseTask, type Trackable, type PulseReading, type LogReadingResult,
   getPulseTask, getLatestReading, subscribeToTrackables, logReading, submitAssistReading,
@@ -175,13 +176,12 @@ export default function QuickEntryPage() {
   const isTopup = calc?.event === 'topup';
   const isRollback = calc?.event === 'rollback';
 
-  return (
-    <Shell>
-      <Link href="/pulse/today" className="text-[12px] text-pulse-joy-purple font-bold no-underline hover:underline inline-block mb-2">← Today</Link>
-      <h1 className="font-nunito font-black text-xl text-pulse-joy-ink">
-        {trackable?.emoji ?? '📊'} Log {trackable?.name ?? 'reading'}
-      </h1>
-
+  // Web-Fit (2026-08-23): content tier. Desktop: the context (backup note +
+  // last reading) sits in the right rail, the entry + save on the left with
+  // an inline save. Mobile DOM order unchanged (`railMobile="first"` — those
+  // two blocks sat between the title and the entry card before).
+  const rail = (
+    <>
       {isAssistHelper && (
         <div className="bg-[#0F1F44]/[0.05] border border-[#0F1F44]/15 rounded-2xl p-3 mt-3 text-[12px] font-bold text-[#0F1F44] leading-snug">
           🤝 You&apos;re the backup for this reading. Enter the value to <span className="font-black">verify + send it to a parent to approve</span> — the kid keeps the credit when they log it themselves.
@@ -189,13 +189,23 @@ export default function QuickEntryPage() {
       )}
 
       {/* Previous reading */}
-      <div className="bg-white border-2 border-pulse-joy-purple/15 rounded-2xl p-3.5 mt-4">
+      <div className="bg-white border-2 border-pulse-joy-purple/15 rounded-2xl p-3.5 mt-4 lg:first:mt-3">
         <div className="text-[10px] font-black text-hive-muted uppercase tracking-[1px]">Last reading</div>
         <div className="text-lg font-nunito font-black text-pulse-joy-ink mt-0.5">
           {prev ? `${prev.value} ${trackable?.unit ?? ''}` : 'None yet — this sets the baseline'}
         </div>
       </div>
+    </>
+  );
 
+  return (
+    <Shell>
+      <Link href="/pulse/today" className="text-[12px] text-pulse-joy-purple font-bold no-underline hover:underline inline-block mb-2">← Today</Link>
+      <h1 className="font-nunito font-black text-xl text-pulse-joy-ink">
+        {trackable?.emoji ?? '📊'} Log {trackable?.name ?? 'reading'}
+      </h1>
+
+      <PageSplit rail={rail} railMobile="first">
       {/* Today's value */}
       <div className="bg-gradient-to-br from-[#FFF8EC] to-[#FFE8CB] border-2 border-pulse-joy-yellow rounded-2xl p-4 mt-3">
         <div className="text-[11px] font-black text-[#5A3D00] uppercase tracking-[1px]">Today's meter value</div>
@@ -238,19 +248,24 @@ export default function QuickEntryPage() {
       )}
       {error && <p className="text-pulse-coral text-sm font-bold mt-3">{error}</p>}
 
+      <div className="lg:flex lg:justify-end">
       <button
         onClick={onSave}
         disabled={!hasValue || saving}
-        className="w-full mt-4 bg-gradient-to-r from-pulse-joy-purple to-pulse-joy-coral text-white rounded-2xl py-3.5 font-nunito font-black text-[15px] disabled:opacity-50"
+        className={`w-full mt-4 bg-gradient-to-r from-pulse-joy-purple to-pulse-joy-coral text-white rounded-2xl py-3.5 font-nunito font-black text-[15px] disabled:opacity-50 ${BTN_INLINE_LG}`}
       >
         {saving
           ? (isAssistHelper ? 'Sending…' : 'Saving…')
           : isAssistHelper ? '🤝 Verify & send for approval' : `Save · +${task.pointsValue} pts ⭐`}
       </button>
+      </div>
+      </PageSplit>
     </Shell>
   );
 }
 
+// Web-Fit (2026-08-23): the page's own mobile scaffold (no lg px before) +
+// the content tier at lg. Mobile classes untouched.
 function Shell({ children }: { children: React.ReactNode }) {
-  return <div className="mx-auto max-w-md w-full px-4 pt-4 lg:pt-8 pb-32">{children}</div>;
+  return <div className={`mx-auto max-w-md w-full px-4 pt-4 lg:pt-8 pb-32 ${PAGE_WIDTH_CLASS.content} lg:px-8`}>{children}</div>;
 }

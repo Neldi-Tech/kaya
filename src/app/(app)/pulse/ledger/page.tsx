@@ -11,6 +11,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { getAwardsInDateRange } from '@/lib/firestore';
 import { dayKeyInTZ } from '@/lib/dates';
 import { PulseMark } from '@/components/pulse/ui';
+import { Page, PageHeader } from '@/components/layout/Page';
 import {
   type PulseReading, type PulseProfile,
   subscribeToReadingsInMonth, subscribeToAllPulseProfiles,
@@ -84,16 +85,34 @@ export default function PulseLedgerPage() {
   const monthName = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   const empty = rows.length === 0 || rows.every((r) => r.points === 0 && r.count === 0);
 
+  // Web-Fit (2026-08-23): wide tier. Desktop: the Kids/Helpers tab strip
+  // moves into the header (desktop copy; mobile strip `lg:hidden`). Mobile
+  // markup/order unchanged.
+  const desktopTabs = (
+    <div className="inline-flex bg-white border border-pulse-gold/30 rounded-xl p-1">
+      <button
+        onClick={() => setTab('kids')}
+        className={`px-4 text-center py-2 rounded-lg text-[12px] font-nunito font-black ${tab === 'kids' ? 'bg-pulse-joy-purple text-white' : 'text-hive-muted'}`}
+      >Kids · Points</button>
+      <button
+        onClick={() => setTab('helpers')}
+        className={`px-4 text-center py-2 rounded-lg text-[12px] font-nunito font-black ${tab === 'helpers' ? 'bg-pulse-navy text-pulse-gold' : 'text-hive-muted'}`}
+      >Helpers · Score</button>
+    </div>
+  );
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="wide" className="pb-32">
+      <PageHeader className="" actions={desktopTabs}>
       <div className="flex items-center gap-1.5">
         <PulseMark className="w-4 h-4" />
         <span className="text-[10px] font-nunito font-black uppercase tracking-[1.5px] text-pulse-joy-purple">Kaya Pulse</span>
       </div>
       <h1 className="font-nunito font-black text-2xl text-pulse-joy-ink mt-1">Ledger</h1>
       <p className="text-hive-muted text-sm mt-0.5 mb-4">{monthName} standings</p>
+      </PageHeader>
 
-      <div className="flex bg-white border border-pulse-gold/30 rounded-xl p-1 mb-4">
+      <div className="flex bg-white border border-pulse-gold/30 rounded-xl p-1 mb-4 lg:hidden">
         <button
           onClick={() => setTab('kids')}
           className={`flex-1 text-center py-2 rounded-lg text-[12px] font-nunito font-black ${tab === 'kids' ? 'bg-pulse-joy-purple text-white' : 'text-hive-muted'}`}
@@ -138,6 +157,6 @@ export default function PulseLedgerPage() {
           <p className="text-hive-muted text-sm mt-1">Helper reading-tasks and their performance score arrive with the assignment engine.</p>
         </div>
       )}
-    </div>
+    </Page>
   );
 }

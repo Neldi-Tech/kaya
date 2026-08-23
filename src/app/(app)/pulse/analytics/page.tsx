@@ -28,6 +28,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
+import { Page } from '@/components/layout/Page';
+
+// Web-Fit (2026-08-23): 2-col dashboard band at lg (plain block below).
+const BAND_LG = 'lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start';
 import {
   type PurchaseRequest, type PurchaseModule,
   subscribeToRecentRequests, MODULE_EMOJI, MODULE_LABEL,
@@ -239,8 +243,12 @@ export default function PulseAnalyticsPage() {
     return <div className="mx-auto max-w-md px-4 pt-16 text-center text-hive-muted text-sm">Redirecting…</div>;
   }
 
+  // Web-Fit (2026-08-23): wide dashboard. Desktop: cards pair up in 2-col
+  // bands (glance+what-if | budget-vs-save · trend+compares | projection ·
+  // Ask Kaya | pacing). Mobile stacks exactly as before — bands are plain
+  // blocks below `lg`, DOM order unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="wide" className="pb-32">
       <PulseHeader back={{ href: '/pulse', label: 'Dashboard' }} eyebrow="Savings analytics" title="Savings Analytics" subtitle="How your savings track against your plan + your budget — and what they become." />
 
       {!plan && (
@@ -254,14 +262,18 @@ export default function PulseAnalyticsPage() {
 
       {/* 1 · Set the target against what you have */}
       {plan && (
-        <>
+        <div className={BAND_LG}>
+          <div>
           <MoneyAtGlance totalBudget={totalBudget} keepCents={keepBudget} saveCents={saveTarget} fixedCents={fixedMonthly} currency={currency} />
           <WhatIf totalBudget={totalBudget} initialTarget={saveTarget} currency={currency} />
+          </div>
           <BudgetVsSave rows={budgetRows} currency={currency} />
-        </>
+        </div>
       )}
 
       {/* 2 · Savings vs plan + spend vs budget + compares */}
+      <div className={BAND_LG}>
+      <div>
       <SavingsTrend monthly={savings.monthly} currency={currency} />
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
         <SpendVsBudget monthly={savings.monthly} pctAbs={compare.budgetPctAbs} over={compare.budgetOver} hasCap={compare.hasCap} />
@@ -270,18 +282,24 @@ export default function PulseAnalyticsPage() {
           {compare.hasCap && <CompareCard title="Spend vs budget" big={`${compare.budgetPctAbs}% ${compare.budgetOver ? 'over' : 'under'}`} good={!compare.budgetOver} pill={compare.budgetOver ? 'over budget' : 'on track'} note={`used ${formatCentsBudgetNeat(compare.avgSpent, currency)} of ${formatCentsBudgetNeat(compare.avgCap, currency)} cap`} />}
         </div>
       </div>
+      </div>
 
       {/* 3 · Kaya Wealth projection */}
       <WealthProjection monthlyCents={saveTarget} currency={currency} />
+      </div>
 
       {/* Ask Kaya · per-bucket pacing */}
+      <div className={BAND_LG}>
       {profile?.familyId && (
         <div className="mt-6">
           <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pulse-gold-dk mb-2">Ask Kaya · savings advisor</div>
           <AskKaya familyId={profile.familyId} monthKey={thisMonth} monthLabel={monthLabel()} currency={currency} facts={askFacts} />
         </div>
       )}
+      <div className="lg:pt-2">
       <PerBucketPacing rows={savings.byModule} currency={currency} />
+      </div>
+      </div>
 
       {wealthBalanceCents > 0 && (
         <div className="mt-5 bg-pulse-navy text-pulse-gold rounded-2xl p-4 flex items-center justify-between">
@@ -292,7 +310,7 @@ export default function PulseAnalyticsPage() {
           <div className="text-[11px] font-bold opacity-85 text-right leading-tight">{snapshots.length} month{snapshots.length === 1 ? '' : 's'}<br />frozen</div>
         </div>
       )}
-    </div>
+    </Page>
   );
 }
 

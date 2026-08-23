@@ -40,6 +40,13 @@ import {
 import { listHelpers } from '@/lib/helpers';
 import type { HelperLink } from '@/lib/firestore';
 import { dayKeyInTZ, toDisplayDate, relativeDayLabel } from '@/lib/dates';
+import { Page, PageHeader, DATA_ROW, DATA_ROW_HOVER } from '@/components/layout/Page';
+
+// Web-Fit (2026-08-23): lg-only "DataRows" panel look for the bucket card
+// stacks, in Pulse's own palette (mobile `flex flex-col gap-2` untouched).
+const ROWS_LG = 'lg:gap-0 lg:overflow-hidden lg:rounded-2xl lg:border lg:border-pulse-gold/30 lg:bg-white lg:divide-y lg:divide-pulse-gold/30';
+// 2-col dashboard band at lg (mobile: plain block, DOM order = reading order).
+const BAND_LG = 'lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start';
 
 // Cash lens covers all 9 Household buckets. Subscriptions + Contributions
 // come from spend_ledger (server-written when a sub cycle is marked paid
@@ -564,13 +571,38 @@ export default function PulseDashboardPage() {
   }
   if (anomalyCount > 0) askKayaFacts['Spikes flagged this month'] = anomalyCount;
 
+  // Web-Fit (2026-08-23): wide dashboard. Desktop: the tab strip moves into
+  // the header (desktop copy; mobile strip `lg:hidden`), and each tab's
+  // content flows in a 2-col band (hero/compare/Ask Kaya left · readings +
+  // buckets right; balances/trend left · metered cards right). Mobile
+  // markup/order unchanged — bands are plain blocks below `lg`.
+  const TABS: Array<[typeof activeTab, string]> = [
+    ['overview', '📊 Overview'], ['metered', '⚡ Metered'], ['trends', '📈 Trends'], ['insights', '🤖 AI'],
+  ];
+  const desktopTabs = (
+    <div className="inline-flex bg-white border border-pulse-gold/30 rounded-2xl p-1">
+      {TABS.map(([k, lbl]) => (
+        <button
+          key={k}
+          type="button"
+          onClick={() => setActiveTab(k)}
+          className={`px-4 py-2 rounded-xl font-nunito font-black text-[12px] ${activeTab === k ? 'bg-pulse-navy text-pulse-gold' : 'text-hive-muted'}`}
+        >{lbl}</button>
+      ))}
+    </div>
+  );
+  const hasMeteredSide = unitBalances.length > 0 || metered14.some((d) => d.total > 0);
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="wide" className="pb-32">
+      <PageHeader className="" actions={desktopTabs}>
       <PulseHeader eyebrow="Dashboard" title={monthLabel()} subtitle="Spend, savings pace + metered consumption" />
+      </PageHeader>
 
       {/* v2 — Tab strip. Overview is the default cash/savings view; Metered
-          carries the consumption section that used to stack below it. */}
-      <div className="mt-3 flex bg-white border border-pulse-gold/30 rounded-2xl p-1">
+          carries the consumption section that used to stack below it.
+          Mobile only — desktop has the strip in the header. */}
+      <div className="mt-3 flex bg-white border border-pulse-gold/30 rounded-2xl p-1 lg:hidden">
         <button
           type="button"
           onClick={() => setActiveTab('overview')}
@@ -626,7 +658,8 @@ export default function PulseDashboardPage() {
       <div className="mt-4"><TimeRangeFilter value={range} onChange={setRange} /></div>
 
       {isLiveMonth && (
-      <>
+      <div className={BAND_LG}>
+      <div>
       {/* Hero — cash lens (savings basis). Clickable → /pulse/breakdown for
           the composition drill-down (PR 2). */}
       <div className="mt-4">
@@ -725,13 +758,15 @@ export default function PulseDashboardPage() {
           facts={askKayaFacts}
         />
       )}
+      </div>
+      <div>
 
       {/* 📊 Readings today — parent oversight. Shows who's logged what; any
           pending/missed reading can be logged here on the reader's behalf so
           nothing goes unrecorded (the reader still gets the credit when THEY
           log; a parent log is attributed to the parent, no kid points). */}
       {readingsOversight.total > 0 && (
-        <div className="mt-6">
+        <div className="mt-6 lg:mt-4">
           <div className="flex items-center justify-between mb-2">
             <div className="text-[11px] font-nunito font-black text-pulse-navy uppercase tracking-[1px]">📊 Readings today</div>
             <span className="text-[10px] font-bold text-hive-muted">
@@ -797,14 +832,14 @@ export default function PulseDashboardPage() {
       )}
 
       {/* Top buckets — cash */}
-      <div className="flex items-center justify-between mt-6 mb-2">
+      <div className="flex items-center justify-between mt-6 mb-2 lg:first:mt-4">
         <div className="text-[11px] font-nunito font-black text-pulse-navy uppercase tracking-[1px]">Top buckets</div>
         <Link href="/pantry/finances" className="text-[10px] text-pulse-gold-dk font-bold">Finances ›</Link>
       </div>
       {buckets.length === 0 ? (
         <div className="bg-white border border-pulse-gold/30 rounded-2xl p-5 text-center text-sm text-hive-muted">No spend yet this month.</div>
       ) : (
-        <div className="flex flex-col gap-2">
+        <div className={`flex flex-col gap-2 ${ROWS_LG}`}>
           {buckets.map((b) => {
             const over = b.cap > 0 && b.spent > b.cap;
             const bpct = b.cap > 0 ? Math.min(100, Math.round((b.spent / b.cap) * 100)) : 0;
@@ -814,7 +849,7 @@ export default function PulseDashboardPage() {
             const spark = sparkByBucket[b.m] ?? [];
             const sparkMax = Math.max(1, ...spark);
             return (
-              <Link key={b.m} href={`/pulse/bucket/${b.m}`} className="bg-white border border-pulse-gold/30 rounded-2xl p-3 flex items-center gap-3 no-underline hover:bg-pulse-cream/40">
+              <Link key={b.m} href={`/pulse/bucket/${b.m}`} className={`bg-white border border-pulse-gold/30 rounded-2xl p-3 flex items-center gap-3 no-underline hover:bg-pulse-cream/40 lg:px-4 ${DATA_ROW} ${DATA_ROW_HOVER}`}>
                 <div className="w-9 h-9 rounded-xl bg-pulse-cream flex items-center justify-center text-base">{MODULE_EMOJI[b.m]}</div>
                 <div className="flex-1 min-w-0">
                   <div className="font-nunito font-black text-sm text-pulse-navy">{MODULE_LABEL[b.m]}</div>
@@ -849,7 +884,8 @@ export default function PulseDashboardPage() {
           })}
         </div>
       )}
-      </>
+      </div>
+      </div>
       )}
 
       {/* Period view — any selection other than the live month. Reuses the
@@ -866,7 +902,7 @@ export default function PulseDashboardPage() {
           .filter((b) => b.spent > 0)
           .sort((a, b) => b.spent - a.spent);
         return (
-          <>
+          <div className={BAND_LG}>
             <div className="mt-4">
               <Link href={`/pulse/breakdown?${q}`} className="block no-underline">
                 <PulseHero>
@@ -895,20 +931,21 @@ export default function PulseDashboardPage() {
               </Link>
             </div>
 
-            <div className="flex items-center justify-between mt-6 mb-2">
+            <div>
+            <div className="flex items-center justify-between mt-6 mb-2 lg:mt-4">
               <div className="text-[11px] font-nunito font-black text-pulse-navy uppercase tracking-[1px]">Buckets · {rangeLabel(range)}</div>
               <Link href="/pantry/finances" className="text-[10px] text-pulse-gold-dk font-bold">Finances ›</Link>
             </div>
             {periodBuckets.length === 0 ? (
               <div className="bg-white border border-pulse-gold/30 rounded-2xl p-5 text-center text-sm text-hive-muted">No spend in {rangeLabel(range)}.</div>
             ) : (
-              <div className="flex flex-col gap-2">
+              <div className={`flex flex-col gap-2 ${ROWS_LG}`}>
                 {periodBuckets.map((b) => {
                   const capForPeriod = b.cap * months;
                   const over = capForPeriod > 0 && b.spent > capForPeriod;
                   const bpct = capForPeriod > 0 ? Math.min(100, Math.round((b.spent / capForPeriod) * 100)) : 0;
                   return (
-                    <Link key={b.m} href={`/pulse/bucket/${b.m}?${q}`} className="bg-white border border-pulse-gold/30 rounded-2xl p-3 flex items-center gap-3 no-underline hover:bg-pulse-cream/40">
+                    <Link key={b.m} href={`/pulse/bucket/${b.m}?${q}`} className={`bg-white border border-pulse-gold/30 rounded-2xl p-3 flex items-center gap-3 no-underline hover:bg-pulse-cream/40 lg:px-4 ${DATA_ROW} ${DATA_ROW_HOVER}`}>
                       <div className="w-9 h-9 rounded-xl bg-pulse-cream flex items-center justify-center text-base">{MODULE_EMOJI[b.m]}</div>
                       <div className="flex-1 min-w-0">
                         <div className="font-nunito font-black text-sm text-pulse-navy">{MODULE_LABEL[b.m]}</div>
@@ -923,13 +960,15 @@ export default function PulseDashboardPage() {
                 })}
               </div>
             )}
-          </>
+            </div>
+          </div>
         );
       })()}
       </>
       )}
 
-      {activeTab === 'metered' && (<>
+      {activeTab === 'metered' && (<div className={hasMeteredSide ? BAND_LG : ''}>
+      {hasMeteredSide && (<div>
       {/* 🔋 Unit balances panel (PR 4 / v2). For depleting meters, shows
           units-left + a fuel-gauge colored by days-left. PR 5 wires Auto-buddy. */}
       {unitBalances.length > 0 && (
@@ -1022,8 +1061,10 @@ export default function PulseDashboardPage() {
         );
       })()}
 
+      </div>)}
+      <div>
       {/* Metered consumption — Pulse lens */}
-      <div className="text-[11px] font-nunito font-black text-pulse-navy uppercase tracking-[1px] mt-6 mb-2">Metered consumption</div>
+      <div className="text-[11px] font-nunito font-black text-pulse-navy uppercase tracking-[1px] mt-6 mb-2 lg:mt-4">Metered consumption</div>
       {consumption.rows.length === 0 && Object.keys(extraMonth).length === 0 ? (
         <div className="bg-white border border-pulse-gold/30 rounded-2xl p-5 text-center text-sm text-hive-muted">
           No readings yet this month. Set up trackables + tasks in{' '}
@@ -1128,8 +1169,8 @@ export default function PulseDashboardPage() {
           )}
         </>
       )}
-      </>
-      )}
-    </div>
+      </div>
+      </div>)}
+    </Page>
   );
 }

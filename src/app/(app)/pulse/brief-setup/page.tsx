@@ -14,6 +14,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
 import { PulseHeader, PulseBreadcrumb } from '@/components/pulse/ui';
 import { formatCentsBudgetNeat } from '@/components/pantry/format';
+import { Page, BTN_INLINE_LG } from '@/components/layout/Page';
 import { updateUserProfile, type UserProfile } from '@/lib/firestore';
 import {
   type PulseBriefSettings, type PulseBriefChannel, type PulseBriefIncludeKey,
@@ -87,8 +88,10 @@ export default function PulseBriefSetupPage() {
   if (draft.includes.includes('askKaya')) previewLines.push('🤖 "Home & Wellness is the only bucket trending up — worth a 1.15M one-off cap?"');
   if (draft.includes.includes('pendingApprovals')) previewLines.push('📋 2 purchase requests awaiting your review.');
 
+  // Web-Fit (2026-08-23): narrow tier (settings form) — container + inline
+  // save on desktop. Mobile unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <Page width="narrow" className="pb-32">
       <PulseBreadcrumb trail={[]} current="Morning brief" />
       <PulseHeader eyebrow="⚡ Pulse · Metered" title="Morning brief" subtitle="Independent per parent — set yours" />
 
@@ -207,20 +210,22 @@ export default function PulseBriefSetupPage() {
       )}
 
       {/* Save bar */}
+      <div className="lg:flex lg:justify-end">
       <button
         type="button"
         onClick={save}
         disabled={!dirty || saving || !timeValid}
-        className="mt-3 w-full bg-pulse-gold text-pulse-navy font-nunito font-black text-[13px] py-3 rounded-xl disabled:opacity-50"
+        className={`mt-3 w-full bg-pulse-gold text-pulse-navy font-nunito font-black text-[13px] py-3 rounded-xl disabled:opacity-50 ${BTN_INLINE_LG}`}
       >
         {saving ? 'Saving…' : flash ? flash : dirty ? `💾 Save ${profile?.displayName?.split(' ')[0] ?? 'my'} brief` : 'Up to date'}
       </button>
+      </div>
 
       {/* Auto-buddy explainer */}
       <div className="bg-pulse-navy text-white rounded-2xl p-3 mt-3">
         <div className="text-[10px] font-nunito font-black uppercase tracking-[1.4px]" style={{ color: GOLD }}>🎁 SURPRISE #5 · AUTO-BUDDY</div>
         <p className="text-[11.5px] font-bold opacity-90 mt-1.5 leading-snug">When a meter dips below its threshold, Kaya auto-pings the <b>helper of record</b> for that meter and CCs you. Map meters to helpers in the trackable admin (lands next).</p>
       </div>
-    </div>
+    </Page>
   );
 }
