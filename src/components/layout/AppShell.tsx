@@ -1321,12 +1321,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 function BackBar({ pathname, homePath, placement }: { pathname: string | null; homePath: string; placement: 'top' | 'bottom' }) {
   const parent = deriveBackParent(pathname, homePath);
   if (!parent) return null;
+  // Web-Fit (2026-08-23): the top back-link aligns to the widest page
+  // tier (1280) so it sits at the content's top-left like a breadcrumb;
+  // the bottom duplicate is a mobile thumb-reach affordance only.
   const wrap = placement === 'top'
     ? 'mt-3 mb-3 px-4 lg:px-8'
-    : 'mt-8 px-4 lg:px-8 pb-2 lg:pb-12';
+    : 'mt-8 px-4 lg:px-8 pb-2 lg:pb-12 lg:hidden';
   return (
     <div className={wrap}>
-      <div className="mx-auto max-w-md lg:max-w-3xl">
+      <div className="mx-auto max-w-md lg:max-w-[1280px]">
         <Link
           href={parent.href}
           aria-label={`Back to ${parent.label}`}

@@ -23,6 +23,7 @@ import {
 } from '@/lib/moneyBuddy';
 import { fetchFxRates, suggestedRate, formatRate, FxRates } from '@/lib/fxRates';
 import BackButton from '@/components/ui/BackButton';
+import { Page, PageHeader, BTN_INLINE_LG } from '@/components/layout/Page';
 import KidAvatar from '@/components/ui/KidAvatar';
 import { formatCash } from '@/components/hive/format';
 import NumberInput from '@/components/hive/NumberInput';
@@ -247,17 +248,19 @@ export default function HiveDepositPage() {
     );
   }
 
+  // Web-Fit (2026-08-23): narrow tier (forms stay narrow); the submit
+  // button goes inline + right-aligned on desktop. Mobile unchanged.
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <Page width="narrow">
       <div className="lg:hidden"><BackButton /></div>
-      <div className="mb-5">
+      <PageHeader className="mb-5">
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">Parent · Deposit</p>
         <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1">Top up the Hive 🍯</h1>
         <p className="text-sm text-hive-muted mt-2">
           Allowance, gifts, rewards or business income — into the Honey Pot (their bank)
           or 💵 Cash when you&apos;re handing real money now. Several kids at once is fine.
         </p>
-      </div>
+      </PageHeader>
 
       <div className="space-y-4">
         {/* Multi-select kid picker */}
@@ -607,10 +610,11 @@ export default function HiveDepositPage() {
           <p className="text-hive-rose text-sm font-bold">{error}</p>
         )}
 
+        <div className="lg:flex lg:justify-end lg:pb-8">
         <button
           onClick={submit}
           disabled={submitting || isGuest}
-          className="w-full h-12 rounded-hive bg-hive-green hover:brightness-110 text-white font-nunito font-black text-sm disabled:opacity-40 transition shadow-[0_8px_20px_-8px_rgba(63,175,108,0.5)]"
+          className={`w-full h-12 rounded-hive bg-hive-green hover:brightness-110 text-white font-nunito font-black text-sm disabled:opacity-40 transition shadow-[0_8px_20px_-8px_rgba(63,175,108,0.5)] ${BTN_INLINE_LG}`}
         >
           {submitting
             ? 'Depositing…'
@@ -618,7 +622,8 @@ export default function HiveDepositPage() {
               ? `Deposit ${formatCash(destCents, defaultCurrency)} to ${kidIds.length} kids → ${dest === 'treasury' ? 'Honey Pot 🍯' : '💵 Cash'}`
               : `Deposit ${destCents > 0 ? formatCash(destCents, defaultCurrency) : ''} → ${dest === 'treasury' ? 'Honey Pot 🍯' : '💵 Cash'}`}
         </button>
+        </div>
       </div>
-    </div>
+    </Page>
   );
 }
