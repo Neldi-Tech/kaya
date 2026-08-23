@@ -33,6 +33,7 @@ import BackButton from '@/components/ui/BackButton';
 import WorkplanEditor from '@/components/helpers/WorkplanEditor';
 import PerformanceCard from '@/components/helpers/PerformanceCard';
 import TodaysWorkplanCard from '@/components/helpers/TodaysWorkplanCard';
+import RoutineFillTab from '@/components/helpers/RoutineFillTab';
 import DayStepper from '@/components/helpers/DayStepper';
 import { listHelpers, getHelperLink } from '@/lib/helpers';
 import { getHelperPerformance, perfFace, type HelperPerformanceWindow } from '@/lib/helperPerformance';
@@ -257,6 +258,11 @@ function PersonCard({ helper, familyId, expanded, onToggle, isParent, showPerf, 
   const todayStr = todayDateString();
   const dayKind: 'past' | 'today' | 'future' =
     selStr < todayStr ? 'past' : selStr > todayStr ? 'future' : 'today';
+  // HP2 D15 — four tabs inside the card. Today = the screen that was
+  // here before (unchanged); the others are the long views. Tabs only
+  // exist when performance is shown for this helper.
+  const [tab, setTab] = useState<HelperTab>('today');
+  const activeTab: HelperTab = showPerf ? tab : 'today';
   return (
     <div className="bg-hive-paper border border-hive-line rounded-hive-lg overflow-hidden">
       {/* Row header — always visible. Big emoji + name + role +
@@ -292,6 +298,15 @@ function PersonCard({ helper, familyId, expanded, onToggle, isParent, showPerf, 
 
       {expanded && (
         <div className="border-t border-hive-line p-4 space-y-3 bg-hive-cream/30">
+          {showPerf && (
+            <HelperTabs tab={activeTab} onChange={setTab} isParent={isParent} />
+          )}
+
+          {activeTab === 'fill' && (
+            <RoutineFillTab familyId={familyId} helper={helper} isParent={isParent} />
+          )}
+
+          {activeTab === 'today' && <>
           {/* Future preview banner — nothing's happened yet (2026-05-21). */}
           {dayKind === 'future' && (
             <div className="rounded-hive border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] leading-snug text-blue-800">
@@ -360,8 +375,39 @@ function PersonCard({ helper, familyId, expanded, onToggle, isParent, showPerf, 
               readOnly
             />
           )}
+          </>}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── HP2 · tabs inside a helper card (D15) ───────────────────────
+type HelperTab = 'today' | 'fill' | 'score' | 'reviews';
+const HELPER_TABS: { id: HelperTab; label: string; parentOnly?: boolean; soon?: boolean }[] = [
+  { id: 'today',   label: 'Today' },
+  { id: 'fill',    label: 'Routine fill' },
+  { id: 'score',   label: 'Score', soon: true },
+  { id: 'reviews', label: 'Kid reviews', parentOnly: true, soon: true },
+];
+function HelperTabs({ tab, onChange, isParent }: { tab: HelperTab; onChange: (t: HelperTab) => void; isParent: boolean }) {
+  const tabs = HELPER_TABS.filter((t) => !t.parentOnly || isParent);
+  return (
+    <div className="grid gap-1 p-1 rounded-hive bg-hive-line/60" style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }} role="tablist">
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          role="tab"
+          aria-selected={tab === t.id}
+          disabled={t.soon}
+          onClick={() => onChange(t.id)}
+          title={t.soon ? 'Coming in the next update' : undefined}
+          className={`h-8 rounded-[10px] text-[11px] font-nunito font-extrabold truncate px-1 ${tab === t.id ? 'bg-hive-paper text-hive-navy shadow-sm' : 'text-hive-muted'} disabled:opacity-40`}
+        >
+          {t.label}
+        </button>
+      ))}
     </div>
   );
 }
