@@ -18,6 +18,7 @@ import {
   subscribeToStockMovements,
   setBusinessStatus, requestBusinessLaunch, updateBusiness, readBusinessConfig,
   keepsStock, resolvePricingModel, pricingModelMeta,
+  BusinessReview, subscribeToBusinessReviews, reviewDue,
 } from '@/lib/business';
 import { uploadBusinessPhotoFromDataUrl } from '@/lib/businessPhoto';
 import { ApprovalRequest } from '@/lib/hive';
@@ -65,6 +66,7 @@ export default function BusinessDashboardPage() {
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [takes, setTakes] = useState<StockTake[]>([]);
   const [moves, setMoves] = useState<StockMovement[]>([]);
+  const [reviews, setReviews] = useState<BusinessReview[]>([]);
   const [milestones, setMilestones] = useState<BusinessMilestone[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -78,7 +80,8 @@ export default function BusinessDashboardPage() {
     const u3 = subscribeToLedger(familyId, businessId, setLedger, 50);
     const u4 = subscribeToStockTakes(familyId, businessId, setTakes, 30);
     const u5 = subscribeToStockMovements(familyId, businessId, setMoves, 8);
-    return () => { u1(); u2(); u3(); u4(); u5(); };
+    const u6 = subscribeToBusinessReviews(familyId, businessId, setReviews, 3);
+    return () => { u1(); u2(); u3(); u4(); u5(); u6(); };
   }, [familyId, businessId]);
 
   // Milestones live under the owner kid — subscribe once we know the owner.
@@ -301,10 +304,20 @@ export default function BusinessDashboardPage() {
               : {}),
           }}
         />
-        <Link href={`/business/${businessId}/weekly`}
-          className="w-full flex items-center justify-center gap-2 h-11 rounded-hive bg-hive-paper border border-hive-line text-hive-navy font-nunito font-extrabold text-[13px] hover:bg-hive-cream active:scale-[0.99] transition no-underline">
-          🗓️ Weekly review →
-        </Link>
+        {/* Business 2.0 (R18/R19) — the cadence-based Business Review. */}
+        {(() => {
+          const isDue = reviewDue(reviews[0]?.date ?? null, business.reviewCadence);
+          return (
+            <Link href={`/business/${businessId}/review`}
+              className={`w-full flex items-center justify-center gap-2 h-11 rounded-hive font-nunito font-extrabold text-[13px] active:scale-[0.99] transition no-underline ${
+                isDue
+                  ? 'bg-hive-honey text-hive-navy hover:brightness-105'
+                  : 'bg-hive-paper border border-hive-line text-hive-navy hover:bg-hive-cream'
+              }`}>
+              📝 Business Review {isDue ? '· due! →' : '→'}
+            </Link>
+          );
+        })()}
       </div>
 
       {/* Coming next — what's still ahead. */}
