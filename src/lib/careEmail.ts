@@ -139,6 +139,23 @@ export function renderCareMissedEmail(args: { event: ReminderEvent; dateKey: str
   };
 }
 
+/** 📉 Refill Radar — pack running low (the Kaya Plus min-units seam). */
+export function renderCareRefillEmail(args: {
+  event: ReminderEvent; remaining: number; runsOutLabel: string; appUrl: string;
+}): { subject: string; html: string } {
+  const { event: ev, remaining, runsOutLabel, appUrl } = args;
+  const care = ev.care!;
+  const kid = kidName(ev);
+  const label = care.labelName || ev.title;
+  const subject = `🛒 Refill soon — ${label} runs out ${runsOutLabel} (${remaining} dose${remaining === 1 ? '' : 's'} left)`;
+  const body = `<div style="background:#F5E9D2;border:1px solid #E8C989;border-radius:12px;padding:12px 16px;text-align:center;font-size:14px;font-weight:900;color:#3D2E08;margin-bottom:12px;">📉 ${remaining} dose${remaining === 1 ? '' : 's'} left in the pack</div>
+  <div style="font-size:13px;color:#5C6975;text-align:center;">${esc(ev.title)} · ${esc(care.dose)} ×${care.slots.length}/day for ${esc(kid)}.<br>At this pace it runs out <b>${esc(runsOutLabel)}</b> — a good moment to buy the refill 🛒</div>`;
+  return {
+    subject,
+    html: shell(`${esc(kid)}`, 'Time to refill 🛒', body, appUrl, 'Counted from the pack size Kaya read off the label — one heads-up per pack.'),
+  };
+}
+
 /** Course complete — the 🏁 celebration. */
 export function renderCareCompleteEmail(args: { event: ReminderEvent; dateKey: string; appUrl: string }): { subject: string; html: string } {
   const { event: ev, dateKey, appUrl } = args;

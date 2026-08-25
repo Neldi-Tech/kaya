@@ -21,9 +21,10 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { Resend } from 'resend';
 import {
   occursOn, doseKeyFor, careEndDate, slotIcon, careDayNumber, careTotalDays,
+  addDaysKey as addDaysKeyLocal,
   type ReminderEvent, type DoseEntry,
 } from '@/lib/reminders';
-import { renderCareSummaryEmail, renderCareMissedEmail, renderCareCompleteEmail } from '@/lib/careEmail';
+import { renderCareSummaryEmail, renderCareMissedEmail, renderCareCompleteEmail, renderCareRefillEmail } from '@/lib/careEmail';
 import { bumpBadgeCountersAdmin } from '@/lib/badgeCountersAdmin';
 
 export const runtime = 'nodejs';
@@ -40,6 +41,22 @@ const SUMMARY_HOUR = 20;
 /** 🎴 Courage Cards generate at 06:40 local — before the kids' morning
  *  digests, so the line can ride along where kid-email is on. */
 const COURAGE_HOUR = 6;
+/** 📉 Refill Radar checks at 18:40 local — evening, shops still open. */
+const REFILL_HOUR = 18;
+/** Alert when ≤ this many DAYS of doses remain in the pack. */
+const REFILL_DAYS_LEFT = 3;
+
+function weekdayLabel(dateKey: string, todayKey: string): string {
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  if (!m) return dateKey;
+  const d = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+  if (dateKey === todayKey) return 'today';
+  const diff = (d.getTime() - new Date(todayKey + 'T00:00:00').getTime()) / 86_400_000;
+  if (diff <= 1.5) return 'tomorrow';
+  if (diff < 7) return days[d.getDay()];
+  return dateKey;
+}
 const LADDER_MINS = [30, 60, 90] as const;
 
 const anthropicKey = process.env.ANTHROPIC_API_KEY;
@@ -116,7 +133,7 @@ async function handle(req: NextRequest) {
   const messaging = getAdminMessaging();
 
   const { dayKey: today, minutes: nowMins, hour } = nowInTZ();
-  let families = 0, scanned = 0, rungs = 0, missedStamped = 0, summaries = 0, completions = 0, emailed = 0, courage = 0;
+  let families = 0, scanned = 0, rungs = 0, missedStamped = 0, summaries = 0, completions = 0, emailed = 0, courage = 0, refills = 0;
 
   async function push(uid: string, title: string, body: string, url: string, tag: string) {
     if (!messaging || !uid || uid === 'system') return;
@@ -263,6 +280,36 @@ async function handle(req: NextRequest) {
           }
         }
 
+        // ── 5 · 📉 Refill Radar (18:40 local, medicine with a pack count) ──
+        // Every ✓ counts down the pack; ≤3 days of doses left → ONE heads-up
+        // per pack (firedKeys 'care-refill'). The Kaya Plus min-units seam.
+        if (ev.type === 'medicine' && care.packCount && hour === REFILL_HOUR && !fired.has('care-refill')) {
+          const given = log.filter((x) => x.status === 'given' || x.status === 'late').length;
+          const remaining = Math.max(0, care.packCount - given);
+          const perDay = Math.max(1, care.slots.length);
+          if (remaining > 0 && remaining <= perDay * REFILL_DAYS_LEFT) {
+            const runsOutKey = ((): string => {
+              let k = today; let left = remaining;
+              while (left > perDay) { left -= perDay; k = addDaysKeyLocal(k, 1); }
+              return k;
+            })();
+            const runsOut = weekdayLabel(runsOutKey, today);
+            for (const p of await getParents()) {
+              await bell(famDoc.ref, p.uid, `🛒 Refill soon — ${care.labelName || ev.title}`, `${remaining} dose${remaining === 1 ? '' : 's'} left · runs out ${runsOut}`);
+            }
+            if (resend && !isSelf) {
+              const to = (await getParents()).map((p) => p.email).filter((e): e is string => !!e);
+              if (to.length) {
+                const { subject, html } = renderCareRefillEmail({ event: { ...ev, doseLog: log }, remaining, runsOutLabel: runsOut, appUrl: APP_URL });
+                await resend.emails.send({ from: FROM, to, subject, html }).catch(() => {});
+                emailed += to.length;
+              }
+            }
+            refills++;
+            newFired.push('care-refill');
+          }
+        }
+
         // ── 4 · 🎴 Courage Card (06:40 local, medicine courses for kids) ──
         if (!isSelf && ev.type === 'medicine' && hour === COURAGE_HOUR
           && care.duration.mode !== 'ongoing' && ev.courageCard?.dateKey !== today) {
@@ -288,5 +335,5 @@ async function handle(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, today, hour, families, scanned, rungs, missedStamped, summaries, completions, emailed, courage });
+  return NextResponse.json({ ok: true, today, hour, families, scanned, rungs, missedStamped, summaries, completions, emailed, courage, refills });
 }
