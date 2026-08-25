@@ -30,6 +30,7 @@ const TYPE_META: Partial<Record<ApprovalRequest['type'], { emoji: string; label:
   reward_redeem:     { emoji: '🎁', label: 'Reward request',      tone: 'honey' },
   reward_contribute: { emoji: '👨‍👩‍👧', label: 'Family-goal chip-in', tone: 'honey' },
   reward_proposal:   { emoji: '💡', label: 'Reward idea',         tone: 'honey' },
+  note_share:        { emoji: '🖼', label: 'Share a note outside', tone: 'honey' },
 };
 
 export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {

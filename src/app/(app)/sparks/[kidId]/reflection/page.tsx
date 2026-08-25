@@ -39,8 +39,11 @@ import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 import {
   type TimelineDay, TimelineList, TimelineBrowse, MemoryLane,
   ViewSwitcher, useRememberedView, previewLine,
+  timelineDayLabel, timelineMonthLabel,
 } from '@/components/sparks/TimelineViews';
 import TimelineHitMap from '@/components/sparks/TimelineHitMap';
+import NoteStudio from '@/components/sparks/NoteStudio';
+import { requestNoteShare, subscribeToKidRequests, type ApprovalRequest } from '@/lib/hive';
 import Link from 'next/link';
 import ReflectionOriginChip from '@/components/sparks/ReflectionOriginChip';
 import CelebrationBurst from '@/components/sparks/CelebrationBurst';
@@ -137,6 +140,45 @@ export default function ReflectionPage() {
     score: entryScore(r),
     starred: !!r.parent_rating,
   })), [recent, sw]);
+
+  // 🖼 Note Studio (design v2 §3) — share the day's NOTE, beautifully.
+  const [noteFor, setNoteFor] = useState<string | null>(null);
+  // Kid flow: outside shares ride the parent-approval rail. (isParent is
+  // declared further down — read the role directly here.)
+  const viewerIsParent = authProfile?.role === 'parent';
+  const [noteAsks, setNoteAsks] = useState<ApprovalRequest[]>([]);
+  useEffect(() => {
+    if (!familyId || viewerIsParent) return;
+    return subscribeToKidRequests(familyId, kidId, (rows) =>
+      setNoteAsks(rows.filter((r) => r.type === 'note_share' && r.noteSurface === 'reflection')));
+  }, [familyId, kidId, viewerIsParent]);
+  const kidFirst = kidName.split(' ')[0];
+  const reflLabel = sw ? 'Tafakari' : 'My Reflection';
+  const noteBase = useMemo(() => {
+    if (!noteFor) return null;
+    const e = recent.find((r) => r.date === noteFor);
+    if (!e) return null;
+    return {
+      kidName: kidFirst,
+      surfaceLabel: reflLabel,
+      dateLabel: timelineDayLabel(e.date, sw),
+      dateKey: e.date,
+      feeling: e.ai_read?.mood_emoji,
+      text: e.text?.trim() || (sw ? '(ukurasa ulioskaniwa)' : '(scanned handwriting page)'),
+    };
+  }, [noteFor, recent, kidFirst, reflLabel, sw]);
+  const noteMonth = useMemo(() => {
+    if (!noteFor) return [];
+    const pfx = noteFor.slice(0, 7);
+    return recent
+      .filter((r) => r.date.slice(0, 7) === pfx && r.text?.trim())
+      .sort((a, b) => (a.date < b.date ? -1 : 1))
+      .map((e) => ({
+        kidName: kidFirst, surfaceLabel: reflLabel,
+        dateLabel: timelineDayLabel(e.date, sw), dateKey: e.date,
+        feeling: e.ai_read?.mood_emoji, text: e.text.trim(),
+      }));
+  }, [noteFor, recent, kidFirst, reflLabel, sw]);
 
   // 2026-06-23 · scanned handwriting, indexed by day, so the weekly post +
   // recent list can show the real page next to the transcribed words.
@@ -914,10 +956,10 @@ export default function ReflectionPage() {
       <MemoryLane days={tlDays} onOpenDay={(d) => setScoreDate(d)} sw={sw} />
       <ViewSwitcher view={tlView} views={['list', 'browse', 'hitmap', 'calendar']} onChange={setTlView} sw={sw} />
       {tlView === 'list' && (
-        <TimelineList days={tlDays} onOpenDay={(d) => setScoreDate(d)} sw={sw} />
+        <TimelineList days={tlDays} onOpenDay={(d) => setScoreDate(d)} onShareDay={(d) => setNoteFor(d)} sw={sw} />
       )}
       {tlView === 'browse' && (
-        <TimelineBrowse days={tlDays} onOpenDay={(d) => setScoreDate(d)} sw={sw} />
+        <TimelineBrowse days={tlDays} onOpenDay={(d) => setScoreDate(d)} onShareDay={(d) => setNoteFor(d)} sw={sw} />
       )}
       {/* Hit-map 2.0 · Month / 6 Months / Year / All-years micro-dots. */}
       {tlView === 'hitmap' && (
@@ -974,6 +1016,28 @@ export default function ReflectionPage() {
           subCaption={sw ? 'Mwandiko' : 'Handwritten note'}
         />
       )}
+
+      {/* 🖼 Note Studio — themed keepsake card for one day's note. */}
+      <NoteStudio
+        open={!!noteBase}
+        onClose={() => setNoteFor(null)}
+        base={noteBase}
+        monthNotes={noteMonth}
+        monthLabel={noteFor ? timelineMonthLabel(noteFor, sw) : ''}
+        kidTags={[kidId]}
+        canShareOutside={isParent}
+        ask={!isParent && noteFor ? {
+          state: noteAsks.some((r) => r.noteDate === noteFor && r.status === 'approved') ? 'approved'
+            : noteAsks.some((r) => r.noteDate === noteFor && r.status === 'pending') ? 'pending' : 'none',
+          onAsk: async () => {
+            if (!familyId || !authProfile?.uid || !noteFor || !noteBase) return;
+            await requestNoteShare(familyId, kidId,
+              { date: noteFor, surface: 'reflection', preview: noteBase.text.slice(0, 60) },
+              authProfile.uid);
+          },
+        } : null}
+        sw={sw}
+      />
 
       {/* Day-detail / score sheet — opens for ANY day (today or a past
           entry). Parents score; kids see it read-only. */}

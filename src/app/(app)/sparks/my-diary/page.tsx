@@ -29,8 +29,10 @@ import { PolishControl } from '@/components/sparks/PolishedText';
 import {
   type TimelineDay, TimelineList, TimelineBrowse, MemoryLane,
   ViewSwitcher, useRememberedView, previewLine,
+  timelineDayLabel, timelineMonthLabel,
 } from '@/components/sparks/TimelineViews';
 import TimelineHitMap from '@/components/sparks/TimelineHitMap';
+import NoteStudio from '@/components/sparks/NoteStudio';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 import DiaryInkCanvas, { type DiaryInkHandle } from '@/components/sparks/DiaryInkCanvas';
 
@@ -101,6 +103,32 @@ export default function MyDiaryPage() {
       };
     });
   }, [entries, sw]);
+
+  // 🖼 Note Studio — locked pages never reach a share, even my own:
+  // a locked page is a private page (design v2 decisions).
+  const [noteFor, setNoteFor] = useState<string | null>(null);
+  const myDiaryLabel = sw ? 'Shajara yangu' : 'My Diary';
+  const shareableDay = (date: string) => {
+    const list = (entries ?? []).filter((e) => e.date === date && !e.locked).slice().reverse();
+    const texts = list.flatMap((e) =>
+      (e.blocks ?? []).filter((b) => b.kind === 'text' && b.text?.trim()).map((b) => (b.text as string).trim()));
+    if (texts.length === 0) return null;
+    return {
+      kidName: firstName, surfaceLabel: myDiaryLabel,
+      dateLabel: timelineDayLabel(date, sw), dateKey: date,
+      feeling: list.find((e) => e.feeling)?.feeling, text: texts.join('\n\n'),
+    };
+  };
+  const noteBase = useMemo(() => (noteFor ? shareableDay(noteFor) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [noteFor, entries, firstName, sw]);
+  const noteMonth = useMemo(() => {
+    if (!noteFor) return [];
+    const pfx = noteFor.slice(0, 7);
+    const dates = Array.from(new Set((entries ?? []).filter((e) => e.date.slice(0, 7) === pfx).map((e) => e.date))).sort();
+    return dates.map((d) => shareableDay(d)).filter(Boolean) as NonNullable<ReturnType<typeof shareableDay>>[];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noteFor, entries, firstName, sw]);
 
   const withPin = (then: () => void) => {
     if (meta?.hasPin) { then(); return; }
@@ -317,10 +345,10 @@ export default function MyDiaryPage() {
                   <MemoryLane days={tlDays} onOpenDay={(d) => setDayOpen(d)} sw={sw} />
                   <ViewSwitcher view={tlView} views={['list', 'browse', 'hitmap', 'calendar']} onChange={setTlView} sw={sw} />
                   {tlView === 'list' && (
-                    <TimelineList days={tlDays} onOpenDay={(d) => setDayOpen(d)} sw={sw} />
+                    <TimelineList days={tlDays} onOpenDay={(d) => setDayOpen(d)} onShareDay={setNoteFor} sw={sw} />
                   )}
                   {tlView === 'browse' && (
-                    <TimelineBrowse days={tlDays} onOpenDay={(d) => setDayOpen(d)} sw={sw} />
+                    <TimelineBrowse days={tlDays} onOpenDay={(d) => setDayOpen(d)} onShareDay={setNoteFor} sw={sw} />
                   )}
                   {tlView === 'hitmap' && (
                     <TimelineHitMap days={tlDays} onOpenDay={(d) => setDayOpen(d)} sw={sw} layers={['feelings', 'presence']} />
@@ -330,6 +358,18 @@ export default function MyDiaryPage() {
                   )}
                 </>
               )}
+
+              {/* 🖼 Note Studio — themed keepsake card for one day. */}
+              <NoteStudio
+                open={!!noteBase}
+                onClose={() => setNoteFor(null)}
+                base={noteBase}
+                monthNotes={noteMonth}
+                monthLabel={noteFor ? timelineMonthLabel(noteFor, sw) : ''}
+                kidTags={[]}
+                canShareOutside
+                sw={sw}
+              />
 
               {dayOpen && (
                 <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">

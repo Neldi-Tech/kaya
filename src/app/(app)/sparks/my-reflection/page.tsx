@@ -25,8 +25,10 @@ import { toDisplayDate } from '@/lib/dates';
 import {
   type TimelineDay, TimelineList, TimelineBrowse, MemoryLane,
   ViewSwitcher, useRememberedView, previewLine,
+  timelineDayLabel, timelineMonthLabel,
 } from '@/components/sparks/TimelineViews';
 import TimelineHitMap from '@/components/sparks/TimelineHitMap';
+import NoteStudio from '@/components/sparks/NoteStudio';
 
 const NAVY = '#1B1547';
 
@@ -76,6 +78,32 @@ export default function MyReflectionPage() {
     () => (dayOpen ? recent.find((r) => r.date === dayOpen) ?? null : null),
     [dayOpen, recent],
   );
+
+  // 🖼 Note Studio — a parent's own journal, full share rights.
+  const [noteFor, setNoteFor] = useState<string | null>(null);
+  const myReflLabel = sw ? 'Tafakari yangu' : 'My Reflection';
+  const noteBase = useMemo(() => {
+    if (!noteFor) return null;
+    const e = recent.find((r) => r.date === noteFor);
+    if (!e?.text?.trim()) return null;
+    return {
+      kidName: firstName, surfaceLabel: myReflLabel,
+      dateLabel: timelineDayLabel(e.date, sw), dateKey: e.date,
+      feeling: e.ai_read?.mood_emoji, text: e.text.trim(),
+    };
+  }, [noteFor, recent, firstName, myReflLabel, sw]);
+  const noteMonth = useMemo(() => {
+    if (!noteFor) return [];
+    const pfx = noteFor.slice(0, 7);
+    return recent
+      .filter((r) => r.date.slice(0, 7) === pfx && r.text?.trim())
+      .sort((a, b) => (a.date < b.date ? -1 : 1))
+      .map((e) => ({
+        kidName: firstName, surfaceLabel: myReflLabel,
+        dateLabel: timelineDayLabel(e.date, sw), dateKey: e.date,
+        feeling: e.ai_read?.mood_emoji, text: e.text.trim(),
+      }));
+  }, [noteFor, recent, firstName, myReflLabel, sw]);
 
   const toggleVisibility = async () => {
     const next = visibility === 'visible' ? 'personal' : 'visible';
@@ -219,14 +247,26 @@ export default function MyReflectionPage() {
                   </div>
                   <MemoryLane days={tlDays} onOpenDay={setDayOpen} sw={sw} />
                   <ViewSwitcher view={tlView} views={['list', 'browse', 'hitmap']} onChange={setTlView} sw={sw} />
-                  {tlView === 'list' && <TimelineList days={tlDays} onOpenDay={setDayOpen} sw={sw} />}
-                  {tlView === 'browse' && <TimelineBrowse days={tlDays} onOpenDay={setDayOpen} sw={sw} />}
+                  {tlView === 'list' && <TimelineList days={tlDays} onOpenDay={setDayOpen} onShareDay={setNoteFor} sw={sw} />}
+                  {tlView === 'browse' && <TimelineBrowse days={tlDays} onOpenDay={setDayOpen} onShareDay={setNoteFor} sw={sw} />}
                   {/* Hit-map 2.0 · adult journal is unrated — feelings + presence. */}
                   {tlView === 'hitmap' && (
                     <TimelineHitMap days={tlDays} onOpenDay={setDayOpen} sw={sw} layers={['feelings', 'presence']} />
                   )}
                 </div>
               )}
+
+              {/* 🖼 Note Studio — themed keepsake card for one day. */}
+              <NoteStudio
+                open={!!noteBase}
+                onClose={() => setNoteFor(null)}
+                base={noteBase}
+                monthNotes={noteMonth}
+                monthLabel={noteFor ? timelineMonthLabel(noteFor, sw) : ''}
+                kidTags={[]}
+                canShareOutside
+                sw={sw}
+              />
 
               {/* Day sheet — one past day, read-only. */}
               {openEntry && (

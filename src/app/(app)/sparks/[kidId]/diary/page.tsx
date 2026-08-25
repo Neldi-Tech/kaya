@@ -37,8 +37,11 @@ import { YearInPixelsCard, OnThisDayCard } from '@/components/sparks/DiaryFeatur
 import {
   type TimelineDay, TimelineList, TimelineBrowse,
   ViewSwitcher, useRememberedView, previewLine,
+  timelineDayLabel, timelineMonthLabel,
 } from '@/components/sparks/TimelineViews';
 import TimelineHitMap from '@/components/sparks/TimelineHitMap';
+import NoteStudio from '@/components/sparks/NoteStudio';
+import { requestNoteShare, subscribeToKidRequests, type ApprovalRequest } from '@/lib/hive';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 import DiaryInkCanvas, { type DiaryInkHandle } from '@/components/sparks/DiaryInkCanvas';
 import { uploadSparksPhotos } from '@/lib/sparks/uploadPhoto';
@@ -190,6 +193,43 @@ export default function DiaryPage() {
       };
     });
   }, [entries, sw]);
+
+  // 🖼 Note Studio (design v2 §3) — locked pages NEVER reach a share,
+  // even knock-open ones: reading permission is not sharing permission.
+  const [noteFor, setNoteFor] = useState<string | null>(null);
+  const [noteAsks, setNoteAsks] = useState<ApprovalRequest[]>([]);
+  useEffect(() => {
+    if (!familyId || isParent) return;
+    return subscribeToKidRequests(familyId, kidId, (rows) =>
+      setNoteAsks(rows.filter((r) => r.type === 'note_share' && r.noteSurface === 'diary')));
+  }, [familyId, kidId, isParent]);
+  const diaryLabel = sw ? 'Shajara' : 'My Diary';
+  const shareableDay = (date: string) => {
+    const list = (entries ?? [])
+      .filter((e) => e.date === date && !e.locked && !e.redacted)
+      .slice().reverse();
+    const texts = list.flatMap((e) =>
+      (e.blocks ?? []).filter((b) => b.kind === 'text' && b.text?.trim()).map((b) => (b.text as string).trim()));
+    if (texts.length === 0) return null;
+    return {
+      kidName: kidName.split(' ')[0],
+      surfaceLabel: diaryLabel,
+      dateLabel: timelineDayLabel(date, sw),
+      dateKey: date,
+      feeling: list.find((e) => e.feeling)?.feeling,
+      text: texts.join('\n\n'),
+    };
+  };
+  const noteBase = useMemo(() => (noteFor ? shareableDay(noteFor) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [noteFor, entries, kidName, sw]);
+  const noteMonth = useMemo(() => {
+    if (!noteFor) return [];
+    const pfx = noteFor.slice(0, 7);
+    const dates = Array.from(new Set((entries ?? []).filter((e) => e.date.slice(0, 7) === pfx).map((e) => e.date))).sort();
+    return dates.map((d) => shareableDay(d)).filter(Boolean) as NonNullable<ReturnType<typeof shareableDay>>[];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noteFor, entries, kidName, sw]);
 
   // Slice 8g · feeling optional — Kaya infers when skipped (✨ badge).
   const canSave = !saving
@@ -406,10 +446,10 @@ export default function DiaryPage() {
         <>
           <ViewSwitcher view={tlView} views={['list', 'browse', 'hitmap', 'calendar']} onChange={setTlView} sw={sw} />
           {tlView === 'list' && (
-            <TimelineList days={tlDays} onOpenDay={(d) => setDayOpen(d)} sw={sw} />
+            <TimelineList days={tlDays} onOpenDay={(d) => setDayOpen(d)} onShareDay={(d) => setNoteFor(d)} sw={sw} />
           )}
           {tlView === 'browse' && (
-            <TimelineBrowse days={tlDays} onOpenDay={(d) => setDayOpen(d)} sw={sw} />
+            <TimelineBrowse days={tlDays} onOpenDay={(d) => setDayOpen(d)} onShareDay={(d) => setNoteFor(d)} sw={sw} />
           )}
           {/* Hit-map 2.0 · no scores in the diary — feelings + presence
               layers only, and no "missed" concept (no expected days). */}
@@ -701,6 +741,28 @@ export default function DiaryPage() {
           </div>
         </div>
       )}
+
+      {/* 🖼 Note Studio — themed keepsake card for one day's pages. */}
+      <NoteStudio
+        open={!!noteBase}
+        onClose={() => setNoteFor(null)}
+        base={noteBase}
+        monthNotes={noteMonth}
+        monthLabel={noteFor ? timelineMonthLabel(noteFor, sw) : ''}
+        kidTags={[kidId]}
+        canShareOutside={isParent}
+        ask={!isParent && noteFor ? {
+          state: noteAsks.some((r) => r.noteDate === noteFor && r.status === 'approved') ? 'approved'
+            : noteAsks.some((r) => r.noteDate === noteFor && r.status === 'pending') ? 'pending' : 'none',
+          onAsk: async () => {
+            if (!familyId || !authProfile?.uid || !noteFor || !noteBase) return;
+            await requestNoteShare(familyId, kidId,
+              { date: noteFor, surface: 'diary', preview: noteBase.text.slice(0, 60) },
+              authProfile.uid);
+          },
+        } : null}
+        sw={sw}
+      />
 
       {/* Slice 8c · tapped-day sheet — that day's entries, same cards. */}
       {dayOpen && (
