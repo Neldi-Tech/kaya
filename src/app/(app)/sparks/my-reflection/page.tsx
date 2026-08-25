@@ -73,6 +73,7 @@ export default function MyReflectionPage() {
     date: r.date,
     emoji: r.ai_read?.mood_emoji,
     preview: previewLine(r.text),
+    reply: r.note_replies?.length ? r.note_replies[r.note_replies.length - 1] : undefined,
   })), [recent]);
   const openEntry = useMemo(
     () => (dayOpen ? recent.find((r) => r.date === dayOpen) ?? null : null),
@@ -265,6 +266,7 @@ export default function MyReflectionPage() {
                 monthLabel={noteFor ? timelineMonthLabel(noteFor, sw) : ''}
                 kidTags={[]}
                 canShareOutside
+                sendMeta={{ kidId: uid, surface: 'reflection' }}
                 sw={sw}
               />
 
