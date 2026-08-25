@@ -1641,17 +1641,20 @@ export async function addBusinessItem(
   if (input.notes?.trim()) data.notes = input.notes.trim();
   const ref = await addDoc(itemsCol(familyId, businessId), data);
   await recomputeInventoryStats(familyId, businessId);
-  const addedQty = Math.max(0, Math.round(input.qty || 0));
-  await recordStockMovement(familyId, businessId, {
-    itemId: ref.id,
-    itemName: input.name.trim(),
-    itemKind: input.kind,
-    unitLabel: input.unitLabel?.trim() || undefined,
-    kind: 'add',
-    qtyDelta: addedQty,
-    resultingQty: addedQty,
-    by: uid,
-  });
+  // Menu entries (Business 2.0) aren't stock — no movement row for them.
+  if (input.kind !== 'menu') {
+    const addedQty = Math.max(0, Math.round(input.qty || 0));
+    await recordStockMovement(familyId, businessId, {
+      itemId: ref.id,
+      itemName: input.name.trim(),
+      itemKind: input.kind,
+      unitLabel: input.unitLabel?.trim() || undefined,
+      kind: 'add',
+      qtyDelta: addedQty,
+      resultingQty: addedQty,
+      by: uid,
+    });
+  }
   return ref.id;
 }
 

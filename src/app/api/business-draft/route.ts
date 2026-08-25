@@ -18,7 +18,7 @@ export const runtime = 'nodejs';
 const apiKey = process.env.ANTHROPIC_API_KEY;
 const client = apiKey ? new Anthropic({ apiKey }) : null;
 
-type Mode = 'draft' | 'suggest';
+type Mode = 'draft' | 'suggest' | 'cost_recipe';
 
 interface DraftBody {
   mode?: Mode;
@@ -31,6 +31,10 @@ interface DraftBody {
   existing?: string[];
   currency?: string;
   coachName?: string;
+  /** cost_recipe mode — the product being priced in the Pricing Studio. */
+  product?: string;
+  unit?: string;
+  pricingModel?: string;
 }
 
 const ALLOWED_TYPES = ['goods', 'service', 'adhoc', 'advice', 'sport'] as const;
@@ -72,6 +76,26 @@ const SUGGEST_SCHEMA = {
   type: 'object',
   properties: { products: { type: 'array', items: PRODUCT_SCHEMA } },
   required: ['products'],
+  additionalProperties: false,
+} as const;
+
+// Business 2.0 · Pricing Studio (R7) — "what goes into ONE glass?" starter
+// ingredient/cost lines the child then edits. Costs are per ONE unit.
+const RECIPE_SCHEMA = {
+  type: 'object',
+  properties: {
+    lines: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { name: { type: 'string' }, cost: { type: 'number' } },
+        required: ['name', 'cost'],
+        additionalProperties: false,
+      },
+    },
+    message: { type: 'string' },
+  },
+  required: ['lines', 'message'],
   additionalProperties: false,
 } as const;
 
@@ -125,9 +149,52 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const mode: Mode = body?.mode === 'suggest' ? 'suggest' : 'draft';
+  const mode: Mode = body?.mode === 'suggest' ? 'suggest' : body?.mode === 'cost_recipe' ? 'cost_recipe' : 'draft';
   const currency = (body.currency || 'USD').trim().slice(0, 8);
   const coachName = (body.coachName || 'Kaya Coach').trim().slice(0, 40);
+
+  // ── cost_recipe · Pricing Studio starter lines (R7) ──
+  if (mode === 'cost_recipe') {
+    const product = (body.product || '').trim().slice(0, 60);
+    if (!product) return NextResponse.json({ error: 'Which product?' }, { status: 400 });
+    const unit = (body.unit || 'one').trim().slice(0, 20);
+    const bizName = (body.name || '').trim().slice(0, 50);
+    const model = (body.pricingModel || '').trim().slice(0, 20);
+    try {
+      const response = await client.messages.create({
+        model: 'claude-opus-4-7',
+        max_tokens: 500,
+        system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
+        output_config: { format: { type: 'json_schema', schema: RECIPE_SCHEMA } },
+        messages: [{
+          role: 'user',
+          content: `Your name is "${coachName}". Family currency: ${currency}.
+The child is building a PRICE in the Pricing Studio and needs the COST side first.
+Product: "${product}" (sold per ${unit})${bizName ? ` — business "${bizName}"` : ''}${model ? ` — pricing model ${model}` : ''}.
+List the ingredient/cost lines that go into ONE ${unit} — 2 to 6 short lines, each with a name a child recognizes ("3 oranges", "Sugar", "Cup + straw") and a SENSIBLE STARTER cost in ${currency} (round numbers — the child WILL edit them).
+For time-based work (per hour/session/job) return 0-2 small material lines only (paper, soap) — a child's time itself costs nothing here.
+"message" = one warm sentence reminding them these are guesses to check against real prices.`,
+        }],
+      });
+      const text = response.content.find((b) => b.type === 'text');
+      if (!text || text.type !== 'text') return NextResponse.json({ error: 'No recipe returned' }, { status: 502 });
+      const p = JSON.parse(text.text) as { lines?: Array<{ name?: unknown; cost?: unknown }>; message?: unknown };
+      const lines = (Array.isArray(p.lines) ? p.lines : [])
+        .map((l) => ({
+          name: (typeof l?.name === 'string' ? l.name : '').trim().slice(0, 60),
+          costCents: typeof l?.cost === 'number' && Number.isFinite(l.cost) && l.cost > 0 ? Math.round(l.cost * 100) : 0,
+        }))
+        .filter((l) => l.name)
+        .slice(0, 8);
+      return NextResponse.json({
+        lines,
+        message: (typeof p.message === 'string' ? p.message : '').trim().slice(0, 280),
+      });
+    } catch (e: unknown) {
+      if (e instanceof Anthropic.APIError) return NextResponse.json({ error: e.message }, { status: e.status ?? 500 });
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Recipe failed' }, { status: 500 });
+    }
+  }
 
   if (mode === 'draft') {
     const idea = (body.idea || '').trim().slice(0, 280);

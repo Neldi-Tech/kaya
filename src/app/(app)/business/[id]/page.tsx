@@ -490,6 +490,15 @@ export default function BusinessDashboardPage() {
         </div>
       )}
 
+      {/* 💰 Pricing Studio (Business 2.0) — build each price from cost + profit. */}
+      {canAct && business.status !== 'closed' && (
+        <Link href={`/business/${businessId}/pricing`}
+          className="w-full flex items-center justify-between gap-2 h-12 px-4 mb-3 rounded-hive bg-hive-paper border-2 border-hive-honey/70 text-hive-navy font-nunito font-black text-[14px] hover:bg-hive-cream active:scale-[0.99] transition no-underline">
+          <span>💰 Pricing Studio</span>
+          <span className="text-[11.5px] text-hive-honey-dk font-extrabold">cost + profit → your price →</span>
+        </Link>
+      )}
+
       {/* Inventory — the books that drive worth. */}
       <Link
         href={`/business/${businessId}/inventory`}
