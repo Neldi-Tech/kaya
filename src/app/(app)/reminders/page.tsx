@@ -22,7 +22,12 @@ import {
   type ReminderEvent, type ReminderType, type ReminderVisibility,
   type RepeatRule, type RepeatFreq, type MonthDay, type ReminderRecipient,
   type EmailGroup, type GreetTo, type FamilyContact, cardEligible, builtInGroups, nextAnniversaryOf, syncGreetToWithContact,
+  isCareType, suggestSlots, slotIcon,
+  type CareInfo, type CareSlot, type CareDurationMode,
 } from '@/lib/reminders';
+import { compressImageBlob, safeUploadBytes } from '@/lib/storageUpload';
+import { ref as storageRef, getDownloadURL } from 'firebase/storage';
+import { storage } from '@/lib/firebase';
 import HonoreePicker from '@/components/reminders/HonoreePicker';
 import GreetingCardStudio, { type StudioTarget } from '@/components/reminders/GreetingCardStudio';
 import { listCards, cardIdFor, type GreetingCard } from '@/lib/greetingCards';
@@ -36,6 +41,9 @@ import { PAGE_WIDTH_CLASS, PageSplit, DataRows, DATA_ROW, DATA_ROW_HOVER } from 
 const CAL = '#5B6CC8';
 const CAL_DK = '#3E4DA0';
 const CAL_SOFT = '#E7EAFA';
+// 💊 v5 Care accent — the approved mint-teal (deeper than the 🎉 event mid).
+const CARE = '#2E8C7E';
+const CARE_SOFT = '#E2F4F1';
 
 const MONTH_DAY_CHIPS: MonthDay[] = [1, 5, 10, 15, 20, 25, 'last'];
 
@@ -72,6 +80,23 @@ interface FormState {
   recipients: ReminderRecipient[];
   /** ✉️ 2.0 — the honoree (greeting card target). */
   greetTo: GreetTo | null;
+  /** 💊 v5 — care fields (type medicine|routine only). */
+  careDose: string;
+  careSlots: CareSlot[];
+  careDurMode: CareDurationMode;
+  careDays: number;
+  careUntil: string;
+  careForKind: 'kid' | 'self';
+  careForChildId: string;
+  careForName: string;
+  careGiverUids: string[];
+  careWithFood: boolean;
+  carePhotoUrl: string;
+  careLabelName: string;
+  carePackCount: number | null;
+  careWatchInApp: boolean;
+  careWatchSummary: boolean;
+  careWatchMissed: boolean;
 }
 
 function blankForm(): FormState {
@@ -81,6 +106,10 @@ function blankForm(): FormState {
     endMode: 'never', endOn: '', endAfter: 10, leadDays: [1, 0], channelInApp: true, channelEmail: false,
     recipients: [],
     greetTo: null,
+    careDose: '', careSlots: suggestSlots(3), careDurMode: 'days', careDays: 7, careUntil: '',
+    careForKind: 'kid', careForChildId: '', careForName: '', careGiverUids: [],
+    careWithFood: false, carePhotoUrl: '', careLabelName: '', carePackCount: null,
+    careWatchInApp: true, careWatchSummary: true, careWatchMissed: true,
   };
 }
 
@@ -110,6 +139,45 @@ function formFromEvent(ev: ReminderEvent): FormState {
     channelEmail: !!ev.channels?.email,
     recipients: ev.emailRecipients || [],
     greetTo: ev.greetTo || null,
+    careDose: ev.care?.dose || '',
+    careSlots: ev.care?.slots?.length ? ev.care.slots : suggestSlots(3),
+    careDurMode: ev.care?.duration?.mode || 'days',
+    careDays: ev.care?.duration?.mode === 'days' ? (ev.care.duration.days || 7) : 7,
+    careUntil: ev.care?.duration?.mode === 'until' ? (ev.care.duration.until || '') : '',
+    careForKind: ev.care?.forKind || 'kid',
+    careForChildId: ev.care?.forChildId || '',
+    careForName: ev.care?.forName || '',
+    careGiverUids: ev.care?.giverUids || [],
+    careWithFood: !!ev.care?.withFood,
+    carePhotoUrl: ev.care?.photoUrl || '',
+    careLabelName: ev.care?.labelName || '',
+    carePackCount: ev.care?.packCount ?? null,
+    careWatchInApp: ev.care?.watchInApp !== false,
+    careWatchSummary: ev.care?.watchSummaryEmail !== false,
+    careWatchMissed: ev.care?.watchMissedEmail !== false,
+  };
+}
+
+/** Build the care payload for save — undefined for non-care types. */
+function buildCare(f: FormState): CareInfo | undefined {
+  if (!isCareType(f.type)) return undefined;
+  return {
+    dose: f.careDose.trim(),
+    slots: f.careSlots,
+    duration: f.careDurMode === 'days' ? { mode: 'days', days: f.careDays }
+      : f.careDurMode === 'until' ? { mode: 'until', until: f.careUntil }
+      : { mode: 'ongoing' },
+    forKind: f.careForKind,
+    ...(f.careForKind === 'kid' && f.careForChildId ? { forChildId: f.careForChildId } : {}),
+    ...(f.careForName ? { forName: f.careForName } : {}),
+    giverUids: f.careGiverUids,
+    ...(f.careWithFood ? { withFood: true } : {}),
+    ...(f.carePhotoUrl ? { photoUrl: f.carePhotoUrl } : {}),
+    ...(f.careLabelName ? { labelName: f.careLabelName } : {}),
+    ...(f.carePackCount ? { packCount: f.carePackCount } : {}),
+    watchInApp: f.careWatchInApp,
+    watchSummaryEmail: f.careWatchSummary,
+    watchMissedEmail: f.careWatchMissed,
   };
 }
 
@@ -271,8 +339,13 @@ export default function RemindersPage() {
 
   async function handleSave() {
     if (!user) return;
-    if (!form.title.trim()) { setError('Give it a name'); return; }
+    if (!form.title.trim()) { setError(isCareType(form.type) ? 'Give the medicine/routine a name' : 'Give it a name'); return; }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(form.date)) { setError('Pick a date'); return; }
+    if (isCareType(form.type)) {
+      if (form.careForKind === 'kid' && !form.careForChildId) { setError('Pick who it’s for'); return; }
+      if (form.careDurMode === 'until' && !/^\d{4}-\d{2}-\d{2}$/.test(form.careUntil)) { setError('Pick the last day'); return; }
+      if (form.careForKind === 'kid' && form.careGiverUids.length === 0) { setError('Pick who gives it'); return; }
+    }
     setSaving(true); setError('');
     try {
       const token = await user.getIdToken();
@@ -292,6 +365,7 @@ export default function RemindersPage() {
         channels: { inApp: form.channelInApp, email: form.channelEmail },
         emailRecipients: form.channelEmail ? form.recipients : [],
         greetTo: form.greetTo || undefined,
+        care: buildCare(form),
       });
       setEditorOpen(false);
       await load();
@@ -639,6 +713,27 @@ function Editor({
 
   const toggleArr = <T,>(arr: T[], v: T): T[] => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
 
+  // ── 💊 v5 Care — section toggle + medicine-photo upload ─────────────────
+  const isCare = isCareType(form.type);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoErr, setPhotoErr] = useState('');
+  async function pickCarePhoto(file: File | null) {
+    if (!file || !familyId || uploadingPhoto) return;
+    setUploadingPhoto(true); setPhotoErr('');
+    try {
+      const blob = await compressImageBlob(file, { maxDim: 900, quality: 0.85 });
+      // Rides the existing messages storage rule (like Card Studio) — no
+      // storage.rules deploy.
+      const path = `families/${familyId}/messages/care/${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}.jpg`;
+      const r = storageRef(storage, path);
+      await safeUploadBytes(r, blob, { contentType: 'image/jpeg' });
+      set('carePhotoUrl', await getDownloadURL(r));
+    } catch (e) {
+      setPhotoErr(e instanceof Error ? e.message : 'Could not upload the photo — try again.');
+    }
+    setUploadingPhoto(false);
+  }
+
   // ── v4 Nth Birthday/Anniversary — origin date + live ✨ preview ─────────
   const showOrigin = form.type === 'birthday' || form.type === 'anniversary';
   // Picking a past-year Date = "you entered the true original date" → pre-fill
@@ -733,11 +828,15 @@ function Editor({
         </div>
 
         <div className="p-4 space-y-5">
-          {/* Type */}
+          {/* Type — 💊/🔁 Care chips are parent-only (approved v5). */}
           <Field label="Type">
             <div className="flex flex-wrap gap-2">
-              {REMINDER_TYPES.map((t) => (
-                <Chip key={t.id} on={form.type === t.id} onClick={() => setForm((f) => ({ ...f, type: t.id, ...((t.id === 'birthday' || t.id === 'anniversary') && f.freq === 'none' ? { freq: 'yearly' as RepeatFreq } : {}) }))}>
+              {REMINDER_TYPES.filter((t) => viewerRole === 'parent' || !isCareType(t.id)).map((t) => (
+                <Chip key={t.id} on={form.type === t.id} onClick={() => setForm((f) => ({
+                  ...f, type: t.id,
+                  ...((t.id === 'birthday' || t.id === 'anniversary') && f.freq === 'none' ? { freq: 'yearly' as RepeatFreq } : {}),
+                  ...(isCareType(t.id) ? { freq: 'daily' as RepeatFreq } : {}),
+                }))}>
                   {t.icon} {t.label}
                 </Chip>
               ))}
@@ -745,27 +844,176 @@ function Editor({
           </Field>
 
           {/* Title */}
-          <Field label="What's it for?">
+          <Field label={isCare ? (form.type === 'medicine' ? 'Medicine name' : 'Routine name') : "What's it for?"}>
             <input
               value={form.title}
               onChange={(e) => set('title', e.target.value)}
-              placeholder="e.g. Nathan's dentist · Grandma's birthday"
+              placeholder={isCare
+                ? (form.type === 'medicine' ? 'e.g. Amoxicillin 250mg' : 'e.g. Afternoon nap · Physio stretches')
+                : "e.g. Nathan's dentist · Grandma's birthday"}
               className="w-full rounded-kaya border border-kaya-warm-dark bg-white px-3 py-2.5 text-sm font-medium text-kaya-chocolate"
             />
           </Field>
 
-          {/* Date + time */}
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Date">
+          {/* Date + time (care schedules own their times via slots) */}
+          <div className={isCare ? '' : 'grid grid-cols-2 gap-3'}>
+            <Field label={isCare ? 'Start date' : 'Date'}>
               <input type="date" value={form.date} onChange={(e) => setDate(e.target.value)}
                 className="w-full rounded-kaya border border-kaya-warm-dark bg-white px-3 py-2.5 text-sm font-medium text-kaya-chocolate" />
               {form.date && <div className="text-[11px] text-kaya-sand mt-1">{dayOfWeek(form.date)} · {toDisplayDate(form.date)}</div>}
             </Field>
-            <Field label="Time (optional)">
-              <input type="time" value={form.time} onChange={(e) => set('time', e.target.value)}
-                className="w-full rounded-kaya border border-kaya-warm-dark bg-white px-3 py-2.5 text-sm font-medium text-kaya-chocolate" />
-            </Field>
+            {!isCare && (
+              <Field label="Time (optional)">
+                <input type="time" value={form.time} onChange={(e) => set('time', e.target.value)}
+                  className="w-full rounded-kaya border border-kaya-warm-dark bg-white px-3 py-2.5 text-sm font-medium text-kaya-chocolate" />
+              </Field>
+            )}
           </div>
+
+          {/* ── 💊 v5 Care — photo · dose · slots · duration · people ── */}
+          {isCare && (
+            <>
+              {form.type === 'medicine' && (
+                <Field label="📷 Photo of the medicine (optional)">
+                  <div className="flex items-center gap-3">
+                    <label className="w-[74px] h-[74px] rounded-kaya border-2 border-dashed flex items-center justify-center text-2xl cursor-pointer overflow-hidden shrink-0"
+                      style={{ borderColor: CARE, background: form.carePhotoUrl ? '#fff' : CARE_SOFT }}>
+                      {form.carePhotoUrl
+                        // eslint-disable-next-line @next/next/no-img-element
+                        ? <img src={form.carePhotoUrl} alt="Medicine" className="w-full h-full object-cover" />
+                        : uploadingPhoto ? '⏳' : '💊'}
+                      <input type="file" accept="image/*" capture="environment" className="hidden"
+                        onChange={(e) => pickCarePhoto(e.target.files?.[0] || null)} />
+                    </label>
+                    <div className="text-[11px] text-kaya-sand">
+                      Snap the box or bottle — the photo rides on every dose card so the right medicine is never in doubt.
+                      {form.carePhotoUrl && <button onClick={() => set('carePhotoUrl', '')} className="ml-1.5 font-bold text-red-500">✕ Remove</button>}
+                    </div>
+                  </div>
+                  {photoErr && <div className="text-[11px] text-red-600 mt-1">{photoErr}</div>}
+                </Field>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <Field label={form.type === 'medicine' ? 'Dose' : 'What exactly?'}>
+                  <input value={form.careDose} onChange={(e) => set('careDose', e.target.value)}
+                    placeholder={form.type === 'medicine' ? 'e.g. 1 tablet · 10ml syrup' : 'e.g. 20 minutes'}
+                    className="w-full rounded-kaya border border-kaya-warm-dark bg-white px-3 py-2.5 text-sm font-medium text-kaya-chocolate" />
+                </Field>
+                <Field label="Times a day">
+                  <div className="flex gap-1.5">
+                    {[1, 2, 3, 4].map((n) => (
+                      <button key={n} onClick={() => set('careSlots', suggestSlots(n))}
+                        className="w-10 h-10 rounded-kaya-sm text-sm font-extrabold border transition"
+                        style={form.careSlots.length === n
+                          ? { background: CARE, borderColor: CARE, color: '#fff' }
+                          : { background: '#fff', borderColor: '#E8DEC9', color: '#5C6975' }}>
+                        ×{n}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+              </div>
+
+              <Field label="At these times">
+                <div className="flex flex-wrap gap-2">
+                  {form.careSlots.map((s, i) => (
+                    <span key={i} className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5"
+                      style={{ borderColor: CARE, background: '#fff' }}>
+                      <span className="text-sm">{s.icon || slotIcon(s.time)}</span>
+                      <input type="time" value={s.time}
+                        onChange={(e) => {
+                          const t = e.target.value;
+                          if (!t) return;
+                          set('careSlots', form.careSlots.map((x, j) => (j === i ? { time: t, icon: slotIcon(t) } : x)));
+                        }}
+                        className="text-[13px] font-extrabold bg-transparent" style={{ color: CARE }} />
+                    </span>
+                  ))}
+                </div>
+                <div className="text-[11px] text-kaya-sand mt-1.5">Kaya spreads them evenly — tap any time to change it. Local family time.</div>
+              </Field>
+
+              <Field label="For how long">
+                <div className="flex flex-wrap gap-2 items-center">
+                  <Chip on={form.careDurMode === 'days'} onClick={() => set('careDurMode', 'days')}>For N days</Chip>
+                  <Chip on={form.careDurMode === 'until'} onClick={() => set('careDurMode', 'until')}>Until a date</Chip>
+                  <Chip on={form.careDurMode === 'ongoing'} onClick={() => set('careDurMode', 'ongoing')}>Ongoing</Chip>
+                  {form.careDurMode === 'days' && (
+                    <input type="number" min={1} max={365} value={form.careDays}
+                      onChange={(e) => set('careDays', Math.max(1, Math.min(365, parseInt(e.target.value, 10) || 1)))}
+                      className="w-16 rounded-kaya-sm border border-kaya-warm-dark bg-white px-2 py-1.5 text-sm text-center font-bold" />
+                  )}
+                  {form.careDurMode === 'until' && (
+                    <input type="date" value={form.careUntil} onChange={(e) => set('careUntil', e.target.value)}
+                      className="rounded-kaya-sm border border-kaya-warm-dark bg-white px-2 py-1.5 text-sm" />
+                  )}
+                </div>
+                <div className="text-[11px] text-kaya-sand mt-1.5">Courses end themselves — no zombie doses after the last day.</div>
+              </Field>
+
+              <Field label="Who is it for?">
+                <div className="flex flex-wrap gap-2">
+                  {kids.map((k) => (
+                    <Chip key={k.id} on={form.careForKind === 'kid' && form.careForChildId === k.id}
+                      onClick={() => setForm((f) => ({ ...f, careForKind: 'kid', careForChildId: k.id, careForName: k.name }))}>
+                      🧒 {k.name}
+                    </Chip>
+                  ))}
+                  <Chip on={form.careForKind === 'self'}
+                    onClick={() => setForm((f) => ({ ...f, careForKind: 'self', careForChildId: '', careForName: '', visibility: 'private' }))}>
+                    🙋 Me
+                  </Chip>
+                </div>
+                {form.careForKind === 'self' && (
+                  <div className="mt-2 rounded-kaya-sm px-3 py-2 text-[11.5px] font-bold" style={{ background: '#EFEAFB', color: '#6B4FC0' }}>
+                    🔒 Your own care stays private — no helper, no kids. Flip below to share with your co-parent.
+                  </div>
+                )}
+              </Field>
+
+              {form.careForKind === 'self' ? (
+                <Field label="Share with your co-parent?">
+                  <div className="flex gap-2">
+                    <Chip on={form.visibility === 'private'} onClick={() => set('visibility', 'private')}>🔒 Just me</Chip>
+                    <Chip on={form.visibility === 'shared'} onClick={() => set('visibility', 'shared')}>👫 Co-parent too</Chip>
+                  </div>
+                </Field>
+              ) : (
+                <>
+                  <Field label="Who gives it? (the ✓ that counts)">
+                    <div className="flex flex-wrap gap-2">
+                      {members.filter((m) => m.role !== 'kid').map((m) => (
+                        <Chip key={m.uid} on={form.careGiverUids.includes(m.uid)}
+                          onClick={() => set('careGiverUids', toggleArr(form.careGiverUids, m.uid))}>
+                          {roleEmoji(m.role)} {m.displayName}{m.uid === ownUid ? ' (me)' : ''}
+                        </Chip>
+                      ))}
+                    </div>
+                    <div className="text-[11px] text-kaya-sand mt-1.5">Dose cards land in their My Day. More than one is fine — first ✓ wins.</div>
+                  </Field>
+
+                  <Field label="Parents are watching 👀">
+                    <div className="space-y-2">
+                      <ChannelRow on={form.careWatchInApp} onToggle={() => set('careWatchInApp', !form.careWatchInApp)} label="🔔 In-app: every ✓ and ❌" />
+                      <ChannelRow on={form.careWatchSummary} onToggle={() => set('careWatchSummary', !form.careWatchSummary)} label="📧 Email: evening summary" />
+                      <ChannelRow on={form.careWatchMissed} onToggle={() => set('careWatchMissed', !form.careWatchMissed)} label="🚨 Email instantly if a dose is missed" />
+                    </div>
+                  </Field>
+                </>
+              )}
+
+              {form.type === 'medicine' && (
+                <div className="flex items-center gap-2">
+                  <ChannelRow on={form.careWithFood} onToggle={() => set('careWithFood', !form.careWithFood)} label="🍽 Take with food" />
+                </div>
+              )}
+
+              {form.type === 'medicine' && (
+                <div className="text-[11px] text-kaya-sand italic">Always follow your doctor’s instructions.</div>
+              )}
+            </>
+          )}
 
           {/* v4 — actual event date (only 🎂/💍): powers "Nth Birthday". */}
           {showOrigin && (
@@ -797,7 +1045,8 @@ function Editor({
             </Field>
           )}
 
-          {/* With / Where */}
+          {/* With / Where — care events carry dose/giver instead. */}
+          {!isCare && (
           <div className="grid grid-cols-2 gap-3">
             <Field label="With (optional)">
               <input value={form.withWho} onChange={(e) => set('withWho', e.target.value)} placeholder="e.g. Mum"
@@ -808,6 +1057,7 @@ function Editor({
                 className="w-full rounded-kaya border border-kaya-warm-dark bg-white px-3 py-2.5 text-sm font-medium text-kaya-chocolate" />
             </Field>
           </div>
+          )}
 
           {/* Note */}
           <Field label="Note (optional)">
@@ -815,14 +1065,19 @@ function Editor({
               className="w-full rounded-kaya border border-kaya-warm-dark bg-white px-3 py-2.5 text-sm font-medium text-kaya-chocolate" />
           </Field>
 
-          {/* Visibility */}
+          {/* Visibility — care routes by who-it's-for (v5); hidden there. */}
+          {!isCare && (
           <Field label="Who can see it?">
             <div className="flex gap-2">
               <Chip on={form.visibility === 'private'} onClick={() => set('visibility', 'private')}>🔒 Private</Chip>
               <Chip on={form.visibility === 'shared'} onClick={() => set('visibility', 'shared')}>👨‍👩‍👧 Shared</Chip>
             </div>
           </Field>
+          )}
 
+          {/* Repeats · Remind-me · Notify-by · Email-to — the classic rail.
+              Care events derive all of this (daily slots + watch prefs). */}
+          {!isCare && (<>
           {/* Repeats */}
           <Field label="Repeats">
             <div className="flex flex-wrap gap-2">
@@ -1040,6 +1295,8 @@ function Editor({
               <div className="text-[11px] text-kaya-sand mt-1.5">One-tap groups above, or tick people (their Kaya email is pre-filled) and add any outside address. Saved on this reminder for re-use. Parents can build one-tap groups in Settings → 📮 Email groups.</div>
             </Field>
           )}
+
+          </>)}
 
           {error && <div className="text-sm text-red-600 font-medium">{error}</div>}
 
