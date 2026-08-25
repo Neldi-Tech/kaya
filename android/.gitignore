@@ -1,0 +1,23 @@
+# Generated Android project — reproducible from twa-manifest.json via
+# `bubblewrap update`. Never committed.
+app/
+gradle/
+gradlew
+gradlew.bat
+build.gradle
+settings.gradle
+gradle.properties
+local.properties
+.gradle/
+build/
+store_icon.png
+
+# Build output
+*.aab
+*.apk
+*.idsig
+
+# 🔐 SIGNING KEYS — losing these means this listing can never be updated.
+# Back up to the Kaya password vault. NEVER commit.
+*.keystore
+*.jks
