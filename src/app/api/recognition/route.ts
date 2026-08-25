@@ -139,6 +139,8 @@ export async function POST(req: NextRequest) {
           notes: [] as unknown[],
           ...(isHelperCard ? { subject: 'helper', helperUid: String(body.helperUid) } : {}),
           ...(body.lang === 'sw' || body.lang === 'en' ? { lang: body.lang } : {}),
+          // 💬 HR PR-4 — a kid's own words on the card.
+          ...(typeof body.kidsLine === 'string' && body.kidsLine.trim() ? { kidsLine: String(body.kidsLine).trim().slice(0, 140) } : {}),
         };
         const ref = await cardsCol.add(card);
         if (doubleShine && partner) {

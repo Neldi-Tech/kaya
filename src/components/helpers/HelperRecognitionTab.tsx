@@ -6,7 +6,7 @@
 // monthly helper round + Asante card land in HR PR-2/3.
 
 import { useEffect, useMemo, useState } from 'react';
-import { computeHelperDials, DIAL_META, dialColor, type HelperDials } from '@/lib/helperRecognition';
+import { computeHelperDials, fetchKidWords, DIAL_META, dialColor, type HelperDials, type KidWord } from '@/lib/helperRecognition';
 import type { HelperLink } from '@/lib/firestore';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -68,6 +68,9 @@ export default function HelperRecognitionTab({ helper, familyId }: {
     ?? localeForCountry(family?.location?.country);
   const [lang, setLang] = useState<CardLang>(defaultLang);
   const [quote, setQuote] = useState('');
+  // 💬 HR PR-4 — the kids' own review lines; one can ride the card.
+  const [kidWords, setKidWords] = useState<KidWord[]>([]);
+  const [kidsLine, setKidsLine] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [composerMsg, setComposerMsg] = useState('');
   const [cards, setCards] = useState<ShineCard[]>([]);
@@ -87,6 +90,10 @@ export default function HelperRecognitionTab({ helper, familyId }: {
       .catch(() => {});
     getHelperRound(familyId)
       .then((r) => { if (alive) setRound(r); })
+      .catch(() => {});
+    setKidsLine(null);
+    fetchKidWords(familyId, helper.uid)
+      .then((w) => { if (alive) setKidWords(w); })
       .catch(() => {});
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -118,9 +125,10 @@ export default function HelperRecognitionTab({ helper, familyId }: {
       pointsLabel: lang === 'sw' ? '🧡 ASANTE SANA' : '🧡 THANK YOU',
       category: lang === 'sw' ? 'msaidizi wetu' : 'our helper',
       subject: 'helper', helperUid: helper.uid, lang,
+      ...(kidsLine ? { kidsLine } : {}),
     };
     return shineCardSvg(draft);
-  }, [quote, lang, helper, cards]);
+  }, [quote, lang, helper, cards, kidsLine]);
 
   const createCard = async () => {
     if (!quote.trim() || creating) return;
@@ -139,8 +147,9 @@ export default function HelperRecognitionTab({ helper, familyId }: {
         kindLabel: '🤝 Helper recognition',
         pointsLabel: lang === 'sw' ? '🧡 ASANTE SANA' : '🧡 THANK YOU',
         category: lang === 'sw' ? 'msaidizi wetu' : 'our helper',
+        ...(kidsLine ? { kidsLine } : {}),
       });
-      setQuote('');
+      setQuote(''); setKidsLine(null);
       setComposerMsg(`🧡 Asante card created — ${firstName} got the bell. Share it below!`);
       await refreshCards();
     } catch (e) {
@@ -326,6 +335,23 @@ export default function HelperRecognitionTab({ helper, familyId }: {
             </button>
           ))}
         </div>
+        {kidWords.length > 0 && (
+          <div className="bg-hive-cream/50 border border-dashed border-hive-line rounded-hive p-2 space-y-1">
+            <p className="text-[10px] uppercase tracking-wider font-nunito font-black text-hive-muted">💬 The kids said — tap one to put it ON the card</p>
+            <div className="flex flex-wrap gap-1.5">
+              {kidWords.map((w) => {
+                const line = `“${w.text}” — ${w.kidName}`;
+                const on = kidsLine === line;
+                return (
+                  <button key={line} type="button" onClick={() => setKidsLine(on ? null : line)}
+                    className={`px-2.5 py-1 rounded-full text-[10.5px] font-bold border text-left ${on ? 'bg-hive-ink text-white border-transparent' : 'bg-white text-hive-ink border-hive-line hover:bg-hive-honey/30'}`}>
+                    {on ? '✓ ' : ''}{line}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <textarea
           value={quote}
           onChange={(e) => setQuote(e.target.value.slice(0, 400))}
