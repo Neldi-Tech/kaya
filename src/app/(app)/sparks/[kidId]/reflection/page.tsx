@@ -158,6 +158,28 @@ export default function ReflectionPage() {
   }, [familyId, kidId, viewerIsParent]);
   const kidFirst = kidName.split(' ')[0];
   const reflLabel = sw ? 'Tafakari' : 'My Reflection';
+
+  // ↗ Share the OPEN image (lightbox) — parents only. Native file share
+  // where the device supports it; else the proxied download.
+  const shareScan = async (url: string) => {
+    try {
+      const { fileInlineUrl, isProxyableStorageUrl } = await import('@/lib/fileUrl');
+      const src = isProxyableStorageUrl(url) ? fileInlineUrl(url) : url;
+      const res = await fetch(src);
+      const blob = await res.blob();
+      const file = new File([blob], `Kaya-${kidFirst}-scan.jpg`, { type: blob.type || 'image/jpeg' });
+      const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
+      if (nav.share && nav.canShare?.({ files: [file] })) {
+        try { await nav.share({ files: [file] }); } catch (e) { if ((e as Error).name !== 'AbortError') throw e; }
+        return;
+      }
+      const a = document.createElement('a');
+      const objUrl = URL.createObjectURL(blob);
+      a.href = objUrl; a.download = file.name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(objUrl), 4000);
+    } catch { /* best-effort */ }
+  };
   const noteBase = useMemo(() => {
     if (!noteFor) return null;
     const e = recent.find((r) => r.date === noteFor);
@@ -1008,6 +1030,7 @@ export default function ReflectionPage() {
           onClose={() => setScanViewOpen(false)}
           caption={sw ? 'Tafakari ya leo' : "Today's reflection"}
           subCaption={toDisplayDate(today)}
+          onShare={isParent ? shareScan : undefined}
         />
       )}
 
@@ -1021,6 +1044,7 @@ export default function ReflectionPage() {
           onClose={() => setScanGallery(null)}
           caption={scanGallery.caption}
           subCaption={sw ? 'Mwandiko' : 'Handwritten note'}
+          onShare={isParent ? shareScan : undefined}
         />
       )}
 
@@ -1060,6 +1084,7 @@ export default function ReflectionPage() {
           onOpenScan={scoreEntry.scanUrl
             ? () => setScanGallery({ urls: [scoreEntry.scanUrl as string], index: 0, caption: toDisplayDate(scoreEntry.date) })
             : undefined}
+          onShareNote={() => { const d = scoreEntry.date; setScoreDate(null); setNoteFor(d); }}
           kidName={kidName}
           authorName={authProfile?.displayName || 'Parent'}
           onSave={async ({ stars, soundness_percent, handwriting_percent, notes }) => {
@@ -1963,7 +1988,7 @@ function AIReadCard({ read, text }: { read: ReflectionAIRead; text: string }) {
 
 function ReflectionRatingSheet({
   open, onClose, entry, kidName, authorName, onSave,
-  isParent, scoringAI, onScoreAI, onOpenScan,
+  isParent, scoringAI, onScoreAI, onOpenScan, onShareNote,
 }: {
   open: boolean;
   onClose: () => void;
@@ -1981,6 +2006,8 @@ function ReflectionRatingSheet({
   onScoreAI: () => void;
   /** Open the full scanned page (lightbox), when there's a scan. */
   onOpenScan?: () => void;
+  /** Timeline 2.0 · ↗ open the Note Studio for this day. */
+  onShareNote?: () => void;
 }) {
   const [stars, setStars] = useState<number | null>(entry.parent_rating?.stars ?? null);
   // 2026-06-23 · two 0-100 sliders — soundness (of the reflection) +
@@ -2038,10 +2065,20 @@ function ReflectionRatingSheet({
         className="relative w-full sm:max-w-md max-h-[92vh] sm:max-h-[88vh] overflow-y-auto bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl"
       >
         <div className="px-5 pt-5 pb-4 text-white" style={{ background: 'linear-gradient(135deg,#1B1547 0%,#5A3CB8 100%)' }}>
-          <div className="text-[12px] opacity-85">📔 {toDisplayDate(entry.date)}</div>
-          <h2 className="font-display font-extrabold text-[18px] m-0 mt-0.5">
-            {isParent ? 'Score' : 'Reflection'} · {kidName}
-          </h2>
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <div className="text-[12px] opacity-85">📔 {toDisplayDate(entry.date)}</div>
+              <h2 className="font-display font-extrabold text-[18px] m-0 mt-0.5">
+                {isParent ? 'Score' : 'Reflection'} · {kidName}
+              </h2>
+            </div>
+            {onShareNote && (
+              <button type="button" onClick={onShareNote}
+                className="shrink-0 rounded-full bg-white/15 hover:bg-white/25 px-3.5 py-1.5 text-[12px] font-nunito font-extrabold text-white">
+                ↗ Share
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="p-5 space-y-4">

@@ -18,9 +18,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
   type NoteCardData, type NoteTheme, NOTE_THEMES,
-  noteCardSvgDataUrl, noteCardPngBlob, noteFilename, downloadNoteCard,
-  shareNoteCard, waNoteText, rememberedNoteTheme, rememberNoteTheme,
-  stashNotesForPrint,
+  noteCardSvgDataUrl, noteCardPngBlob, noteCardPreviewUrl, noteFilename,
+  downloadNoteCard, shareNoteCard, waNoteText,
+  rememberedNoteTheme, rememberNoteTheme, stashNotesForPrint,
 } from '@/lib/noteCards';
 import { sendNoteToSomeone } from '@/lib/noteSend';
 import type { FamilyContact } from '@/lib/reminders';
@@ -83,6 +83,19 @@ export default function NoteStudio({
     [base, cardText, theme],
   );
 
+  // WYSIWYG preview — the canvas PNG that ships, not an approximation
+  // (2026-08-25: "the form must be maintained when sharing"). The SVG
+  // data URL paints instantly as a placeholder while the canvas draws.
+  const [previewUrl, setPreviewUrl] = useState('');
+  useEffect(() => {
+    let alive = true;
+    if (!card) { setPreviewUrl(''); return; }
+    noteCardPreviewUrl(card)
+      .then((u) => { if (alive) setPreviewUrl(u); })
+      .catch(() => { /* keep the SVG placeholder */ });
+    return () => { alive = false; };
+  }, [card]);
+
   if (!open || !base || !card) return null;
 
   const outsideUnlocked = canShareOutside || ask?.state === 'approved';
@@ -92,10 +105,10 @@ export default function NoteStudio({
     if (profile?.uid) rememberNoteTheme(profile.uid, t);
   };
 
-  const act = async (key: string, fn: () => Promise<void>, done: string) => {
+  const act = async (key: string, fn: () => Promise<void | string>, done: string) => {
     if (busy) return;
     setBusy(key); setMsg('');
-    try { await fn(); setMsg(done); }
+    try { const out = await fn(); setMsg(typeof out === 'string' ? out : done); }
     catch (e) { setMsg((e as Error).message || (sw ? 'Imeshindikana' : 'Something went wrong')); }
     finally { setBusy(null); }
   };
@@ -123,7 +136,15 @@ export default function NoteStudio({
 
   const toWhatsapp = () => act('wa', async () => {
     const shared = await shareNoteCard(card);
-    if (!shared) window.open(`https://wa.me/?text=${encodeURIComponent(waNoteText(card))}`, '_blank');
+    if (!shared) {
+      // Desktop (no file share): keep the FORM — save the card image
+      // first, then open WhatsApp with the text so it can be attached.
+      await downloadNoteCard(card);
+      window.open(`https://wa.me/?text=${encodeURIComponent(waNoteText(card))}`, '_blank');
+      return sw
+        ? '🖼 Kadi imehifadhiwa — ibandike kwenye WhatsApp iliyofunguka'
+        : '🖼 Card image saved — attach it in the WhatsApp window that opened';
+    }
   }, sw ? '✓ Imeshirikiwa' : '✓ Shared');
 
   const saveImage = () => act('save', () => downloadNoteCard(card), sw ? '✓ Imehifadhiwa' : '✓ Saved');
@@ -177,9 +198,9 @@ export default function NoteStudio({
             ))}
           </div>
 
-          {/* live preview */}
+          {/* live preview — the EXACT canvas PNG that gets shared */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={noteCardSvgDataUrl(card)} alt={sw ? 'Kadi ya kumbukumbu' : 'Note card preview'}
+          <img src={previewUrl || noteCardSvgDataUrl(card)} alt={sw ? 'Kadi ya kumbukumbu' : 'Note card preview'}
             className="w-full rounded-2xl shadow-[0_10px_26px_rgba(122,46,92,0.22)]" />
 
           {/* ✂️ parents may trim the CARD copy; the journal stays untouched */}
