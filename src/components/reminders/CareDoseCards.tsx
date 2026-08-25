@@ -66,7 +66,32 @@ export default function CareDoseCards({
         const dayChip = dayN ? `DAY ${dayN}${total ? `/${total}` : ''}` : 'ONGOING';
         const who = care.forKind === 'self' ? '' : (care.forName || '');
 
-        return care.slots.map((slot, i) => {
+        // 🎴 Courage Card — kid-only, during a medicine course (approved
+        // mock: gradient top · day chip · message · progress to the 🛡).
+        const courage = isTheKid && ev.type === 'medicine' && ev.courageCard?.dateKey === today
+          ? ev.courageCard.text : '';
+        const courageCard = courage ? (
+          <div key={`${ev.id}-courage`} className="rounded-kaya overflow-hidden border border-kaya-warm-dark max-w-[340px]">
+            <div className="px-4 py-3 text-center text-white" style={{ background: 'linear-gradient(135deg,#1F2D3D 0%,#2E8C7E 65%,#F39C2F 140%)' }}>
+              <div className="text-[9px] font-extrabold uppercase tracking-[2px] opacity-85">
+                🎴 Courage Card{dayN && total ? ` · Day ${dayN} of ${total}` : ''}
+              </div>
+              <div className="text-[15px] font-extrabold mt-1.5">{courage}</div>
+            </div>
+            {dayN && total ? (
+              <div className="px-4 py-2.5 text-center bg-white">
+                <div className="h-2 rounded-full overflow-hidden" style={{ background: CARE_SOFT }}>
+                  <div className="h-full rounded-full" style={{ background: CARE, width: `${Math.min(100, Math.round((dayN / total) * 100))}%` }} />
+                </div>
+                <div className="text-[10px] text-kaya-sand mt-1 font-bold">
+                  {total - dayN > 0 ? `${total - dayN} day${total - dayN === 1 ? '' : 's'} to your 🛡 Course Champion badge!` : '🛡 Badge day — you did it!'}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null;
+
+        const slotCards = care.slots.map((slot, i) => {
           const entry = doseEntryFor(ev, today, i);
           const done = entry?.status === 'given' || entry?.status === 'late';
           const skipped = entry?.status === 'skipped';
@@ -165,6 +190,7 @@ export default function CareDoseCards({
             </div>
           );
         });
+        return [...slotCards, courageCard];
       })}
     </div>
   );

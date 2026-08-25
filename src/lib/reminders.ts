@@ -407,6 +407,9 @@ export interface ReminderEvent {
   care?: CareInfo;
   /** 💊 v5 — the dose trail (who ticked what, when). Rolling cap ~90 days. */
   doseLog?: DoseEntry[];
+  /** 🎴 v5 — today's Courage Card for the kid (cron-written each morning
+   *  during a medicine course; only the latest is kept). */
+  courageCard?: { dateKey: string; text: string };
   status?: ReminderStatus;
   createdAt?: number;
   updatedAt?: number;
