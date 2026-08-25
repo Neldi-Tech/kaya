@@ -257,6 +257,9 @@ export interface KidDigestFacts {
   yesterdayPoints: number;
   balance: number;
   streak: number;
+  /** 🎴 v5 Care — today's Courage Card line, when a medicine course is
+   *  active (cron writes it 06:40 local, before digests). */
+  courageLine?: string;
 }
 
 function renderKidDigestEmail(f: KidDigestFacts): string {
@@ -280,6 +283,13 @@ function renderKidDigestEmail(f: KidDigestFacts): string {
         <div style="font-size:16px;font-weight:900">🌞 Good morning, ${esc(f.kidName)}!</div>
         <div style="font-size:12px;opacity:.9;margin-top:2px">${esc(f.dateLabel)} · here's your day 👇</div>
       </div>
+      ${f.courageLine ? `
+      <div style="margin:12px 14px 0;border-radius:12px;overflow:hidden;border:1px solid #EFE4CC">
+        <div style="background:linear-gradient(135deg,#1F2D3D,#2E8C7E 65%,#F39C2F 140%);padding:12px;text-align:center;color:#fff">
+          <div style="font-size:9px;font-weight:900;letter-spacing:2px;opacity:.85">🎴 COURAGE CARD</div>
+          <div style="font-size:14px;font-weight:900;margin-top:4px">${esc(f.courageLine)}</div>
+        </div>
+      </div>` : ''}
       ${taskRows}
       <div style="display:flex;gap:8px;margin:12px 14px">
         ${stat('YESTERDAY', `+${f.yesterdayPoints} HP`, '#C77E0A')}
@@ -354,6 +364,21 @@ export async function sendKidMorningDigest(
       });
     } catch { /* stat is best-effort — digest still goes */ }
 
+    // 🎴 v5 — today's Courage Card, if a medicine course wrote one (best-
+    // effort; the digest never waits on it).
+    let courageLine: string | undefined;
+    try {
+      const careSnap = await famRef.collection('reminders')
+        .where('type', '==', 'medicine').get();
+      for (const cd of careSnap.docs) {
+        const cev = cd.data() as { care?: { forChildId?: string }; courageCard?: { dateKey?: string; text?: string } };
+        if (cev.care?.forChildId === childId && cev.courageCard?.dateKey === ctx.todayKey && cev.courageCard.text) {
+          courageLine = cev.courageCard.text;
+          break;
+        }
+      }
+    } catch { /* card is a bonus, never a blocker */ }
+
     const facts: KidDigestFacts = {
       kidName: kid.name || 'you',
       dateLabel: ctx.dateLabel,
@@ -361,6 +386,7 @@ export async function sendKidMorningDigest(
       yesterdayPoints,
       balance: kid.totalPoints ?? 0,
       streak: kid.streak ?? 0,
+      ...(courageLine ? { courageLine } : {}),
     };
     const subject = `🌞 Good morning ${facts.kidName} — ${tasks.length === 0 ? 'free day!' : `${tasks.length} thing${tasks.length === 1 ? '' : 's'} today!`}`;
 

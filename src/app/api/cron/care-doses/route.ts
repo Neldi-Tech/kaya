@@ -15,14 +15,16 @@
 // TZ: Africa/Dar_es_Salaam — same reference as the daily reminders cron.
 
 import { NextRequest, NextResponse } from 'next/server';
+import Anthropic from '@anthropic-ai/sdk';
 import { getAdminFirestore, getAdminMessaging } from '@/lib/firebaseAdmin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { Resend } from 'resend';
 import {
-  occursOn, doseKeyFor, careEndDate, slotIcon,
+  occursOn, doseKeyFor, careEndDate, slotIcon, careDayNumber, careTotalDays,
   type ReminderEvent, type DoseEntry,
 } from '@/lib/reminders';
 import { renderCareSummaryEmail, renderCareMissedEmail, renderCareCompleteEmail } from '@/lib/careEmail';
+import { bumpBadgeCountersAdmin } from '@/lib/badgeCountersAdmin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,7 +37,53 @@ const resend = apiKey ? new Resend(apiKey) : null;
 
 const TZ = 'Africa/Dar_es_Salaam';
 const SUMMARY_HOUR = 20;
+/** 🎴 Courage Cards generate at 06:40 local — before the kids' morning
+ *  digests, so the line can ride along where kid-email is on. */
+const COURAGE_HOUR = 6;
 const LADDER_MINS = [30, 60, 90] as const;
+
+const anthropicKey = process.env.ANTHROPIC_API_KEY;
+const anthropic = anthropicKey ? new Anthropic({ apiKey: anthropicKey }) : null;
+
+/** Deterministic fallbacks (rotate by day) when the AI is unavailable —
+ *  courage-voiced, never "medicine = treat" (approved Logic close on cards). */
+const COURAGE_FALLBACKS = [
+  'Strong like a lion today, {name}! 🦁',
+  'Every brave day makes you stronger, {name} 💪',
+  'You’ve got this, {name} — one day at a time 🌟',
+  'Champions keep going — that’s you, {name}! 🏆',
+  'Brave heart, bright smile — go {name}! ☀️',
+];
+
+const COURAGE_SYSTEM = `You write ONE short courage line (max 90 characters) for a child taking a medicine course, shown on their daily card in a family app.
+
+Rules:
+- Cheer COURAGE and finishing the journey ("day 3 of 7 — halfway hero!"). Warm, playful, age-appropriate for young kids.
+- NEVER make medicine sound tasty, fun to take, or like a treat/candy. Never mention flavours.
+- NEVER give medical advice or mention illness scarily.
+- Use the child's first name. At most one emoji at the end.`;
+
+async function courageLine(kidFirst: string, dayN: number | null, total: number | null, label: string): Promise<string> {
+  const fallback = COURAGE_FALLBACKS[((dayN || 1) - 1) % COURAGE_FALLBACKS.length].replace('{name}', kidFirst);
+  if (!anthropic) return fallback;
+  try {
+    const res = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 120,
+      system: [{ type: 'text', text: COURAGE_SYSTEM, cache_control: { type: 'ephemeral' } }],
+      output_config: { format: { type: 'json_schema', schema: { type: 'object', additionalProperties: false, required: ['message'], properties: { message: { type: 'string' } } } } },
+      messages: [{
+        role: 'user',
+        content: `Child: ${kidFirst}. ${dayN ? `Day ${dayN}${total ? ` of ${total}` : ''} of the course.` : 'Ongoing daily care.'}${label ? ` The course (context only, do not name it to the child): ${label}.` : ''}`,
+      }],
+    });
+    const text = res.content.find((b) => b.type === 'text');
+    if (!text || text.type !== 'text') return fallback;
+    const j = JSON.parse(text.text) as { message?: string };
+    const m = (j.message || '').trim().slice(0, 120);
+    return m || fallback;
+  } catch { return fallback; }
+}
 
 function nowInTZ(): { dayKey: string; minutes: number; hour: number } {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -68,7 +116,7 @@ async function handle(req: NextRequest) {
   const messaging = getAdminMessaging();
 
   const { dayKey: today, minutes: nowMins, hour } = nowInTZ();
-  let families = 0, scanned = 0, rungs = 0, missedStamped = 0, summaries = 0, completions = 0, emailed = 0;
+  let families = 0, scanned = 0, rungs = 0, missedStamped = 0, summaries = 0, completions = 0, emailed = 0, courage = 0;
 
   async function push(uid: string, title: string, body: string, url: string, tag: string) {
     if (!messaging || !uid || uid === 'system') return;
@@ -99,14 +147,24 @@ async function handle(req: NextRequest) {
         .where('type', 'in', ['medicine', 'routine']).get();
       if (careSnap.empty) continue;
 
-      // Parents once per family (targets for rungs 2–3 + emails).
-      let parents: Array<{ uid: string; email?: string }> | null = null;
+      // Family users once (parents for rungs 2–3 + emails; childId → kid
+      // login uid for 🎴 cards + 🛡 badge bells).
+      let famUsers: Array<{ uid: string; role?: string; childId?: string; email?: string }> | null = null;
+      async function getFamUsers() {
+        if (famUsers) return famUsers;
+        const us = await db!.collection('users').where('familyId', '==', famDoc.id).get();
+        famUsers = us.docs.map((d) => {
+          const u = d.data() as { role?: string; childId?: string; email?: string };
+          return { uid: d.id, role: u.role, childId: u.childId, email: u.email };
+        });
+        return famUsers;
+      }
       async function getParents() {
-        if (parents) return parents;
-        const ps = await db!.collection('users')
-          .where('familyId', '==', famDoc.id).where('role', '==', 'parent').get();
-        parents = ps.docs.map((d) => ({ uid: d.id, email: (d.data().email as string | undefined) }));
-        return parents;
+        return (await getFamUsers()).filter((u) => u.role === 'parent');
+      }
+      async function kidUidFor(childId?: string): Promise<string> {
+        if (!childId) return '';
+        return (await getFamUsers()).find((u) => u.role === 'kid' && u.childId === childId)?.uid || '';
       }
 
       for (const d of careSnap.docs) {
@@ -194,8 +252,28 @@ async function handle(req: NextRequest) {
             for (const p of await getParents()) {
               await bell(famDoc.ref, p.uid, `🏁 Course complete — ${kid}! 🎉`, `${ev.title} · the full trail is in Reminders.`);
             }
+            // 🛡 Course Champion — bump the counter; the standard Badges 2.0
+            // rail mints it (server-verified /api/badges/mint on next sweep).
+            if (care.forChildId) {
+              await bumpBadgeCountersAdmin(db, famDoc.id, care.forChildId, { care_courses: 1 });
+              const kidUid = await kidUidFor(care.forChildId);
+              if (kidUid) await bell(famDoc.ref, kidUid, '🛡 You finished the whole course! 🎉', 'Course Champion — every single day, start to end. So brave!');
+            }
             newFired.push('care-complete');
           }
+        }
+
+        // ── 4 · 🎴 Courage Card (06:40 local, medicine courses for kids) ──
+        if (!isSelf && ev.type === 'medicine' && hour === COURAGE_HOUR
+          && care.duration.mode !== 'ongoing' && ev.courageCard?.dateKey !== today) {
+          const first = (kid || '').split(/\s+/)[0] || 'champ';
+          const text = await courageLine(first, careDayNumber(ev, today), careTotalDays(ev), care.labelName || ev.title);
+          await d.ref.update({ courageCard: { dateKey: today, text } }).catch(() => {});
+          const kidUid = await kidUidFor(care.forChildId);
+          if (kidUid) {
+            await bell(famDoc.ref, kidUid, `🎴 ${text}`, careTotalDays(ev) ? `Day ${careDayNumber(ev, today)} of ${careTotalDays(ev)} — you've got this!` : 'A new day — you\'ve got this!');
+          }
+          courage++;
         }
 
         if (logChanged || newFired.length) {
@@ -210,5 +288,5 @@ async function handle(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, today, hour, families, scanned, rungs, missedStamped, summaries, completions, emailed });
+  return NextResponse.json({ ok: true, today, hour, families, scanned, rungs, missedStamped, summaries, completions, emailed, courage });
 }

@@ -137,6 +137,10 @@ export const BADGE_CATALOG: BadgeDef[] = [
   { id: 'break-streaker', name: 'Break Streaker', icon: '🌞', tier: 'medium', area: 'routines', how: '14-day streak over the break', signal: { kind: 'streak_days', threshold: 14 } },
   { id: 'break-helper', name: 'Break Helper', icon: '🧺', tier: 'medium', area: 'kindness', how: '15 helping awards', signal: { kind: 'award_category_count', category: 'helping', threshold: 15 } },
   { id: 'break-scholar', name: 'Break Scholar', icon: '🎓', tier: 'medium', area: 'quiz', how: '25 correct daily questions', signal: { kind: 'quiz_correct', threshold: 25 } },
+  // 💊 Care (v5) — finishing a whole course is COURAGE, not consumption:
+  // day-to-day doses earn nothing (approved Logic close #6); only the full
+  // course mints. Counter bumped server-side by the care-doses cron.
+  { id: 'course-champion', name: 'Course Champion', icon: '🛡️', tier: 'medium', area: 'routines', how: 'Finish a whole medicine or care course — every day, start to end', signal: { kind: 'child_counter', key: 'care_courses', threshold: 1 } },
   // 💎 Collectors — mint when a kid holds EVERY released badge in an area.
   { id: 'collector-points', name: 'Points Collector', icon: '💎', tier: 'legendary', area: 'points', how: 'Every released ⭐ Points badge', signal: { kind: 'area_complete', area: 'points' } },
   { id: 'collector-kindness', name: 'Kindness Collector', icon: '💎', tier: 'legendary', area: 'kindness', how: 'Every released 💗 Kindness badge', signal: { kind: 'area_complete', area: 'kindness' } },
