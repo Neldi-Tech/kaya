@@ -478,7 +478,8 @@ export async function POST(req: NextRequest) {
 
   // ── list ──────────────────────────────────────────────────────────
   if (action === 'list') {
-    const max = Math.max(1, Math.min(732, Number(body.max) || 366));
+    // Timeline 2.0 · the All-years hit-map zoom reads up to 5 years.
+    const max = Math.max(1, Math.min(1830, Number(body.max) || 366));
     const snap = await col.where('ownerId', '==', ownerId).get();
     type Row = {
       id: string; ownerId?: string; ownerRole?: string; date?: string;

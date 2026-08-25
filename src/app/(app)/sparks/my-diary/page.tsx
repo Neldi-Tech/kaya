@@ -30,6 +30,7 @@ import {
   type TimelineDay, TimelineList, TimelineBrowse, MemoryLane,
   ViewSwitcher, useRememberedView, previewLine,
 } from '@/components/sparks/TimelineViews';
+import TimelineHitMap from '@/components/sparks/TimelineHitMap';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 import DiaryInkCanvas, { type DiaryInkHandle } from '@/components/sparks/DiaryInkCanvas';
 
@@ -71,7 +72,7 @@ export default function MyDiaryPage() {
 
   useEffect(() => {
     if (!familyId || !uid || !isParent) return;
-    return subscribeToDiary(familyId, uid, setEntries);
+    return subscribeToDiary(familyId, uid, setEntries, 1830); // All-years hit-map zoom
   }, [familyId, uid, isParent]);
   useEffect(() => {
     if (!uid || !isParent) return;
@@ -83,7 +84,7 @@ export default function MyDiaryPage() {
 
   // Timeline 2.0 (design v2) · shared views. The owner sees their own
   // locked pages, so 🔒 is a badge here, never a redaction.
-  const [tlView, setTlView] = useRememberedView('my-diary', ['list', 'browse', 'calendar'], 'list');
+  const [tlView, setTlView] = useRememberedView('my-diary', ['list', 'browse', 'hitmap', 'calendar'], 'list');
   const tlDays = useMemo<TimelineDay[]>(() => {
     const byDay = new Map<string, DiaryEntry[]>();
     for (const e of entries ?? []) byDay.set(e.date, [...(byDay.get(e.date) ?? []), e]);
@@ -314,12 +315,15 @@ export default function MyDiaryPage() {
               {timelineOpen && (
                 <>
                   <MemoryLane days={tlDays} onOpenDay={(d) => setDayOpen(d)} sw={sw} />
-                  <ViewSwitcher view={tlView} views={['list', 'browse', 'calendar']} onChange={setTlView} sw={sw} />
+                  <ViewSwitcher view={tlView} views={['list', 'browse', 'hitmap', 'calendar']} onChange={setTlView} sw={sw} />
                   {tlView === 'list' && (
                     <TimelineList days={tlDays} onOpenDay={(d) => setDayOpen(d)} sw={sw} />
                   )}
                   {tlView === 'browse' && (
                     <TimelineBrowse days={tlDays} onOpenDay={(d) => setDayOpen(d)} sw={sw} />
+                  )}
+                  {tlView === 'hitmap' && (
+                    <TimelineHitMap days={tlDays} onOpenDay={(d) => setDayOpen(d)} sw={sw} layers={['feelings', 'presence']} />
                   )}
                   {tlView === 'calendar' && (
                     <DiaryTimeline entries={entries ?? []} sw={sw} onOpenDay={(d) => setDayOpen(d)} />
