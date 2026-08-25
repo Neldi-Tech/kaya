@@ -15,6 +15,7 @@ import {
   resetHelperPassword,
   generateShortCode,
   generatePassword,
+  syncHelperVisibility,
   DEFAULT_HELPER_SESSION_DAYS,
   type CreateHelperResult,
 } from '@/lib/helpers';
@@ -125,6 +126,16 @@ export default function HelpersSettingsPage() {
   }, [family]);
 
   useEffect(() => { reloadHelpers(); }, [reloadHelpers]);
+
+  // 🤝 Backfill on visit (2026-08-25). Families created before the
+  // visibility mirror have no `helperListed` on their helper user docs,
+  // which reads as "listed" (fail-open). One fire-and-forget family
+  // sync per parent visit brings them current without a migration —
+  // idempotent server-side, so repeat visits write nothing.
+  useEffect(() => {
+    if (!family) return;
+    void syncHelperVisibility({ all: true });
+  }, [family]);
 
   const copy = async (value: string, fieldId: string) => {
     try {

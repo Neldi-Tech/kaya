@@ -15,6 +15,7 @@ import { useEffect, useState } from 'react';
 import type { UserProfile } from '@/lib/firestore';
 import type { Album, AlbumAccessMode } from '@/lib/albums';
 import { disallowedForSubAlbum } from '@/lib/albums';
+import { isListedMember } from '@/lib/helperVisibility';
 import MemberToggleRow from './MemberToggleRow';
 
 interface Props {
@@ -34,11 +35,19 @@ interface Props {
 }
 
 export default function AccessPickerSheet({
-  open, members, parentAlbum, initialMode, initialList,
+  open, members: allMembers, parentAlbum, initialMode, initialList,
   customDisabled, customDisabledReason, onSave, onClose,
 }: Props) {
   const [mode, setMode] = useState<AlbumAccessMode>(initialMode);
   const [selected, setSelected] = useState<Set<string>>(new Set(initialList));
+
+  // 🤝 2026-08-25 — outside helpers (driver, gardener: no kid assigned)
+  // are not offered here. Anyone ALREADY on the album's access list
+  // stays rendered even if they'd now be filtered, otherwise a grant
+  // made before the rule landed would become impossible to revoke.
+  const members = allMembers.filter(
+    (m) => isListedMember(m) || initialList.includes(m.uid),
+  );
 
   // Reset local state when the sheet opens with new initial values.
   useEffect(() => {

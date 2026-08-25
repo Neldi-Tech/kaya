@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { getFamilyMembers, UserProfile } from '@/lib/firestore';
+import { filterListedMembers } from '@/lib/helperVisibility';
 import { formatFamilyHandle, formatPersonHandle, handleToSlug } from '@/lib/handles';
 import { toDisplayDate, dayOfWeek, daysToNextBirthday, ageNow, ageAtNextBirthday } from '@/lib/dates';
 import { milestoneForYear, ordinal } from '@/lib/anniversaryMilestones';
@@ -19,7 +20,8 @@ export default function FamilyTreePage() {
 
   useEffect(() => {
     if (!profile?.familyId) return;
-    getFamilyMembers(profile.familyId).then((m) => {
+    getFamilyMembers(profile.familyId).then((all) => {
+      const m = filterListedMembers(all, profile.uid);
       setMembers(m);
       setLoading(false);
     });

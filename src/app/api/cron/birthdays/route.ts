@@ -120,7 +120,11 @@ async function handle(req: NextRequest) {
       usersSnap.forEach((d) => {
         const u = d.data() as Record<string, unknown>;
         const role = String(u.role || '');
-        if ((role === 'parent' || role === 'helper') && typeof u.email === 'string' && u.email) parentHelperEmails.push(u.email);
+        // 🤝 2026-08-25 — an outside helper (no kid assigned) is not
+        // emailed about a kid's birthday. Their OWN birthday is still
+        // celebrated: only the recipient list is filtered, not `sources`.
+        const outsideHelper = role === 'helper' && u.helperListed === false;
+        if (!outsideHelper && (role === 'parent' || role === 'helper') && typeof u.email === 'string' && u.email) parentHelperEmails.push(u.email);
         if (role === 'parent') {
           parentUids.push(d.id);
           if (typeof u.email === 'string' && u.email) parentEmails.push(u.email);

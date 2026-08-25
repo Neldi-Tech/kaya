@@ -310,7 +310,10 @@ export async function POST(req: NextRequest) {
         // Family mailing list.
         const membersSnap = await db.collection('users').where('familyId', '==', familyId).get();
         for (const m of membersSnap.docs) {
-          const u = m.data() as { role?: string; email?: string; notifyOnAward?: boolean };
+          const u = m.data() as { role?: string; email?: string; notifyOnAward?: boolean; helperListed?: boolean };
+          // 🤝 2026-08-25 — outside helpers (no kid assigned) are not
+          // mailed about a kid's recognition. Mirrors the client wizard.
+          if (u.role === 'helper' && u.helperListed === false) continue;
           if ((u.role === 'parent' || u.role === 'helper') && u.email && u.notifyOnAward !== false) to.add(u.email);
         }
         for (const c of famData?.externalContacts || []) {

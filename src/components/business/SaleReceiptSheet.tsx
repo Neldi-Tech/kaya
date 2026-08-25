@@ -32,7 +32,7 @@ export default function SaleReceiptSheet({ familyId, business, entry, currency, 
 
   useEffect(() => {
     let off = false;
-    messageableMembers(familyId).then((m) => { if (!off) setMembers(m); }).catch(() => {});
+    messageableMembers(familyId, [], profile.uid).then((m) => { if (!off) setMembers(m); }).catch(() => {});
     return () => { off = true; };
   }, [familyId]);
 

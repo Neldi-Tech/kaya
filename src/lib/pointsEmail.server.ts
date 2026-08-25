@@ -54,6 +54,8 @@ interface ChildLite {
 interface MemberLite {
   uid: string; email?: string; role?: string; displayName?: string;
   notifyOnRating?: boolean; notifyOnAward?: boolean;
+  /** 🤝 Mirrored helper listing flag — see lib/helperVisibility.ts. */
+  helperListed?: boolean;
 }
 interface FamilyLite {
   name?: string;
@@ -327,6 +329,11 @@ export async function resolvePointsAudience(
     if (m.role === 'kid') continue;
     if (m.uid === raterUid) continue;                       // never mail the rater
     if (/@helper\.kaya\.app$/i.test(e)) continue;          // helper login stubs — not real inboxes
+    // 🤝 2026-08-25 — an outside helper (driver, gardener: no kid
+    // assigned) with a REAL inbox is not mailed about a kid's points.
+    // The Tier-A stub test above never caught those. A parent who
+    // wants them on it adds the address by hand in the ✉️ audience.
+    if (m.role === 'helper' && m.helperListed === false) continue;
     const on = (type === 'rating' ? m.notifyOnRating : m.notifyOnAward) !== false; // personal toggle (default on)
     if (on || groupMemberUids.has(m.uid) || explicit.has(e)) family.set(e, { email: m.email!, name: m.displayName || e });
   }
