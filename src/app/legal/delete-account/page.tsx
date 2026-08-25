@@ -16,6 +16,9 @@ export default function DeleteAccountPage() {
     <LegalDoc
       title="Delete your account"
       current="/legal/delete-account"
+      // Not a governing policy document — no version stamp, no "the complete
+      // document controls" notice.
+      showPolicyMeta={false}
       intro="You can ask us to delete your Kaya account and your family’s data at any time — including your children’s. You don’t need to be signed in, and you don’t need the app installed."
     >
       <LegalSection title="Make a request">

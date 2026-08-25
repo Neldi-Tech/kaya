@@ -57,9 +57,9 @@ function esc(s: string): string {
 }
 
 export async function POST(req: NextRequest) {
-  const db = getAdminFirestore();
-  if (!db) return NextResponse.json({ error: 'admin-unavailable' }, { status: 503 });
-
+  // Validate BEFORE touching Firestore: junk gets rejected without doing any
+  // work, and the input contract stays testable in environments that have no
+  // service-account credentials (local dev and Vercel previews both lack them).
   let body: Record<string, unknown>;
   try {
     body = await req.json();
@@ -80,6 +80,9 @@ export async function POST(req: NextRequest) {
   if (!email || !/^[^@\s]+@[^@\s.]+\.[^@\s]+$/.test(email)) {
     return NextResponse.json({ error: 'invalid-email' }, { status: 400 });
   }
+
+  const db = getAdminFirestore();
+  if (!db) return NextResponse.json({ error: 'admin-unavailable' }, { status: 503 });
 
   // ── Rate limit by IP ────────────────────────────────────────────────
   const ip =
