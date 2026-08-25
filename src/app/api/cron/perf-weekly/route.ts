@@ -84,6 +84,9 @@ async function run(req: NextRequest) {
     familiesProcessed++;
     if (dry || rows.length === 0) continue;
 
+    // 🤝 HR PR-3 — the monthly helper round rides this same Monday run.
+    await maybeHelperRound(db, famRef, famDoc.id, rows, today).catch(() => { /* never blocks the digest */ });
+
     // Recipients — parents resolved to 'weekly'.
     let members;
     try { members = await db.collection('users').where('familyId', '==', famDoc.id).get(); } catch { continue; }
@@ -146,6 +149,117 @@ async function run(req: NextRequest) {
     } catch { /* never blocks */ }
   }
   return NextResponse.json({ ok: true, week, familiesProcessed, helpersSnapshotted, emailsSent, dry });
+}
+
+// ── 🤝 HR PR-3 · Monthly helper round ───────────────────────────────
+// FIRST Monday of each month, right after the weekly snapshots settle:
+// pick one helper through a ROTATING lens (🏆 Best → 📈 Most improved →
+// 🕯️ Unsung, by month) and nudge every parent to turn the spotlight
+// into an Asante card. Doc-per-month + .create() = idempotent; zero
+// rules deploys (Admin-only collection, read via /api/recognition).
+
+type RoundRow = { helper: { uid: string; displayName: string; preset: string }; snap: PerfSnapshot; prev: PerfSnapshot | null };
+
+async function maybeHelperRound(
+  db: NonNullable<ReturnType<typeof getAdminFirestore>>,
+  famRef: FirebaseFirestore.DocumentReference,
+  familyId: string,
+  rows: RoundRow[],
+  today: string,
+): Promise<void> {
+  if (Number(today.slice(8, 10)) > 7) return; // only the month's first Monday
+  const month = today.slice(0, 7);
+  const [y, m] = month.split('-').map(Number);
+  const LENSES = ['best', 'improved', 'unsung'] as const;
+  const lens = LENSES[(y * 12 + (m - 1)) % 3];
+
+  const scored = rows.filter((r) => r.snap.score !== null);
+  if (scored.length === 0) return;
+
+  let pick = scored.reduce((a, b) => ((b.snap.score ?? -1) > (a.snap.score ?? -1) ? b : a));
+  let line = `🏆 Best this month — Helper Score ${pick.snap.score}.`;
+  let lensUsed: string = lens;
+
+  if (lens === 'improved') {
+    const withDelta = scored
+      .filter((r) => r.prev?.score != null)
+      .map((r) => ({ r, d: (r.snap.score ?? 0) - (r.prev?.score ?? 0) }))
+      .filter((x) => x.d > 0)
+      .sort((a, b) => b.d - a.d);
+    if (withDelta.length > 0) {
+      pick = withDelta[0].r;
+      line = `📈 Most improved — up ${withDelta[0].d} points, now at ${pick.snap.score}.`;
+    } else {
+      lensUsed = 'best';
+      line = `🏆 Steady at the top — Helper Score ${pick.snap.score}.`;
+    }
+  } else if (lens === 'unsung') {
+    // ✍️ Correction quality over the last 28 days — the quiet teaching
+    // work: Bad ratings that carried a note the kid can learn from.
+    try {
+      const from = new Date(Date.now() - 28 * 86400_000).toISOString().slice(0, 10);
+      const snap = await famRef.collection('ratings').where('date', '>=', from).get();
+      const tally = new Map<string, { bad: number; withNote: number }>();
+      for (const d of snap.docs) {
+        const r = d.data() as { ratedBy?: string; ratings?: Record<string, string>; notes?: Record<string, string>; comment?: string };
+        if (!r.ratedBy) continue;
+        const t = tally.get(r.ratedBy) || { bad: 0, withNote: 0 };
+        const dayComment = (r.comment || '').trim();
+        for (const [rid, v] of Object.entries(r.ratings || {})) {
+          if (v !== 'bad') continue;
+          t.bad++;
+          if ((r.notes?.[rid] || '').trim().length >= 8 || dayComment.length >= 8) t.withNote++;
+        }
+        tally.set(r.ratedBy, t);
+      }
+      const ranked = scored
+        .map((r) => ({ r, t: tally.get(r.helper.uid) }))
+        .filter((x) => x.t && x.t.bad >= 1)
+        .sort((a, b) => (b.t!.withNote / b.t!.bad) - (a.t!.withNote / a.t!.bad));
+      if (ranked.length > 0) {
+        pick = ranked[0].r;
+        const t = ranked[0].t!;
+        line = `🕯️ Unsung hero — ${t.withNote} of ${t.bad} corrections came with a note that teaches the kids.`;
+      } else {
+        lensUsed = 'best';
+        line = `🏆 Best this month — Helper Score ${pick.snap.score}.`;
+      }
+    } catch { lensUsed = 'best'; }
+  }
+
+  const round = {
+    month,
+    lens: lensUsed,
+    item: {
+      helperUid: pick.helper.uid,
+      name: pick.helper.displayName,
+      preset: pick.helper.preset,
+      score: pick.snap.score,
+      line,
+    },
+    all: scored.map((r) => ({ helperUid: r.helper.uid, name: r.helper.displayName, score: r.snap.score })),
+    at: Date.now(),
+  };
+  try {
+    await famRef.collection('helperRounds').doc(month).create(round);
+  } catch { return; } // already exists — another run won the race
+
+  // Parent bells — the nudge that opens the Asante composer.
+  try {
+    const members = await db.collection('users').where('familyId', '==', familyId).get();
+    const LENS_EMOJI: Record<string, string> = { best: '🏆', improved: '📈', unsung: '🕯️' };
+    await Promise.all(members.docs
+      .filter((d) => (d.data() as { role?: string }).role === 'parent')
+      .map((d) => famRef.collection('notifications').add({
+        type: 'reward',
+        title: `🤝 Helper round — ${LENS_EMOJI[lensUsed] || '🌟'} ${pick.helper.displayName.split(' ')[0]}`,
+        message: `${line} Turn it into an Asante card →`,
+        link: `/pantry/workplan?helper=${pick.helper.uid}&tab=recognition`,
+        forUserId: d.id,
+        read: false,
+        createdAt: new Date(),
+      })));
+  } catch { /* bells are best-effort */ }
 }
 
 function metricLine(s: PerfSnapshot): string {

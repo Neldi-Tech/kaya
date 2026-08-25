@@ -25,7 +25,7 @@ type Action =
   | 'card-create' | 'card-list' | 'card-theme' | 'card-note' | 'card-echo'
   | 'card-set-post' | 'card-email' | 'card-delete' | 'card-gift' | 'card-lang'
   | 'round-get' | 'round-list'
-  | 'round-dismiss' | 'round-undismiss' | 'dismissals-list';
+  | 'round-dismiss' | 'round-undismiss' | 'dismissals-list' | 'helper-round-get';
 
 const CARD_LIMIT = 120;
 
@@ -395,6 +395,15 @@ export async function POST(req: NextRequest) {
         }).catch(() => {});
         if (!sent) return NextResponse.json({ error: error || 'send-failed' }, { status: 500 });
         return NextResponse.json({ ok: true, count: to.size });
+      }
+
+      case 'helper-round-get': {
+        // 🤝 HR PR-3 — this month's helper spotlight (parents only; the
+        // round is reward-planning material, not helper-visible).
+        if (!isParent) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+        const month = /^\d{4}-\d{2}$/.test(String(body.month)) ? String(body.month) : new Date().toISOString().slice(0, 7);
+        const snap = await famRef.collection('helperRounds').doc(month).get();
+        return NextResponse.json({ ok: true, round: snap.exists ? { id: snap.id, ...snap.data() } : null });
       }
 
       case 'round-get': {

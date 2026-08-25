@@ -118,6 +118,19 @@ export const setShineCardGift = (familyId: string, cardId: string, gift: string,
 // 🧡 HR PR-2 — persist the EN↔SW choice so every later render matches.
 export const setShineCardLang = (familyId: string, cardId: string, lang: CardLang) =>
   recognitionApi('card-lang', { familyId, cardId, lang });
+
+// 🤝 HR PR-3 — the monthly helper spotlight (first-Monday round).
+export interface HelperRound {
+  id: string;
+  month: string;
+  lens: 'best' | 'improved' | 'unsung';
+  item: { helperUid: string; name: string; preset: string; score: number | null; line: string };
+  all: Array<{ helperUid: string; name: string; score: number | null }>;
+  at: number;
+}
+export const getHelperRound = (familyId: string, month?: string) =>
+  recognitionApi<{ ok: true; round: HelperRound | null }>('helper-round-get', { familyId, ...(month ? { month } : {}) })
+    .then((r) => r.round);
 export const getRound = (familyId: string, date: string) =>
   recognitionApi<{ ok: true; round: RecognitionRound | null }>('round-get', { familyId, date })
     .then((r) => r.round);
