@@ -28,7 +28,10 @@ export type ReminderType =
   | 'anniversary'
   | 'appointment'
   | 'event'
-  | 'reminder';
+  | 'reminder'
+  // 💊 Care (v5) — medicine & routine slot engine (approved 25-Aug-2026).
+  | 'medicine'
+  | 'routine';
 
 export type ReminderVisibility = 'private' | 'shared';
 
@@ -400,11 +403,142 @@ export interface ReminderEvent {
   emailRecipients: ReminderRecipient[];
   /** ✉️ 2.0 — the honoree (who gets the greeting card / auto-greeting). */
   greetTo?: GreetTo;
+  /** 💊 v5 — the care block (only on type medicine|routine). */
+  care?: CareInfo;
+  /** 💊 v5 — the dose trail (who ticked what, when). Rolling cap ~90 days. */
+  doseLog?: DoseEntry[];
   status?: ReminderStatus;
   createdAt?: number;
   updatedAt?: number;
   /** Idempotency log for the firing cron — `${occurrenceDate}:${lead}`. */
   firedKeys?: string[];
+}
+
+// ── 💊 Care (v5) — medicine & routine dose-slot engine ────────────────────
+// "1 tablet × 3 per day" for a kid (or a parent's own, 🔒 private by
+// default). Slots surface as tickable dose cards in the GIVER's day; the
+// giver's ✓ is the medical record; a kid's "💪 I was brave" tap is
+// celebration only. Approved Logic-Test closes, 25-Aug-2026.
+
+export type CareKind = 'medicine' | 'routine';
+
+export function isCareType(t: ReminderType): t is CareKind {
+  return t === 'medicine' || t === 'routine';
+}
+
+/** One time-of-day slot — "HH:MM" local family time. */
+export interface CareSlot {
+  time: string;
+  /** 🌅 ☀️ 🌆 🌙 — derived from the hour, stored for display stability. */
+  icon?: string;
+}
+
+export type CareDurationMode = 'days' | 'until' | 'ongoing';
+
+export interface CareDuration {
+  mode: CareDurationMode;
+  /** mode 'days' — course length counted from the event's start date. */
+  days?: number;
+  /** mode 'until' — last day, YYYY-MM-DD inclusive. */
+  until?: string;
+}
+
+/** given = ticked on time · late = ticked after the grace window · missed =
+ *  stamped by the ladder cron (giver can still tick later → flips to late)
+ *  · skipped = deliberately not given (giver's call, recorded honestly). */
+export type DoseStatus = 'given' | 'late' | 'missed' | 'skipped';
+
+export interface DoseEntry {
+  /** `${dateKey}:${slotIndex}` */
+  key: string;
+  /** Absent = nothing recorded yet (e.g. a brave-tap-only entry). */
+  status?: DoseStatus;
+  byUid?: string;
+  byName?: string;
+  /** Epoch ms when the giver ticked. */
+  at?: number;
+  /** Ladder escalation rungs already fired for this slot (idempotency). */
+  ladder?: number[];
+  /** Kids' 💪 celebration taps — never the medical record. */
+  braveUids?: string[];
+}
+
+export interface CareInfo {
+  /** What's given — "1 tablet", "2 drops", "10ml syrup". */
+  dose: string;
+  /** N× per day — one entry per slot, sorted by time. */
+  slots: CareSlot[];
+  duration: CareDuration;
+  /** Who it's for — a family kid, or 'self' (the owner's own; private). */
+  forKind: 'kid' | 'self';
+  forChildId?: string;
+  forName?: string;
+  /** Who gives it — the ✓ that counts. Parents always may tick too. */
+  giverUids: string[];
+  /** Medicine extras. */
+  withFood?: boolean;
+  photoUrl?: string;
+  /** 📷 AI label read (transcription only — parent confirms everything). */
+  labelName?: string;
+  /** Pack size from the label ("20 tablets") — Refill Radar counts down. */
+  packCount?: number;
+  /** Watch rail (parents): in-app ticks · evening summary · missed-dose. */
+  watchInApp?: boolean;
+  watchSummaryEmail?: boolean;
+  watchMissedEmail?: boolean;
+}
+
+/** Suggested evenly-spread slot times for ×N per day (approved mapping:
+ *  1× = 🌅 · 2× = 🌅🌙 · 3× = 🌅☀️🌙 · 4× = adds 🌆). */
+export function suggestSlots(n: number): CareSlot[] {
+  const times = n <= 1 ? ['07:00']
+    : n === 2 ? ['07:00', '19:00']
+    : n === 3 ? ['07:00', '13:00', '19:00']
+    : ['07:00', '12:00', '17:00', '21:00'];
+  return times.map((t) => ({ time: t, icon: slotIcon(t) }));
+}
+
+/** 🌅 before 11 · ☀️ before 15 · 🌆 before 18:30 · 🌙 after. */
+export function slotIcon(time: string): string {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(time);
+  const mins = m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : 0;
+  if (mins < 11 * 60) return '🌅';
+  if (mins < 15 * 60) return '☀️';
+  if (mins < 18 * 60 + 30) return '🌆';
+  return '🌙';
+}
+
+export function doseKeyFor(dateKey: string, slotIndex: number): string {
+  return `${dateKey}:${slotIndex}`;
+}
+
+export function doseEntryFor(ev: ReminderEvent, dateKey: string, slotIndex: number): DoseEntry | undefined {
+  return (ev.doseLog || []).find((d) => d.key === doseKeyFor(dateKey, slotIndex));
+}
+
+/** Day N of a course (1-based) — null for ongoing care or non-care events. */
+export function careDayNumber(ev: ReminderEvent, dateKey: string): number | null {
+  if (!ev.care || ev.care.duration.mode === 'ongoing') return null;
+  const n = diffDaysKey(ev.date, dateKey) + 1;
+  return n >= 1 ? n : null;
+}
+
+/** Total days of a course — null for ongoing. */
+export function careTotalDays(ev: ReminderEvent): number | null {
+  const d = ev.care?.duration;
+  if (!d || d.mode === 'ongoing') return null;
+  if (d.mode === 'days') return Math.max(1, d.days || 1);
+  if (d.mode === 'until' && d.until) return Math.max(1, diffDaysKey(ev.date, d.until) + 1);
+  return null;
+}
+
+/** The last calendar day of a care schedule — null = ongoing. */
+export function careEndDate(ev: ReminderEvent): string | null {
+  const d = ev.care?.duration;
+  if (!d || d.mode === 'ongoing') return null;
+  if (d.mode === 'until' && d.until) return d.until;
+  if (d.mode === 'days') return addDaysKey(ev.date, Math.max(1, d.days || 1) - 1);
+  return null;
 }
 
 /** A computed instance of an event on a specific calendar day — what the
@@ -436,6 +570,11 @@ export const REMINDER_TYPES: ReminderTypeMeta[] = [
   { id: 'appointment', icon: '🩺', label: 'Appointment', heroFrom: '#1F2D3D', heroMid: '#3E4DA0', heroTo: '#D4A847' },
   { id: 'event',       icon: '🎉', label: 'Event',       heroFrom: '#1F2D3D', heroMid: '#3FAF9E', heroTo: '#D4A847' },
   { id: 'reminder',    icon: '📌', label: 'Reminder',    heroFrom: '#1F2D3D', heroMid: '#3E4DA0', heroTo: '#D4A847' },
+  // 💊 v5 Care — mint-teal accent (deeper than the 🎉 event mid so the two
+  // never read as one). MUST stay after 'reminder': typeMeta's fallback is
+  // index-based (REMINDER_TYPES[4]).
+  { id: 'medicine',    icon: '💊', label: 'Medicine',    heroFrom: '#1F2D3D', heroMid: '#2E8C7E', heroTo: '#D4A847' },
+  { id: 'routine',     icon: '🔁', label: 'Routine',     heroFrom: '#1F2D3D', heroMid: '#2E8C7E', heroTo: '#D4A847' },
 ];
 
 export function typeMeta(type: ReminderType): ReminderTypeMeta {
@@ -644,7 +783,26 @@ export function firedKeyFor(occurrenceKey: string, lead: number): string {
 
 /** Can `viewer` see this event? Owner always; shared+active to the whole
  *  family; pending-parent kid events only to the kid + parents. */
-export function visibleTo(ev: ReminderEvent, viewerUid: string, viewerRole: string | undefined): boolean {
+export function visibleTo(
+  ev: ReminderEvent,
+  viewerUid: string,
+  viewerRole: string | undefined,
+  /** Kids only — which child profile this viewer is (users/{uid}.childId). */
+  viewerChildId?: string,
+): boolean {
+  // 💊 Care events route by who-it's-for + explicit assignment (approved
+  // Logic close #4): a parent's own medicine NEVER reaches helpers/kids.
+  if (ev.care && isCareType(ev.type)) {
+    if (ev.ownerUid === viewerUid) return true;
+    if ((ev.care.giverUids || []).includes(viewerUid)) return true;
+    if (ev.care.forKind === 'kid') {
+      if (viewerRole === 'parent') return true;
+      if (viewerRole === 'kid') return !!viewerChildId && ev.care.forChildId === viewerChildId;
+      return false; // helpers only when assigned as giver
+    }
+    // 'self' — the owner's own care: shared reaches co-parents only.
+    return ev.visibility === 'shared' && viewerRole === 'parent';
+  }
   if (ev.ownerUid === viewerUid) return true;
   if (ev.visibility !== 'shared') return false;
   if (ev.status === 'pending_parent') return viewerRole === 'parent';
@@ -911,6 +1069,15 @@ export async function decideReminder(
   decision: 'approve' | 'decline',
 ): Promise<{ ok: boolean }> {
   return authedPost('/api/reminders/save', token, { action: decision, id });
+}
+
+/** 💊 v5 — tick a dose slot. Givers/parents record `given`/`skipped` (the
+ *  server stamps late honestly); kids send `brave: true` only. */
+export async function tickDose(
+  token: string,
+  payload: { id: string; dateKey: string; slotIndex: number; status?: 'given' | 'skipped'; brave?: boolean },
+): Promise<{ ok: boolean; entry?: DoseEntry }> {
+  return authedPost('/api/reminders/save', token, { action: 'dose', ...payload });
 }
 
 // ── 🎁 Gift Brain (R2) ─────────────────────────────────────────────────────

@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
   catch { return NextResponse.json({ error: 'invalid-token' }, { status: 401 }); }
 
   const user = (await db.collection('users').doc(uid).get()).data() as
-    { familyId?: string; role?: string } | undefined;
+    { familyId?: string; role?: string; childId?: string } | undefined;
   const familyId = user?.familyId;
   if (!familyId) return NextResponse.json({ error: 'no-family' }, { status: 403 });
   const role = user?.role;
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
   const events: ReminderEvent[] = [];
   snap.forEach((d) => {
     const ev = { id: d.id, ...(d.data() as Record<string, unknown>) } as ReminderEvent;
-    if (visibleTo(ev, uid, role)) events.push(ev);
+    if (visibleTo(ev, uid, role, user?.childId)) events.push(ev);
   });
 
   return NextResponse.json({ events });
