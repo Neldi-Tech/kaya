@@ -817,13 +817,13 @@ export function occurrencesInRange(
   events: ReminderEvent[],
   viewerUid: string,
   viewerRole: string | undefined,
-  opts: { from?: string; horizonDays?: number } = {},
+  opts: { from?: string; horizonDays?: number; viewerChildId?: string } = {},
 ): ReminderOccurrence[] {
   const from = opts.from || todayKey();
   const horizon = opts.horizonDays ?? 45;
   const out: ReminderOccurrence[] = [];
   for (const ev of events) {
-    if (!visibleTo(ev, viewerUid, viewerRole)) continue;
+    if (!visibleTo(ev, viewerUid, viewerRole, opts.viewerChildId)) continue;
     let key = from;
     for (let i = 0; i <= horizon; i++) {
       if (occursOn(ev, key)) {

@@ -22,8 +22,8 @@ import {
   type ReminderEvent, type ReminderType, type ReminderVisibility,
   type RepeatRule, type RepeatFreq, type MonthDay, type ReminderRecipient,
   type EmailGroup, type GreetTo, type FamilyContact, cardEligible, builtInGroups, nextAnniversaryOf, syncGreetToWithContact,
-  isCareType, suggestSlots, slotIcon,
-  type CareInfo, type CareSlot, type CareDurationMode,
+  isCareType, suggestSlots, slotIcon, careDayNumber, careTotalDays, careEndDate, addDaysKey, doseKeyFor,
+  type CareInfo, type CareSlot, type CareDurationMode, type DoseEntry,
 } from '@/lib/reminders';
 import { compressImageBlob, safeUploadBytes } from '@/lib/storageUpload';
 import { ref as storageRef, getDownloadURL } from 'firebase/storage';
@@ -32,6 +32,7 @@ import HonoreePicker from '@/components/reminders/HonoreePicker';
 import GreetingCardStudio, { type StudioTarget } from '@/components/reminders/GreetingCardStudio';
 import { listCards, cardIdFor, type GreetingCard } from '@/lib/greetingCards';
 import GiftBrain from '@/components/reminders/GiftBrain';
+import CareDoseCards from '@/components/reminders/CareDoseCards';
 import CatchUpBoard from '@/components/catchup/CatchUpBoard';
 import TimeCapsule from '@/components/reminders/TimeCapsule';
 import { PAGE_WIDTH_CLASS, PageSplit, DataRows, DATA_ROW, DATA_ROW_HOVER } from '@/components/layout/Page';
@@ -257,12 +258,25 @@ export default function RemindersPage() {
   ], [events, autoEvents, family?.contacts]);
 
   const occurrences = useMemo(
-    () => occurrencesInRange(allEvents, uid, role, { horizonDays: 60 }),
-    [allEvents, uid, role],
+    () => occurrencesInRange(allEvents, uid, role, { horizonDays: 60, viewerChildId: profile?.childId }),
+    [allEvents, uid, role, profile?.childId],
   );
   const today = todayKey();
-  const todays = occurrences.filter((o) => o.dateKey === today);
-  const upcoming = occurrences.filter((o) => o.dateKey > today).slice(0, 20);
+  // 💊 v5 — care events get dose cards, not generic rows (they stay findable
+  // in the All-reminders month list for managing/editing).
+  const todays = occurrences.filter((o) => o.dateKey === today && !o.event.care);
+  const upcoming = occurrences.filter((o) => o.dateKey > today && !o.event.care).slice(0, 20);
+  const careToday = useMemo(
+    () => occurrences.filter((o) => o.dateKey === today && !!o.event.care).map((o) => o.event),
+    [occurrences, today],
+  );
+  const applyDose = useCallback((eventId: string, entry: DoseEntry) => {
+    setEvents((evs) => evs.map((e) => {
+      if (e.id !== eventId) return e;
+      const log = (e.doseLog || []).filter((d) => d.key !== entry.key);
+      return { ...e, doseLog: [...log, entry] };
+    }));
+  }, []);
 
   const pending = useMemo(
     () => (role === 'parent' ? events.filter((e) => e.status === 'pending_parent') : []),
@@ -493,6 +507,13 @@ export default function RemindersPage() {
         <div className="text-center text-kaya-sand py-16 text-sm">Loading your reminders…</div>
       ) : (
         <>
+          {/* 💊 v5 — today's dose cards (tickable), above the classic rows. */}
+          {careToday.length > 0 && (
+            <Section label="💊 Care today">
+              <CareDoseCards events={careToday} onDose={applyDose} />
+            </Section>
+          )}
+
           {/* Today */}
           {todays.length > 0 && (
             <Section label="Today">
@@ -601,6 +622,7 @@ export default function RemindersPage() {
           contacts={family?.contacts || []}
           familyId={profile?.familyId || ''}
           viewerRole={role}
+          careEvent={form.id ? events.find((e) => e.id === form.id) : undefined}
         />
       )}
     </div>
@@ -633,10 +655,20 @@ function Row({ o, onTap, card, onCard, dense }: {
   // year ✨" line — the badge pill already carries the count.
   const milestone = anniversaryMilestone(ev, o.dateKey);
   const nth = milestone ? 'a milestone year ✨' : nthSubLabel(ev, o.dateKey);
-  const sub = [
-    [ev.withWho && `with ${ev.withWho}`, ev.location].filter(Boolean).join(' · ') || describeRepeat(ev.repeat),
-    nth,
-  ].filter(Boolean).join(' · ');
+  // 💊 v5 — care rows speak dose · ×N/day · who · day-N instead of repeat.
+  const careN = ev.care ? careDayNumber(ev, o.dateKey) : null;
+  const careT = ev.care ? careTotalDays(ev) : null;
+  const sub = ev.care
+    ? [
+        ev.care.dose,
+        `×${ev.care.slots.length}/day`,
+        ev.care.forKind === 'self' ? '🔒 my own' : ev.care.forName,
+        careN ? `day ${careN}${careT ? ` of ${careT}` : ''}` : 'ongoing',
+      ].filter(Boolean).join(' · ')
+    : [
+        [ev.withWho && `with ${ev.withWho}`, ev.location].filter(Boolean).join(' · ') || describeRepeat(ev.repeat),
+        nth,
+      ].filter(Boolean).join(' · ');
   const auto = isAutoImported(ev);
   const cardState = card?.status === 'sent' || card?.status === 'belated' ? 'sent' : card?.status === 'ready' ? 'ready' : card?.status === 'pending_parent' ? 'pending' : card ? 'draft' : 'none';
   const cardLabel = cardState === 'sent' ? '✅' : cardState === 'ready' ? '✉️✓' : cardState === 'pending' ? '⏳' : cardState === 'draft' ? '✏️' : '✉️';
@@ -692,7 +724,7 @@ function EmptyState({ onNew }: { onNew: () => void }) {
 // ── Editor ───────────────────────────────────────────────────────────────
 
 function Editor({
-  form, setForm, members, groups, ownUid, saving, error, onClose, onSave, onDelete, kids, contacts, familyId, viewerRole,
+  form, setForm, members, groups, ownUid, saving, error, onClose, onSave, onDelete, kids, contacts, familyId, viewerRole, careEvent,
 }: {
   form: FormState;
   setForm: React.Dispatch<React.SetStateAction<FormState>>;
@@ -702,6 +734,8 @@ function Editor({
   contacts: FamilyContact[];
   familyId: string;
   viewerRole?: string;
+  /** 💊 v5 — the stored event being edited (for the adherence grid). */
+  careEvent?: ReminderEvent;
   ownUid: string;
   saving: boolean;
   error: string;
@@ -1012,6 +1046,9 @@ function Editor({
               {form.type === 'medicine' && (
                 <div className="text-[11px] text-kaya-sand italic">Always follow your doctor’s instructions.</div>
               )}
+
+              {/* 👀 Adherence at a glance — dot grid over the last days. */}
+              {form.id && careEvent?.care && <AdherenceGrid ev={careEvent} />}
             </>
           )}
 
@@ -1346,6 +1383,59 @@ function ChannelRow({ on, onToggle, label }: { on: boolean; onToggle: () => void
       </span>
       <span className="text-sm font-bold text-kaya-chocolate">{label}</span>
     </button>
+  );
+}
+
+/** 💊 v5 — adherence dot grid (last ≤7 days × slots) for the care editor.
+ *  ✓ mint = given · ✓ amber = late · ✕ red = missed · − grey = skipped ·
+ *  beige = nothing recorded. Hover/long-press a dot → who + when. */
+function AdherenceGrid({ ev }: { ev: ReminderEvent }) {
+  const care = ev.care!;
+  const today = todayKey();
+  const end = careEndDate(ev);
+  const last = end && end < today ? end : today;
+  const first = diffDaysKey(ev.date, last) > 6 ? addDaysKey(last, -6) : ev.date;
+  const days: string[] = [];
+  for (let k = first; k <= last && days.length < 7; k = addDaysKey(k, 1)) days.push(k);
+  if (!days.length) return null;
+  const entryAt = (dateKey: string, i: number): DoseEntry | undefined =>
+    (ev.doseLog || []).find((d) => d.key === doseKeyFor(dateKey, i));
+  return (
+    <Field label="Adherence 👀">
+      <div className="bg-white border border-kaya-warm-dark rounded-kaya px-3 py-2.5 overflow-x-auto">
+        <table className="text-[11px]">
+          <thead>
+            <tr>
+              <th className="pr-2" />
+              {care.slots.map((s, i) => <th key={i} className="px-1.5 pb-1 text-center">{s.icon || slotIcon(s.time)}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {days.map((dk) => (
+              <tr key={dk}>
+                <td className="pr-2 font-bold text-kaya-sand whitespace-nowrap">{dayOfWeek(dk).slice(0, 3)} {dk.slice(8)}</td>
+                {care.slots.map((s, i) => {
+                  const e = entryAt(dk, i);
+                  const style = e?.status === 'given' ? { background: '#2E8C7E', color: '#fff' }
+                    : e?.status === 'late' ? { background: '#E8A64F', color: '#fff' }
+                    : e?.status === 'missed' ? { background: '#C0392B', color: '#fff' }
+                    : e?.status === 'skipped' ? { background: '#E4DCCB', color: '#8A7A66' }
+                    : { background: '#F1EBDD', color: '#F1EBDD' };
+                  const mark = e?.status === 'given' || e?.status === 'late' ? '✓'
+                    : e?.status === 'missed' ? '✕' : e?.status === 'skipped' ? '−' : '·';
+                  const tip = e?.byName ? `${e.byName}${e.at ? ` · ${new Date(e.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}` : 'Nothing recorded';
+                  return (
+                    <td key={i} className="px-1.5 py-0.5 text-center">
+                      <span title={tip} className="inline-flex w-[18px] h-[18px] rounded-[6px] items-center justify-center font-extrabold" style={style}>{mark}</span>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Field>
   );
 }
 
