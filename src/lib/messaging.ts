@@ -23,6 +23,7 @@ import {
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
 import { getFamilyMembers, type Role, type Child } from './firestore';
+import { filterListedMembers } from './helperVisibility';
 
 /** Per-user messaging privacy choices (on UserProfile.messagingPrivacy).
  *  Undefined fields default to true (share). */
@@ -118,10 +119,18 @@ const avatarFor = (p: { avatarPhoto?: string; photoURL?: string; role: Role }): 
 
 // ── Members ───────────────────────────────────────────────────────
 /** Family members who can message — every user account in the family. Kid
- *  avatars are enriched from their Child record when available. */
-export async function messageableMembers(familyId: string, children: Child[] = []): Promise<ThreadMember[]> {
+ *  avatars are enriched from their Child record when available.
+ *
+ *  🤝 2026-08-25: helpers with no kid assigned (and paused/removed ones)
+ *  are not listed — a 6-helper house was showing 11 rows here. Pass
+ *  `selfUid` so the viewer is never filtered out of their own picker.
+ *  This only changes who can be *picked*; anyone already in a thread
+ *  stays in it. See lib/helperVisibility.ts. */
+export async function messageableMembers(
+  familyId: string, children: Child[] = [], selfUid?: string,
+): Promise<ThreadMember[]> {
   if (isGuestActive()) return [];
-  const users = await getFamilyMembers(familyId);
+  const users = filterListedMembers(await getFamilyMembers(familyId), selfUid);
   const kidAvatar = new Map(children.map((c) => [c.id, c.avatarPhoto || c.avatarEmoji]));
   return users.map((u) => ({
     uid: u.uid,

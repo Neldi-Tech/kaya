@@ -60,7 +60,8 @@ export async function POST(req: NextRequest) {
   const takeRef = bizRef.collection('stockTakes').doc(date);
   const takeSnap = await takeRef.get();
   if (!takeSnap.exists) return NextResponse.json({ error: 'no-stocktake' }, { status: 404 });
-  if ((takeSnap.data() as { hpGranted?: boolean }).hpGranted) {
+  const take = takeSnap.data() as { hpGranted?: boolean; isCheckin?: boolean };
+  if (take.hpGranted) {
     return NextResponse.json({ ok: true, alreadyGranted: true, points: 0 });
   }
 
@@ -72,7 +73,9 @@ export async function POST(req: NextRequest) {
   try {
     await db.collection('families').doc(familyId).collection('awards').add({
       childId: ownerId, kind: 'regular', points,
-      reason: 'Kaya Business — stock-take done', category: 'business',
+      // Business 2.0 (R15) — the reason names what was actually done.
+      reason: take.isCheckin ? 'Kaya Business — daily check-in done' : 'Kaya Business — stock-take done',
+      category: 'business',
       awardedBy: 'system', awardedByName: 'Auto-award', senderRole: 'parent',
       createdAt: new Date(),
     });

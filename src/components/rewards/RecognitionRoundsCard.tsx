@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
+import { filterListedMembers } from '@/lib/helperVisibility';
 import {
   updateFamily, readRecognitionConfig, getFamilyMembers,
   type UserProfile,
@@ -43,7 +44,10 @@ export default function RecognitionRoundsCard() {
   const [members, setMembers] = useState<UserProfile[]>([]);
   useEffect(() => {
     if (!profile?.familyId) return;
+    // 🤝 2026-08-25 — the recognition-nudge audience skips outside
+    // helpers (no kid assigned): they have nobody to recognise.
     getFamilyMembers(profile.familyId)
+      .then((all) => filterListedMembers(all, profile.uid))
       .then((ms) => setMembers(ms.filter((m) => m.role === 'parent' || m.role === 'helper')))
       .catch(() => setMembers([]));
   }, [profile?.familyId]);

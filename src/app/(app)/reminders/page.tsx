@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { getFamilyMembers, type UserProfile, type Child } from '@/lib/firestore';
+import { filterListedMembers } from '@/lib/helperVisibility';
 import { toDisplayDate, dayOfWeek } from '@/lib/dates';
 import {
   fetchReminders, saveReminder, deleteReminder, decideReminder,
@@ -22,11 +23,17 @@ import {
   type ReminderEvent, type ReminderType, type ReminderVisibility,
   type RepeatRule, type RepeatFreq, type MonthDay, type ReminderRecipient,
   type EmailGroup, type GreetTo, type FamilyContact, cardEligible, builtInGroups, nextAnniversaryOf, syncGreetToWithContact,
+  isCareType, suggestSlots, slotIcon, careDayNumber, careTotalDays, careEndDate, addDaysKey, doseKeyFor,
+  type CareInfo, type CareSlot, type CareDurationMode, type DoseEntry,
 } from '@/lib/reminders';
+import { compressImageBlob, safeUploadBytes } from '@/lib/storageUpload';
+import { ref as storageRef, getDownloadURL } from 'firebase/storage';
+import { storage } from '@/lib/firebase';
 import HonoreePicker from '@/components/reminders/HonoreePicker';
 import GreetingCardStudio, { type StudioTarget } from '@/components/reminders/GreetingCardStudio';
 import { listCards, cardIdFor, type GreetingCard } from '@/lib/greetingCards';
 import GiftBrain from '@/components/reminders/GiftBrain';
+import CareDoseCards from '@/components/reminders/CareDoseCards';
 import CatchUpBoard from '@/components/catchup/CatchUpBoard';
 import TimeCapsule from '@/components/reminders/TimeCapsule';
 import { PAGE_WIDTH_CLASS, PageSplit, DataRows, DATA_ROW, DATA_ROW_HOVER } from '@/components/layout/Page';
@@ -36,6 +43,9 @@ import { PAGE_WIDTH_CLASS, PageSplit, DataRows, DATA_ROW, DATA_ROW_HOVER } from 
 const CAL = '#5B6CC8';
 const CAL_DK = '#3E4DA0';
 const CAL_SOFT = '#E7EAFA';
+// 💊 v5 Care accent — the approved mint-teal (deeper than the 🎉 event mid).
+const CARE = '#2E8C7E';
+const CARE_SOFT = '#E2F4F1';
 
 const MONTH_DAY_CHIPS: MonthDay[] = [1, 5, 10, 15, 20, 25, 'last'];
 
@@ -72,6 +82,23 @@ interface FormState {
   recipients: ReminderRecipient[];
   /** ✉️ 2.0 — the honoree (greeting card target). */
   greetTo: GreetTo | null;
+  /** 💊 v5 — care fields (type medicine|routine only). */
+  careDose: string;
+  careSlots: CareSlot[];
+  careDurMode: CareDurationMode;
+  careDays: number;
+  careUntil: string;
+  careForKind: 'kid' | 'self';
+  careForChildId: string;
+  careForName: string;
+  careGiverUids: string[];
+  careWithFood: boolean;
+  carePhotoUrl: string;
+  careLabelName: string;
+  carePackCount: number | null;
+  careWatchInApp: boolean;
+  careWatchSummary: boolean;
+  careWatchMissed: boolean;
 }
 
 function blankForm(): FormState {
@@ -81,6 +108,10 @@ function blankForm(): FormState {
     endMode: 'never', endOn: '', endAfter: 10, leadDays: [1, 0], channelInApp: true, channelEmail: false,
     recipients: [],
     greetTo: null,
+    careDose: '', careSlots: suggestSlots(3), careDurMode: 'days', careDays: 7, careUntil: '',
+    careForKind: 'kid', careForChildId: '', careForName: '', careGiverUids: [],
+    careWithFood: false, carePhotoUrl: '', careLabelName: '', carePackCount: null,
+    careWatchInApp: true, careWatchSummary: true, careWatchMissed: true,
   };
 }
 
@@ -110,6 +141,45 @@ function formFromEvent(ev: ReminderEvent): FormState {
     channelEmail: !!ev.channels?.email,
     recipients: ev.emailRecipients || [],
     greetTo: ev.greetTo || null,
+    careDose: ev.care?.dose || '',
+    careSlots: ev.care?.slots?.length ? ev.care.slots : suggestSlots(3),
+    careDurMode: ev.care?.duration?.mode || 'days',
+    careDays: ev.care?.duration?.mode === 'days' ? (ev.care.duration.days || 7) : 7,
+    careUntil: ev.care?.duration?.mode === 'until' ? (ev.care.duration.until || '') : '',
+    careForKind: ev.care?.forKind || 'kid',
+    careForChildId: ev.care?.forChildId || '',
+    careForName: ev.care?.forName || '',
+    careGiverUids: ev.care?.giverUids || [],
+    careWithFood: !!ev.care?.withFood,
+    carePhotoUrl: ev.care?.photoUrl || '',
+    careLabelName: ev.care?.labelName || '',
+    carePackCount: ev.care?.packCount ?? null,
+    careWatchInApp: ev.care?.watchInApp !== false,
+    careWatchSummary: ev.care?.watchSummaryEmail !== false,
+    careWatchMissed: ev.care?.watchMissedEmail !== false,
+  };
+}
+
+/** Build the care payload for save — undefined for non-care types. */
+function buildCare(f: FormState): CareInfo | undefined {
+  if (!isCareType(f.type)) return undefined;
+  return {
+    dose: f.careDose.trim(),
+    slots: f.careSlots,
+    duration: f.careDurMode === 'days' ? { mode: 'days', days: f.careDays }
+      : f.careDurMode === 'until' ? { mode: 'until', until: f.careUntil }
+      : { mode: 'ongoing' },
+    forKind: f.careForKind,
+    ...(f.careForKind === 'kid' && f.careForChildId ? { forChildId: f.careForChildId } : {}),
+    ...(f.careForName ? { forName: f.careForName } : {}),
+    giverUids: f.careGiverUids,
+    ...(f.careWithFood ? { withFood: true } : {}),
+    ...(f.carePhotoUrl ? { photoUrl: f.carePhotoUrl } : {}),
+    ...(f.careLabelName ? { labelName: f.careLabelName } : {}),
+    ...(f.carePackCount ? { packCount: f.carePackCount } : {}),
+    watchInApp: f.careWatchInApp,
+    watchSummaryEmail: f.careWatchSummary,
+    watchMissedEmail: f.careWatchMissed,
   };
 }
 
@@ -162,7 +232,12 @@ export default function RemindersPage() {
         getFamilyMembers(profile.familyId).catch(() => [] as UserProfile[]),
       ]);
       setEvents(evs);
-      setMembers(mems.filter((m) => !!m.email));
+      // 🤝 2026-08-25 — outside helpers (driver, gardener…) drop out of
+      // the recipient checklist, the built-in groups and the honoree
+      // picker. A saved reminder that already names one keeps them: the
+      // address simply falls through to the ✉️ external list below
+      // (see `externals`), so nothing is lost and it stays removable.
+      setMembers(filterListedMembers(mems, profile.uid).filter((m) => !!m.email));
       listCards().then((cs) => setCards(Object.fromEntries(cs.map((c) => [c.id, c])))).catch(() => {});
     } catch {
       setEvents([]);
@@ -189,12 +264,25 @@ export default function RemindersPage() {
   ], [events, autoEvents, family?.contacts]);
 
   const occurrences = useMemo(
-    () => occurrencesInRange(allEvents, uid, role, { horizonDays: 60 }),
-    [allEvents, uid, role],
+    () => occurrencesInRange(allEvents, uid, role, { horizonDays: 60, viewerChildId: profile?.childId }),
+    [allEvents, uid, role, profile?.childId],
   );
   const today = todayKey();
-  const todays = occurrences.filter((o) => o.dateKey === today);
-  const upcoming = occurrences.filter((o) => o.dateKey > today).slice(0, 20);
+  // 💊 v5 — care events get dose cards, not generic rows (they stay findable
+  // in the All-reminders month list for managing/editing).
+  const todays = occurrences.filter((o) => o.dateKey === today && !o.event.care);
+  const upcoming = occurrences.filter((o) => o.dateKey > today && !o.event.care).slice(0, 20);
+  const careToday = useMemo(
+    () => occurrences.filter((o) => o.dateKey === today && !!o.event.care).map((o) => o.event),
+    [occurrences, today],
+  );
+  const applyDose = useCallback((eventId: string, entry: DoseEntry) => {
+    setEvents((evs) => evs.map((e) => {
+      if (e.id !== eventId) return e;
+      const log = (e.doseLog || []).filter((d) => d.key !== entry.key);
+      return { ...e, doseLog: [...log, entry] };
+    }));
+  }, []);
 
   const pending = useMemo(
     () => (role === 'parent' ? events.filter((e) => e.status === 'pending_parent') : []),
@@ -271,8 +359,13 @@ export default function RemindersPage() {
 
   async function handleSave() {
     if (!user) return;
-    if (!form.title.trim()) { setError('Give it a name'); return; }
+    if (!form.title.trim()) { setError(isCareType(form.type) ? 'Give the medicine/routine a name' : 'Give it a name'); return; }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(form.date)) { setError('Pick a date'); return; }
+    if (isCareType(form.type)) {
+      if (form.careForKind === 'kid' && !form.careForChildId) { setError('Pick who it’s for'); return; }
+      if (form.careDurMode === 'until' && !/^\d{4}-\d{2}-\d{2}$/.test(form.careUntil)) { setError('Pick the last day'); return; }
+      if (form.careForKind === 'kid' && form.careGiverUids.length === 0) { setError('Pick who gives it'); return; }
+    }
     setSaving(true); setError('');
     try {
       const token = await user.getIdToken();
@@ -292,6 +385,7 @@ export default function RemindersPage() {
         channels: { inApp: form.channelInApp, email: form.channelEmail },
         emailRecipients: form.channelEmail ? form.recipients : [],
         greetTo: form.greetTo || undefined,
+        care: buildCare(form),
       });
       setEditorOpen(false);
       await load();
@@ -419,6 +513,13 @@ export default function RemindersPage() {
         <div className="text-center text-kaya-sand py-16 text-sm">Loading your reminders…</div>
       ) : (
         <>
+          {/* 💊 v5 — today's dose cards (tickable), above the classic rows. */}
+          {careToday.length > 0 && (
+            <Section label="💊 Care today">
+              <CareDoseCards events={careToday} onDose={applyDose} />
+            </Section>
+          )}
+
           {/* Today */}
           {todays.length > 0 && (
             <Section label="Today">
@@ -527,6 +628,7 @@ export default function RemindersPage() {
           contacts={family?.contacts || []}
           familyId={profile?.familyId || ''}
           viewerRole={role}
+          careEvent={form.id ? events.find((e) => e.id === form.id) : undefined}
         />
       )}
     </div>
@@ -559,10 +661,20 @@ function Row({ o, onTap, card, onCard, dense }: {
   // year ✨" line — the badge pill already carries the count.
   const milestone = anniversaryMilestone(ev, o.dateKey);
   const nth = milestone ? 'a milestone year ✨' : nthSubLabel(ev, o.dateKey);
-  const sub = [
-    [ev.withWho && `with ${ev.withWho}`, ev.location].filter(Boolean).join(' · ') || describeRepeat(ev.repeat),
-    nth,
-  ].filter(Boolean).join(' · ');
+  // 💊 v5 — care rows speak dose · ×N/day · who · day-N instead of repeat.
+  const careN = ev.care ? careDayNumber(ev, o.dateKey) : null;
+  const careT = ev.care ? careTotalDays(ev) : null;
+  const sub = ev.care
+    ? [
+        ev.care.dose,
+        `×${ev.care.slots.length}/day`,
+        ev.care.forKind === 'self' ? '🔒 my own' : ev.care.forName,
+        careN ? `day ${careN}${careT ? ` of ${careT}` : ''}` : 'ongoing',
+      ].filter(Boolean).join(' · ')
+    : [
+        [ev.withWho && `with ${ev.withWho}`, ev.location].filter(Boolean).join(' · ') || describeRepeat(ev.repeat),
+        nth,
+      ].filter(Boolean).join(' · ');
   const auto = isAutoImported(ev);
   const cardState = card?.status === 'sent' || card?.status === 'belated' ? 'sent' : card?.status === 'ready' ? 'ready' : card?.status === 'pending_parent' ? 'pending' : card ? 'draft' : 'none';
   const cardLabel = cardState === 'sent' ? '✅' : cardState === 'ready' ? '✉️✓' : cardState === 'pending' ? '⏳' : cardState === 'draft' ? '✏️' : '✉️';
@@ -618,7 +730,7 @@ function EmptyState({ onNew }: { onNew: () => void }) {
 // ── Editor ───────────────────────────────────────────────────────────────
 
 function Editor({
-  form, setForm, members, groups, ownUid, saving, error, onClose, onSave, onDelete, kids, contacts, familyId, viewerRole,
+  form, setForm, members, groups, ownUid, saving, error, onClose, onSave, onDelete, kids, contacts, familyId, viewerRole, careEvent,
 }: {
   form: FormState;
   setForm: React.Dispatch<React.SetStateAction<FormState>>;
@@ -628,6 +740,8 @@ function Editor({
   contacts: FamilyContact[];
   familyId: string;
   viewerRole?: string;
+  /** 💊 v5 — the stored event being edited (for the adherence grid). */
+  careEvent?: ReminderEvent;
   ownUid: string;
   saving: boolean;
   error: string;
@@ -638,6 +752,68 @@ function Editor({
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setForm((f) => ({ ...f, [k]: v }));
 
   const toggleArr = <T,>(arr: T[], v: T): T[] => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
+
+  // ── 💊 v5 Care — section toggle + medicine-photo upload + AI label read ─
+  const { user: authUser } = useAuth();
+  const isCare = isCareType(form.type);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoErr, setPhotoErr] = useState('');
+  const [aiReading, setAiReading] = useState(false);
+  const [aiRead, setAiRead] = useState<string>('');
+  async function pickCarePhoto(file: File | null) {
+    if (!file || !familyId || uploadingPhoto) return;
+    setUploadingPhoto(true); setPhotoErr('');
+    try {
+      const blob = await compressImageBlob(file, { maxDim: 900, quality: 0.85 });
+      // Rides the existing messages storage rule (like Card Studio) — no
+      // storage.rules deploy.
+      const path = `families/${familyId}/messages/care/${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}.jpg`;
+      const r = storageRef(storage, path);
+      await safeUploadBytes(r, blob, { contentType: 'image/jpeg' });
+      set('carePhotoUrl', await getDownloadURL(r));
+      void readLabel(blob);
+    } catch (e) {
+      setPhotoErr(e instanceof Error ? e.message : 'Could not upload the photo — try again.');
+    }
+    setUploadingPhoto(false);
+  }
+  /** ✨ Transcription-only label read — pre-fills EMPTY fields only; the
+   *  parent confirms everything (approved Logic close #5). */
+  async function readLabel(blob: Blob) {
+    if (form.type !== 'medicine' || aiReading) return;
+    setAiReading(true); setAiRead('');
+    try {
+      const b64 = await new Promise<string>((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
+        fr.onerror = reject;
+        fr.readAsDataURL(blob);
+      });
+      const token = await authUser?.getIdToken();
+      if (!token || !b64) { setAiReading(false); return; }
+      const res = await fetch('/api/reminders/care-label', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        body: JSON.stringify({ imageBase64: b64, mediaType: 'image/jpeg' }),
+      });
+      const j = await res.json().catch(() => ({ found: false }));
+      if (j?.found && j.name) {
+        const fullName = [j.name, j.strength].filter(Boolean).join(' ');
+        setForm((f) => ({
+          ...f,
+          ...(f.title.trim() ? {} : { title: fullName }),
+          careLabelName: fullName,
+          ...(f.carePackCount ? {} : (j.packCount ? { carePackCount: j.packCount } : {})),
+          ...(j.withFood ? { careWithFood: true } : {}),
+          ...(f.careDose.trim() ? {} : (j.form && j.form !== 'other' && j.form !== '' ? { careDose: `1 ${j.form}` } : {})),
+        }));
+        setAiRead([fullName, j.packCount ? `${j.packCount} in the pack` : '', j.instructions].filter(Boolean).join(' · '));
+      } else {
+        setAiRead('couldn’t read this label — fill the fields yourself, nothing is blocked.');
+      }
+    } catch { setAiRead('couldn’t read this label — fill the fields yourself, nothing is blocked.'); }
+    setAiReading(false);
+  }
 
   // ── v4 Nth Birthday/Anniversary — origin date + live ✨ preview ─────────
   const showOrigin = form.type === 'birthday' || form.type === 'anniversary';
@@ -733,11 +909,15 @@ function Editor({
         </div>
 
         <div className="p-4 space-y-5">
-          {/* Type */}
+          {/* Type — 💊/🔁 Care chips are parent-only (approved v5). */}
           <Field label="Type">
             <div className="flex flex-wrap gap-2">
-              {REMINDER_TYPES.map((t) => (
-                <Chip key={t.id} on={form.type === t.id} onClick={() => setForm((f) => ({ ...f, type: t.id, ...((t.id === 'birthday' || t.id === 'anniversary') && f.freq === 'none' ? { freq: 'yearly' as RepeatFreq } : {}) }))}>
+              {REMINDER_TYPES.filter((t) => viewerRole === 'parent' || !isCareType(t.id)).map((t) => (
+                <Chip key={t.id} on={form.type === t.id} onClick={() => setForm((f) => ({
+                  ...f, type: t.id,
+                  ...((t.id === 'birthday' || t.id === 'anniversary') && f.freq === 'none' ? { freq: 'yearly' as RepeatFreq } : {}),
+                  ...(isCareType(t.id) ? { freq: 'daily' as RepeatFreq } : {}),
+                }))}>
                   {t.icon} {t.label}
                 </Chip>
               ))}
@@ -745,27 +925,192 @@ function Editor({
           </Field>
 
           {/* Title */}
-          <Field label="What's it for?">
+          <Field label={isCare ? (form.type === 'medicine' ? 'Medicine name' : 'Routine name') : "What's it for?"}>
             <input
               value={form.title}
               onChange={(e) => set('title', e.target.value)}
-              placeholder="e.g. Nathan's dentist · Grandma's birthday"
+              placeholder={isCare
+                ? (form.type === 'medicine' ? 'e.g. Amoxicillin 250mg' : 'e.g. Afternoon nap · Physio stretches')
+                : "e.g. Nathan's dentist · Grandma's birthday"}
               className="w-full rounded-kaya border border-kaya-warm-dark bg-white px-3 py-2.5 text-sm font-medium text-kaya-chocolate"
             />
           </Field>
 
-          {/* Date + time */}
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Date">
+          {/* Date + time (care schedules own their times via slots) */}
+          <div className={isCare ? '' : 'grid grid-cols-2 gap-3'}>
+            <Field label={isCare ? 'Start date' : 'Date'}>
               <input type="date" value={form.date} onChange={(e) => setDate(e.target.value)}
                 className="w-full rounded-kaya border border-kaya-warm-dark bg-white px-3 py-2.5 text-sm font-medium text-kaya-chocolate" />
               {form.date && <div className="text-[11px] text-kaya-sand mt-1">{dayOfWeek(form.date)} · {toDisplayDate(form.date)}</div>}
             </Field>
-            <Field label="Time (optional)">
-              <input type="time" value={form.time} onChange={(e) => set('time', e.target.value)}
-                className="w-full rounded-kaya border border-kaya-warm-dark bg-white px-3 py-2.5 text-sm font-medium text-kaya-chocolate" />
-            </Field>
+            {!isCare && (
+              <Field label="Time (optional)">
+                <input type="time" value={form.time} onChange={(e) => set('time', e.target.value)}
+                  className="w-full rounded-kaya border border-kaya-warm-dark bg-white px-3 py-2.5 text-sm font-medium text-kaya-chocolate" />
+              </Field>
+            )}
           </div>
+
+          {/* ── 💊 v5 Care — photo · dose · slots · duration · people ── */}
+          {isCare && (
+            <>
+              {form.type === 'medicine' && (
+                <Field label="📷 Photo of the medicine (optional)">
+                  <div className="flex items-center gap-3">
+                    <label className="w-[74px] h-[74px] rounded-kaya border-2 border-dashed flex items-center justify-center text-2xl cursor-pointer overflow-hidden shrink-0"
+                      style={{ borderColor: CARE, background: form.carePhotoUrl ? '#fff' : CARE_SOFT }}>
+                      {form.carePhotoUrl
+                        // eslint-disable-next-line @next/next/no-img-element
+                        ? <img src={form.carePhotoUrl} alt="Medicine" className="w-full h-full object-cover" />
+                        : uploadingPhoto ? '⏳' : '💊'}
+                      <input type="file" accept="image/*" capture="environment" className="hidden"
+                        onChange={(e) => pickCarePhoto(e.target.files?.[0] || null)} />
+                    </label>
+                    <div className="text-[11px] text-kaya-sand">
+                      Snap the box or bottle — the photo rides on every dose card so the right medicine is never in doubt.
+                      {form.carePhotoUrl && <button onClick={() => set('carePhotoUrl', '')} className="ml-1.5 font-bold text-red-500">✕ Remove</button>}
+                    </div>
+                  </div>
+                  {photoErr && <div className="text-[11px] text-red-600 mt-1">{photoErr}</div>}
+                  {(aiReading || aiRead) && (
+                    <div className="mt-2 rounded-kaya-sm border border-dashed px-3 py-2 text-[12px]"
+                      style={{ borderColor: CARE, background: CARE_SOFT, color: '#1F4F47' }}>
+                      {aiReading
+                        ? '✨ Kaya is reading the label…'
+                        : <>✨ <b>Kaya read:</b> {aiRead} — <b>please check every detail.</b> Always follow your doctor’s instructions.</>}
+                    </div>
+                  )}
+                </Field>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <Field label={form.type === 'medicine' ? 'Dose' : 'What exactly?'}>
+                  <input value={form.careDose} onChange={(e) => set('careDose', e.target.value)}
+                    placeholder={form.type === 'medicine' ? 'e.g. 1 tablet · 10ml syrup' : 'e.g. 20 minutes'}
+                    className="w-full rounded-kaya border border-kaya-warm-dark bg-white px-3 py-2.5 text-sm font-medium text-kaya-chocolate" />
+                </Field>
+                <Field label="Times a day">
+                  <div className="flex gap-1.5">
+                    {[1, 2, 3, 4].map((n) => (
+                      <button key={n} onClick={() => set('careSlots', suggestSlots(n))}
+                        className="w-10 h-10 rounded-kaya-sm text-sm font-extrabold border transition"
+                        style={form.careSlots.length === n
+                          ? { background: CARE, borderColor: CARE, color: '#fff' }
+                          : { background: '#fff', borderColor: '#E8DEC9', color: '#5C6975' }}>
+                        ×{n}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+              </div>
+
+              <Field label="At these times">
+                <div className="flex flex-wrap gap-2">
+                  {form.careSlots.map((s, i) => (
+                    <span key={i} className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5"
+                      style={{ borderColor: CARE, background: '#fff' }}>
+                      <span className="text-sm">{s.icon || slotIcon(s.time)}</span>
+                      <input type="time" value={s.time}
+                        onChange={(e) => {
+                          const t = e.target.value;
+                          if (!t) return;
+                          set('careSlots', form.careSlots.map((x, j) => (j === i ? { time: t, icon: slotIcon(t) } : x)));
+                        }}
+                        className="text-[13px] font-extrabold bg-transparent" style={{ color: CARE }} />
+                    </span>
+                  ))}
+                </div>
+                <div className="text-[11px] text-kaya-sand mt-1.5">Kaya spreads them evenly — tap any time to change it. Local family time.</div>
+              </Field>
+
+              <Field label="For how long">
+                <div className="flex flex-wrap gap-2 items-center">
+                  <Chip on={form.careDurMode === 'days'} onClick={() => set('careDurMode', 'days')}>For N days</Chip>
+                  <Chip on={form.careDurMode === 'until'} onClick={() => set('careDurMode', 'until')}>Until a date</Chip>
+                  <Chip on={form.careDurMode === 'ongoing'} onClick={() => set('careDurMode', 'ongoing')}>Ongoing</Chip>
+                  {form.careDurMode === 'days' && (
+                    <input type="number" min={1} max={365} value={form.careDays}
+                      onChange={(e) => set('careDays', Math.max(1, Math.min(365, parseInt(e.target.value, 10) || 1)))}
+                      className="w-16 rounded-kaya-sm border border-kaya-warm-dark bg-white px-2 py-1.5 text-sm text-center font-bold" />
+                  )}
+                  {form.careDurMode === 'until' && (
+                    <input type="date" value={form.careUntil} onChange={(e) => set('careUntil', e.target.value)}
+                      className="rounded-kaya-sm border border-kaya-warm-dark bg-white px-2 py-1.5 text-sm" />
+                  )}
+                </div>
+                <div className="text-[11px] text-kaya-sand mt-1.5">Courses end themselves — no zombie doses after the last day.</div>
+              </Field>
+
+              <Field label="Who is it for?">
+                <div className="flex flex-wrap gap-2">
+                  {kids.map((k) => (
+                    <Chip key={k.id} on={form.careForKind === 'kid' && form.careForChildId === k.id}
+                      onClick={() => setForm((f) => ({ ...f, careForKind: 'kid', careForChildId: k.id, careForName: k.name }))}>
+                      🧒 {k.name}
+                    </Chip>
+                  ))}
+                  <Chip on={form.careForKind === 'self'}
+                    onClick={() => setForm((f) => ({ ...f, careForKind: 'self', careForChildId: '', careForName: '', visibility: 'private' }))}>
+                    🙋 Me
+                  </Chip>
+                </div>
+                {form.careForKind === 'self' && (
+                  <div className="mt-2 rounded-kaya-sm px-3 py-2 text-[11.5px] font-bold" style={{ background: '#EFEAFB', color: '#6B4FC0' }}>
+                    🔒 Your own care stays private — no helper, no kids. Flip below to share with your co-parent.
+                  </div>
+                )}
+              </Field>
+
+              {form.careForKind === 'self' ? (
+                <Field label="Share with your co-parent?">
+                  <div className="flex gap-2">
+                    <Chip on={form.visibility === 'private'} onClick={() => set('visibility', 'private')}>🔒 Just me</Chip>
+                    <Chip on={form.visibility === 'shared'} onClick={() => set('visibility', 'shared')}>👫 Co-parent too</Chip>
+                  </div>
+                </Field>
+              ) : (
+                <>
+                  <Field label="Who gives it? (the ✓ that counts)">
+                    <div className="flex flex-wrap gap-2">
+                      {members.filter((m) => m.role !== 'kid').map((m) => (
+                        <Chip key={m.uid} on={form.careGiverUids.includes(m.uid)}
+                          onClick={() => set('careGiverUids', toggleArr(form.careGiverUids, m.uid))}>
+                          {roleEmoji(m.role)} {m.displayName}{m.uid === ownUid ? ' (me)' : ''}
+                        </Chip>
+                      ))}
+                    </div>
+                    <div className="text-[11px] text-kaya-sand mt-1.5">Dose cards land in their My Day. More than one is fine — first ✓ wins.</div>
+                  </Field>
+
+                  <Field label="Parents are watching 👀">
+                    <div className="space-y-2">
+                      <ChannelRow on={form.careWatchInApp} onToggle={() => set('careWatchInApp', !form.careWatchInApp)} label="🔔 In-app: every ✓ and ❌" />
+                      <ChannelRow on={form.careWatchSummary} onToggle={() => set('careWatchSummary', !form.careWatchSummary)} label="📧 Email: evening summary" />
+                      <ChannelRow on={form.careWatchMissed} onToggle={() => set('careWatchMissed', !form.careWatchMissed)} label="🚨 Email instantly if a dose is missed" />
+                    </div>
+                  </Field>
+                </>
+              )}
+
+              {form.type === 'medicine' && (
+                <div className="flex items-center gap-2">
+                  <ChannelRow on={form.careWithFood} onToggle={() => set('careWithFood', !form.careWithFood)} label="🍽 Take with food" />
+                </div>
+              )}
+
+              {form.type === 'medicine' && (
+                <div className="text-[11px] text-kaya-sand italic">Always follow your doctor’s instructions.</div>
+              )}
+
+              {/* 👀 Adherence at a glance — dot grid over the last days. */}
+              {form.id && careEvent?.care && (
+                <>
+                  <AdherenceGrid ev={careEvent} />
+                  <CareTools ev={careEvent} />
+                </>
+              )}
+            </>
+          )}
 
           {/* v4 — actual event date (only 🎂/💍): powers "Nth Birthday". */}
           {showOrigin && (
@@ -797,7 +1142,8 @@ function Editor({
             </Field>
           )}
 
-          {/* With / Where */}
+          {/* With / Where — care events carry dose/giver instead. */}
+          {!isCare && (
           <div className="grid grid-cols-2 gap-3">
             <Field label="With (optional)">
               <input value={form.withWho} onChange={(e) => set('withWho', e.target.value)} placeholder="e.g. Mum"
@@ -808,6 +1154,7 @@ function Editor({
                 className="w-full rounded-kaya border border-kaya-warm-dark bg-white px-3 py-2.5 text-sm font-medium text-kaya-chocolate" />
             </Field>
           </div>
+          )}
 
           {/* Note */}
           <Field label="Note (optional)">
@@ -815,14 +1162,19 @@ function Editor({
               className="w-full rounded-kaya border border-kaya-warm-dark bg-white px-3 py-2.5 text-sm font-medium text-kaya-chocolate" />
           </Field>
 
-          {/* Visibility */}
+          {/* Visibility — care routes by who-it's-for (v5); hidden there. */}
+          {!isCare && (
           <Field label="Who can see it?">
             <div className="flex gap-2">
               <Chip on={form.visibility === 'private'} onClick={() => set('visibility', 'private')}>🔒 Private</Chip>
               <Chip on={form.visibility === 'shared'} onClick={() => set('visibility', 'shared')}>👨‍👩‍👧 Shared</Chip>
             </div>
           </Field>
+          )}
 
+          {/* Repeats · Remind-me · Notify-by · Email-to — the classic rail.
+              Care events derive all of this (daily slots + watch prefs). */}
+          {!isCare && (<>
           {/* Repeats */}
           <Field label="Repeats">
             <div className="flex flex-wrap gap-2">
@@ -1041,6 +1393,8 @@ function Editor({
             </Field>
           )}
 
+          </>)}
+
           {error && <div className="text-sm text-red-600 font-medium">{error}</div>}
 
           {/* Actions */}
@@ -1090,6 +1444,127 @@ function ChannelRow({ on, onToggle, label }: { on: boolean; onToggle: () => void
       <span className="text-sm font-bold text-kaya-chocolate">{label}</span>
     </button>
   );
+}
+
+/** 💊 v5 — adherence dot grid (last ≤7 days × slots) for the care editor.
+ *  ✓ mint = given · ✓ amber = late · ✕ red = missed · − grey = skipped ·
+ *  beige = nothing recorded. Hover/long-press a dot → who + when. */
+function AdherenceGrid({ ev }: { ev: ReminderEvent }) {
+  const care = ev.care!;
+  const today = todayKey();
+  const end = careEndDate(ev);
+  const last = end && end < today ? end : today;
+  const first = diffDaysKey(ev.date, last) > 6 ? addDaysKey(last, -6) : ev.date;
+  const days: string[] = [];
+  for (let k = first; k <= last && days.length < 7; k = addDaysKey(k, 1)) days.push(k);
+  if (!days.length) return null;
+  const entryAt = (dateKey: string, i: number): DoseEntry | undefined =>
+    (ev.doseLog || []).find((d) => d.key === doseKeyFor(dateKey, i));
+  return (
+    <Field label="Adherence 👀">
+      <div className="bg-white border border-kaya-warm-dark rounded-kaya px-3 py-2.5 overflow-x-auto">
+        <table className="text-[11px]">
+          <thead>
+            <tr>
+              <th className="pr-2" />
+              {care.slots.map((s, i) => <th key={i} className="px-1.5 pb-1 text-center">{s.icon || slotIcon(s.time)}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {days.map((dk) => (
+              <tr key={dk}>
+                <td className="pr-2 font-bold text-kaya-sand whitespace-nowrap">{dayOfWeek(dk).slice(0, 3)} {dk.slice(8)}</td>
+                {care.slots.map((s, i) => {
+                  const e = entryAt(dk, i);
+                  const style = e?.status === 'given' ? { background: '#2E8C7E', color: '#fff' }
+                    : e?.status === 'late' ? { background: '#E8A64F', color: '#fff' }
+                    : e?.status === 'missed' ? { background: '#C0392B', color: '#fff' }
+                    : e?.status === 'skipped' ? { background: '#E4DCCB', color: '#8A7A66' }
+                    : { background: '#F1EBDD', color: '#F1EBDD' };
+                  const mark = e?.status === 'given' || e?.status === 'late' ? '✓'
+                    : e?.status === 'missed' ? '✕' : e?.status === 'skipped' ? '−' : '·';
+                  const tip = e?.byName ? `${e.byName}${e.at ? ` · ${new Date(e.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}` : 'Nothing recorded';
+                  return (
+                    <td key={i} className="px-1.5 py-0.5 text-center">
+                      <span title={tip} className="inline-flex w-[18px] h-[18px] rounded-[6px] items-center justify-center font-extrabold" style={style}>{mark}</span>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Field>
+  );
+}
+
+/** 💊 v5-F — pack countdown (📉 Refill Radar's visible face) + the 🩺
+ *  Doctor's Report Card (printable adherence trail for the clinic). */
+function CareTools({ ev }: { ev: ReminderEvent }) {
+  const care = ev.care!;
+  const given = (ev.doseLog || []).filter((d) => d.status === 'given' || d.status === 'late').length;
+  const remaining = care.packCount ? Math.max(0, care.packCount - given) : null;
+  const lowPack = remaining !== null && remaining <= care.slots.length * 3;
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      {remaining !== null && (
+        <span className="text-[11.5px] font-extrabold rounded-full px-3 py-1.5"
+          style={lowPack ? { background: '#F5E9D2', color: '#8A6D1F' } : { background: CARE_SOFT, color: CARE }}>
+          📉 ≈ {remaining} of {care.packCount} left{lowPack ? ' · refill soon 🛒' : ''}
+        </span>
+      )}
+      {(ev.doseLog || []).length > 0 && (
+        <button onClick={() => openDoctorReport(ev)}
+          className="text-[11.5px] font-extrabold rounded-full px-3 py-1.5 border"
+          style={{ borderColor: CARE, color: CARE, background: '#fff' }}>
+          🩺 Doctor’s Report
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Build + print the clinic-ready adherence report in a new tab. */
+function openDoctorReport(ev: ReminderEvent) {
+  const care = ev.care!;
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const rows = (ev.doseLog || [])
+    .filter((d) => d.status)
+    .sort((a, b) => (a.key < b.key ? -1 : 1))
+    .map((d) => {
+      const [dk, si] = d.key.split(':');
+      const slot = care.slots[parseInt(si, 10)];
+      const at = d.at ? new Date(d.at) : null;
+      const time = at ? `${at.getHours() % 12 || 12}:${String(at.getMinutes()).padStart(2, '0')} ${at.getHours() >= 12 ? 'PM' : 'AM'}` : '—';
+      const status = d.status === 'given' ? '✓ given' : d.status === 'late' ? '✓ given late' : d.status === 'missed' ? '✕ missed' : '⏭ skipped';
+      return `<tr><td>${esc(toDisplayDate(dk))}</td><td>${slot ? `${slot.icon || ''} ${esc(slot.time)}` : `slot ${si}`}</td><td>${status}</td><td>${esc(d.byName || '—')}</td><td>${time}</td></tr>`;
+    }).join('');
+  const givenN = (ev.doseLog || []).filter((d) => d.status === 'given' || d.status === 'late').length;
+  const missedN = (ev.doseLog || []).filter((d) => d.status === 'missed').length;
+  const total = careTotalDays(ev);
+  const html = `<!doctype html><html><head><title>Kaya Care Report — ${esc(ev.title)}</title><style>
+    body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1F2D3D;padding:32px;max-width:720px;margin:0 auto;}
+    h1{font-size:20px;margin:0;} .sub{color:#5C6975;font-size:13px;margin-top:4px;}
+    .box{border:1px solid #D8CFC0;border-radius:12px;padding:14px 16px;margin:16px 0;display:flex;gap:16px;align-items:center;}
+    img{max-width:90px;max-height:90px;border-radius:10px;border:1px solid #D8CFC0;}
+    table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;}
+    th{text-align:left;border-bottom:2px solid #D8CFC0;padding:6px 8px;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#5C6975;}
+    td{border-bottom:1px solid #EDE5D8;padding:6px 8px;}
+    .foot{margin-top:24px;font-size:11px;color:#5C6975;} @media print{.noprint{display:none}}
+  </style></head><body>
+    <h1>💊 Care adherence report — ${esc(ev.title)}</h1>
+    <div class="sub">${esc(care.forName || 'Self')} · ${esc(care.dose)} × ${care.slots.length}/day (${care.slots.map((s) => esc(s.time)).join(' · ')})${care.withFood ? ' · with food' : ''} · started ${esc(toDisplayDate(ev.date))}${total ? ` · ${total}-day course` : ' · ongoing'}</div>
+    <div class="box">${care.photoUrl ? `<img src="${esc(care.photoUrl)}" alt="Medicine" />` : ''}<div>
+      <b>${esc(care.labelName || ev.title)}</b><br>
+      <span class="sub">${givenN} given · ${missedN} missed${care.packCount ? ` · pack of ${care.packCount}` : ''}</span>
+    </div></div>
+    <table><thead><tr><th>Date</th><th>Slot</th><th>Status</th><th>By</th><th>At</th></tr></thead><tbody>${rows || '<tr><td colspan=5>No doses recorded yet.</td></tr>'}</tbody></table>
+    <div class="foot">Generated by Kaya · ourkaya.com · This is a family log, not a medical record. Always follow your doctor’s instructions.</div>
+    <button class="noprint" onclick="window.print()" style="margin-top:18px;padding:10px 22px;border-radius:999px;border:0;background:#2E8C7E;color:#fff;font-weight:800;">🖨 Print / Save PDF</button>
+  </body></html>`;
+  const w = window.open('', '_blank');
+  if (w) { w.document.write(html); w.document.close(); }
 }
 
 /** Badge tints for the classic milestone years (approved v4 mock) — Silver,

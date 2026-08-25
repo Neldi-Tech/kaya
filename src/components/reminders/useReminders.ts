@@ -10,12 +10,12 @@
 // (B1) already owns the day-of celebration (Home hero + My Day wish card);
 // they still appear in `upcoming` as a heads-up.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
   fetchReminders, autoImportedEvents, occurrencesInRange, isAutoImported,
-  todayKey, type ReminderEvent, type ReminderOccurrence,
+  todayKey, type ReminderEvent, type ReminderOccurrence, type DoseEntry,
 } from '@/lib/reminders';
 
 export interface UseRemindersResult {
@@ -24,9 +24,15 @@ export interface UseRemindersResult {
   upcoming: ReminderOccurrence[];
   /** today's + upcoming count (for the Home chip badge). */
   count: number;
+  /** 💊 v5 — care events active today (visibility-filtered) for dose cards. */
+  careToday: ReminderEvent[];
+  /** 💊 v5 — fold a tick response into local state (no refetch). */
+  applyDose: (eventId: string, entry: DoseEntry) => void;
 }
 
 export function useReminders(horizonDays = 30): UseRemindersResult {
+  // (v5) Care events are split out of the generic rows — the 💊 dose cards
+  // own them; see `careToday` + `applyDose` below.
   const { user, profile } = useAuth();
   const { children, family } = useFamily();
   const [events, setEvents] = useState<ReminderEvent[]>([]);
@@ -51,14 +57,27 @@ export function useReminders(horizonDays = 30): UseRemindersResult {
   const all = useMemo(() => [...events, ...auto], [events, auto]);
 
   const occ = useMemo(
-    () => occurrencesInRange(all, profile?.uid || '', profile?.role, { horizonDays }),
-    [all, profile?.uid, profile?.role, horizonDays],
+    () => occurrencesInRange(all, profile?.uid || '', profile?.role, { horizonDays, viewerChildId: profile?.childId }),
+    [all, profile?.uid, profile?.role, profile?.childId, horizonDays],
   );
 
   const today = todayKey();
   const todays = occ.filter((o) => o.dateKey === today
+    && !o.event.care
     && !(isAutoImported(o.event) && o.event.type === 'birthday'));
-  const upcoming = occ.filter((o) => o.dateKey > today);
+  const upcoming = occ.filter((o) => o.dateKey > today && !o.event.care);
+  const careToday = useMemo(
+    () => occ.filter((o) => o.dateKey === today && !!o.event.care).map((o) => o.event),
+    [occ, today],
+  );
 
-  return { loading, todays, upcoming, count: todays.length + upcoming.length };
+  const applyDose = useCallback((eventId: string, entry: DoseEntry) => {
+    setEvents((evs) => evs.map((ev) => {
+      if (ev.id !== eventId) return ev;
+      const log = (ev.doseLog || []).filter((d) => d.key !== entry.key);
+      return { ...ev, doseLog: [...log, entry] };
+    }));
+  }, []);
+
+  return { loading, todays, upcoming, count: todays.length + upcoming.length, careToday, applyDose };
 }

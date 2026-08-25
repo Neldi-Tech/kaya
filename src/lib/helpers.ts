@@ -147,6 +147,31 @@ export async function findFamilyByCode(familyCode: string): Promise<Family | nul
   return { id: d.id, ...d.data() } as Family;
 }
 
+// ── Visibility mirror ─────────────────────────────
+// 🤝 2026-08-25. Every write that can change whether a helper is
+// "listed" in communication areas (kid assignment, pause/resume,
+// remove, create) re-syncs users/{uid}.helperListed through the Admin
+// gateway — the client can neither read the HelperLink from a kid's
+// session nor write another user's doc. Fire-and-forget: a failed
+// mirror leaves the flag stale, and stale falls back to "listed", so
+// the worst case is the old (over-populated) behaviour, never a
+// helper silently disappearing. See lib/helperVisibility.ts.
+export async function syncHelperVisibility(
+  target: { helperUid: string } | { all: true },
+): Promise<void> {
+  try {
+    const token = await auth.currentUser?.getIdToken();
+    if (!token) return;
+    await fetch('/api/helpers/visibility', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify(target),
+    });
+  } catch {
+    // Swallow — see the fail-open note above.
+  }
+}
+
 // ── HelperLink CRUD ───────────────────────────────
 export async function listHelpers(familyId: string): Promise<HelperLink[]> {
   const snap = await getDocs(collection(db, 'families', familyId, 'helpers'));
@@ -165,6 +190,8 @@ export async function updateHelperLink(
   data: Partial<HelperLink>,
 ): Promise<void> {
   await updateDoc(doc(db, 'families', familyId, 'helpers', uid), data);
+  // Kid assignment / status just moved → re-sync the listing flag.
+  if ('kidIds' in data || 'status' in data) await syncHelperVisibility({ helperUid: uid });
 }
 
 export async function removeHelper(familyId: string, uid: string): Promise<void> {
@@ -173,6 +200,9 @@ export async function removeHelper(familyId: string, uid: string): Promise<void>
   // The auth user remains — parent can choose to also rotate the
   // password to lock them out (separate action).
   await updateDoc(doc(db, 'families', familyId, 'helpers', uid), { status: 'removed' });
+  // A removed helper must drop out of every picker (this was leaking:
+  // the user doc keeps its familyId, so they stayed listed forever).
+  await syncHelperVisibility({ helperUid: uid });
 }
 
 // ── Create a new helper (Tier A) ──────────────────
@@ -382,6 +412,9 @@ export async function createHelper(input: CreateHelperInput): Promise<CreateHelp
       createdBy: input.createdBy,
     };
     await setDoc(doc(db, 'families', input.familyId, 'helpers', uid), link);
+    // Stamp the listing flag immediately so a kid-less helper never
+    // flashes into the pickers between creation and the next sync.
+    await syncHelperVisibility({ helperUid: uid });
   } finally {
     // Always release the temp app. Errors here are non-fatal.
     await signOut(tempAuth).catch(() => {});

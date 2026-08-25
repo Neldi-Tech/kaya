@@ -57,6 +57,7 @@ async function handle(req: NextRequest) {
         const ev = { id: d.id, ...(d.data() as Record<string, unknown>) } as ReminderEvent;
         scanned++;
         if (ev.status === 'pending_parent') continue; // not shared yet
+        if (ev.care) continue; // 💊 v5 — the dose engine owns care events, not the daily rail
         const firings = leadFiringsForToday(ev, today);
         if (!firings.length) continue;
 
@@ -206,6 +207,8 @@ function emojiFor(type: string): string {
     case 'anniversary': return '💍';
     case 'appointment': return '🩺';
     case 'event': return '🎉';
+    case 'medicine': return '💊';
+    case 'routine': return '🔁';
     default: return '📌';
   }
 }

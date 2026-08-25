@@ -22,6 +22,14 @@ import {
 import { getMyDiaryMeta } from '@/lib/sparks/diary';
 import { PolishControl, PolishedText } from '@/components/sparks/PolishedText';
 import { toDisplayDate } from '@/lib/dates';
+import {
+  type TimelineDay, TimelineList, TimelineBrowse, MemoryLane,
+  ViewSwitcher, useRememberedView, previewLine,
+  timelineDayLabel, timelineMonthLabel,
+} from '@/components/sparks/TimelineViews';
+import TimelineHitMap from '@/components/sparks/TimelineHitMap';
+import NoteStudio from '@/components/sparks/NoteStudio';
+import MonthStory from '@/components/sparks/MonthStory';
 
 const NAVY = '#1B1547';
 
@@ -51,11 +59,55 @@ export default function MyReflectionPage() {
   useEffect(() => {
     if (!familyId || !uid || !isParent) return;
     const u1 = subscribeToReflection(familyId, uid, today, setTodayEntry);
-    const u2 = subscribeToReflections(familyId, uid, setRecent);
+    // Timeline 2.0 · a full year of history for the Years ▸ Months ▸ Days views.
+    const u2 = subscribeToReflections(familyId, uid, setRecent, 366);
     return () => { u1(); u2(); };
   }, [familyId, uid, isParent, today]);
 
   const streak = useMemo(() => computeReflectionStreak(recent), [recent]);
+
+  // Timeline 2.0 (design v2) · shared views — no scores here (the adult
+  // journal is never rated), just feelings + first lines.
+  const [tlView, setTlView] = useRememberedView('my-reflection', ['list', 'browse', 'hitmap'], 'list');
+  const [dayOpen, setDayOpen] = useState<string | null>(null);
+  const tlDays = useMemo<TimelineDay[]>(() => recent.map((r) => ({
+    date: r.date,
+    emoji: r.ai_read?.mood_emoji,
+    preview: previewLine(r.text),
+    reply: r.note_replies?.length ? r.note_replies[r.note_replies.length - 1] : undefined,
+    photoUrl: r.scanUrl || undefined,
+    searchText: r.text || undefined,
+  })), [recent]);
+  const openEntry = useMemo(
+    () => (dayOpen ? recent.find((r) => r.date === dayOpen) ?? null : null),
+    [dayOpen, recent],
+  );
+
+  // 🖼 Note Studio — a parent's own journal, full share rights.
+  const [noteFor, setNoteFor] = useState<string | null>(null);
+  const myReflLabel = sw ? 'Tafakari yangu' : 'My Reflection';
+  const noteBase = useMemo(() => {
+    if (!noteFor) return null;
+    const e = recent.find((r) => r.date === noteFor);
+    if (!e?.text?.trim()) return null;
+    return {
+      kidName: firstName, surfaceLabel: myReflLabel,
+      dateLabel: timelineDayLabel(e.date, sw), dateKey: e.date,
+      feeling: e.ai_read?.mood_emoji, text: e.text.trim(),
+    };
+  }, [noteFor, recent, firstName, myReflLabel, sw]);
+  const noteMonth = useMemo(() => {
+    if (!noteFor) return [];
+    const pfx = noteFor.slice(0, 7);
+    return recent
+      .filter((r) => r.date.slice(0, 7) === pfx && r.text?.trim())
+      .sort((a, b) => (a.date < b.date ? -1 : 1))
+      .map((e) => ({
+        kidName: firstName, surfaceLabel: myReflLabel,
+        dateLabel: timelineDayLabel(e.date, sw), dateKey: e.date,
+        feeling: e.ai_read?.mood_emoji, text: e.text.trim(),
+      }));
+  }, [noteFor, recent, firstName, myReflLabel, sw]);
 
   const toggleVisibility = async () => {
     const next = visibility === 'visible' ? 'personal' : 'visible';
@@ -190,19 +242,69 @@ export default function MyReflectionPage() {
                 </div>
               )}
 
-              {/* Recent days — light list, no gamification. */}
-              {recent.filter((e) => e.date !== today).length > 0 && (
+              {/* Timeline 2.0 (design v2) · 🎞 Memory Lane + 📋 List / 🗂
+                  Browse over the whole journal — light, no gamification. */}
+              {tlDays.length > 0 && (
                 <div className="mt-5">
-                  <div className="text-[10px] font-nunito font-black uppercase tracking-[1.2px] text-[#5A6488] mb-2">
-                    {sw ? 'Siku za karibuni' : 'Recent days'}
+                  <div className="text-[10px] font-nunito font-black uppercase tracking-[1.2px] text-[#5A6488]">
+                    {sw ? 'Jarida lako' : 'Your journal'}
                   </div>
-                  <div className="space-y-2">
-                    {recent.filter((e) => e.date !== today).slice(0, 7).map((e) => (
-                      <div key={e.date} className="rounded-2xl border border-[#ECE4D3] bg-white px-3.5 py-2.5">
-                        <div className="text-[11px] font-nunito font-black text-[#5A6488]">{toDisplayDate(e.date)}</div>
-                        <div className="text-[12.5px] text-[#0F1F44] mt-0.5 leading-snug line-clamp-2">{e.text}</div>
+                  <MemoryLane days={tlDays} onOpenDay={setDayOpen} sw={sw} />
+                  <ViewSwitcher view={tlView} views={['list', 'browse', 'hitmap']} onChange={setTlView} sw={sw} />
+                  {tlView === 'list' && <TimelineList days={tlDays} onOpenDay={setDayOpen} onShareDay={setNoteFor} sw={sw} />}
+                  {tlView === 'browse' && (
+                    <TimelineBrowse days={tlDays} onOpenDay={setDayOpen} onShareDay={setNoteFor} sw={sw}
+                      monthExtra={(mk) => (
+                        <MonthStory kidId={uid} surface="reflection" monthKey={mk} isParent sw={sw} />
+                      )} />
+                  )}
+                  {/* Hit-map 2.0 · adult journal is unrated — feelings + presence. */}
+                  {tlView === 'hitmap' && (
+                    <TimelineHitMap days={tlDays} onOpenDay={setDayOpen} sw={sw} layers={['feelings', 'presence']} />
+                  )}
+                </div>
+              )}
+
+              {/* 🖼 Note Studio — themed keepsake card for one day. */}
+              <NoteStudio
+                open={!!noteBase}
+                onClose={() => setNoteFor(null)}
+                base={noteBase}
+                monthNotes={noteMonth}
+                monthLabel={noteFor ? timelineMonthLabel(noteFor, sw) : ''}
+                kidTags={[]}
+                canShareOutside
+                sendMeta={{ kidId: uid, surface: 'reflection' }}
+                sw={sw}
+              />
+
+              {/* Day sheet — one past day, read-only. */}
+              {openEntry && (
+                <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+                  <button type="button" aria-label="Close" onClick={() => setDayOpen(null)} className="absolute inset-0 bg-black/40" />
+                  <div className="relative w-full sm:max-w-md max-h-[85vh] overflow-y-auto bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl">
+                    <div className="px-5 pt-4 pb-3 text-white sticky top-0 flex items-center justify-between gap-2" style={{ background: 'linear-gradient(135deg, #1B1547, #5AB7D6)' }}>
+                      <div className="font-display font-extrabold text-[16px]">🪞 {toDisplayDate(openEntry.date)}</div>
+                      {openEntry.text?.trim() && (
+                        <button type="button"
+                          onClick={() => { const d = openEntry.date; setDayOpen(null); setNoteFor(d); }}
+                          className="shrink-0 rounded-full bg-white/15 hover:bg-white/25 px-3.5 py-1.5 text-[12px] font-nunito font-extrabold text-white">
+                          ↗ {sw ? 'Shiriki' : 'Share'}
+                        </button>
+                      )}
+                    </div>
+                    <div className="p-4">
+                      <div className="rounded-2xl border border-[#ECE4D3] bg-white p-3 text-[13px] text-[#0F1F44] leading-relaxed whitespace-pre-wrap">
+                        {openEntry.ai_read && (
+                          <span className="inline-flex items-center gap-1.5 mr-2 text-[11px] font-extrabold px-2 py-0.5 rounded-full bg-[#E5D6FF] text-[#5A3CB8] align-middle">
+                            {openEntry.ai_read.mood_emoji} {openEntry.ai_read.mood_word}
+                          </span>
+                        )}
+                        {openEntry.polished
+                          ? <PolishedText polished={openEntry.polished} original={openEntry.text} sw={sw} />
+                          : openEntry.text}
                       </div>
-                    ))}
+                    </div>
                   </div>
                 </div>
               )}

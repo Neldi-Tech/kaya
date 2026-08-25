@@ -13,6 +13,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import {
   getFamilyMembers, updateFamily, type UserProfile,
 } from '@/lib/firestore';
+import { filterListedMembers } from '@/lib/helperVisibility';
 import type { EmailGroup } from '@/lib/reminders';
 
 // Reminders accent — same scoped indigo as /reminders (approved v3 mock).
@@ -57,6 +58,7 @@ export default function EmailGroupsCard() {
   useEffect(() => {
     if (!familyId) return;
     getFamilyMembers(familyId)
+      .then(filterListedMembers)
       .then((ms) => setMembers(ms.filter((m) => !!m.email)))
       .catch(() => setMembers([]));
   }, [familyId]);

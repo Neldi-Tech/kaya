@@ -9,7 +9,11 @@
 import { auth } from './firebase';
 import { openRoundItems, type DismissCode, type DismissalRecord, type RoundDismissal } from '@/lib/recognitionDismiss';
 
-export type ShineTheme = 'classic' | 'night' | 'safari' | 'confetti' | 'crown';
+export type ShineTheme = 'classic' | 'night' | 'safari' | 'confetti' | 'crown' | 'asante';
+
+/** 🧡 HR PR-2 — card language. The chrome (headers, signature line,
+ *  band) renders in English or Kiswahili; the quote stays as written. */
+export type CardLang = 'en' | 'sw';
 
 export interface ShineCardNote {
   text: string;
@@ -53,6 +57,15 @@ export interface ShineCard {
   doubleShine?: boolean;
   notes?: ShineCardNote[];
   echo?: { reaction: string; text?: string; at: number };
+  /** 🧡 HR PR-2 — Asante cards celebrate a HELPER instead of a kid.
+   *  kidId is then `helper:{uid}` so per-subject queries keep working;
+   *  helperUid carries the real uid and `lang` the chrome language. */
+  subject?: 'kid' | 'helper';
+  helperUid?: string;
+  lang?: CardLang;
+  /** 💬 HR PR-4 — a kid's own words stamped on the card (picked by the
+   *  parent from the Fri–Sun reviews), e.g. “Always kind to us” — Amani. */
+  kidsLine?: string;
 }
 
 export const SHINE_THEMES: Array<{ id: ShineTheme; label: string; emoji: string }> = [
@@ -62,6 +75,8 @@ export const SHINE_THEMES: Array<{ id: ShineTheme; label: string; emoji: string 
   { id: 'confetti', label: 'Confetti', emoji: '🎊' },
   // 👑 LW PR-L5 — the Leader of the Week card.
   { id: 'crown', label: 'Crown', emoji: '👑' },
+  // 🧡 HR PR-2 — the helper Asante card (warm ochre).
+  { id: 'asante', label: 'Asante', emoji: '🧡' },
 ];
 
 // ── Gateway caller (Diary idiom) ──────────────────────────────────
@@ -103,6 +118,22 @@ export const deleteShineCard = (familyId: string, cardId: string) =>
   recognitionApi('card-delete', { familyId, cardId });
 export const setShineCardGift = (familyId: string, cardId: string, gift: string, giftMeta: NonNullable<ShineCard['giftMeta']>) =>
   recognitionApi('card-gift', { familyId, cardId, gift, giftMeta });
+// 🧡 HR PR-2 — persist the EN↔SW choice so every later render matches.
+export const setShineCardLang = (familyId: string, cardId: string, lang: CardLang) =>
+  recognitionApi('card-lang', { familyId, cardId, lang });
+
+// 🤝 HR PR-3 — the monthly helper spotlight (first-Monday round).
+export interface HelperRound {
+  id: string;
+  month: string;
+  lens: 'best' | 'improved' | 'unsung';
+  item: { helperUid: string; name: string; preset: string; score: number | null; line: string };
+  all: Array<{ helperUid: string; name: string; score: number | null }>;
+  at: number;
+}
+export const getHelperRound = (familyId: string, month?: string) =>
+  recognitionApi<{ ok: true; round: HelperRound | null }>('helper-round-get', { familyId, ...(month ? { month } : {}) })
+    .then((r) => r.round);
 export const getRound = (familyId: string, date: string) =>
   recognitionApi<{ ok: true; round: RecognitionRound | null }>('round-get', { familyId, date })
     .then((r) => r.round);
@@ -193,6 +224,29 @@ const PALETTES: Record<ShineTheme, {
     quote: '#43340f', sig: '#7a5d18', sealA: '#F6D66B', sealB: '#B8860B', sealText: '#4a3305',
     bandA: '#B8860B', bandB: '#F6D66B', bandText: '#3d2b08', decor: '👑',
   },
+  asante: {
+    bg: '#FFF8EF', frame: '#C4692F', frame2: '#EBC9A8', brand: '#A5551F', name: '#2b1608',
+    quote: '#4a2c14', sig: '#8a5a30', sealA: '#F0A860', sealB: '#C4692F', sealText: '#4a2305',
+    bandA: '#C4692F', bandB: '#F0A860', bandText: '#3d2008', decor: '🧡',
+  },
+};
+
+// 🧡 HR PR-2 — the card chrome in both languages. The quote itself is
+// the parent's own words; only the fixed certificate text switches.
+const CARD_STRINGS: Record<CardLang, {
+  kidHeader: string; helperHeader: string; seal: string; helperSeal: string;
+  forWord: string; withLove: string; ofWord: string; double: string;
+}> = {
+  en: {
+    kidHeader: '✦ KAYA SHINE CARD ✦', helperHeader: '✦ KAYA ASANTE CARD ✦',
+    seal: 'SHINE', helperSeal: 'ASANTE', forWord: 'FOR', withLove: '— with love,',
+    ofWord: 'OF', double: '🤝 Double Shine — both of us celebrated this',
+  },
+  sw: {
+    kidHeader: '✦ KADI YA KUNG’AA YA KAYA ✦', helperHeader: '✦ KADI YA ASANTE YA KAYA ✦',
+    seal: 'NG’AA', helperSeal: 'ASANTE', forWord: 'KWA', withLove: '— kwa upendo,',
+    ofWord: 'YA', double: '🤝 Mng’ao maradufu — sote tulisherehekea hili',
+  },
 };
 
 function esc(s: string): string {
@@ -222,13 +276,17 @@ function wrapQuote(q: string, maxChars = 34): string[] {
 
 const W = 680; const H = 880;
 
-/** The certificate as a self-contained SVG string (no external assets). */
-export function shineCardSvg(card: ShineCard): string {
+/** The certificate as a self-contained SVG string (no external assets).
+ *  `langOverride` lets the UI preview EN↔SW without touching the doc. */
+export function shineCardSvg(card: ShineCard, langOverride?: CardLang): string {
   const p = PALETTES[card.theme] || PALETTES.classic;
+  const lang: CardLang = langOverride ?? card.lang ?? 'en';
+  const S = CARD_STRINGS[lang];
+  const isHelper = card.subject === 'helper';
   const lines = wrapQuote(card.quote);
   const quoteY = 460;
   const lineH = 42;
-  const dateStr = new Date(card.at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, '-').toUpperCase();
+  const dateStr = new Date(card.at).toLocaleDateString(lang === 'sw' ? 'sw' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, '-').toUpperCase();
   const decor = p.decor
     ? `<text x="70" y="120" font-size="22" fill="${p.frame}" opacity="0.75">${p.decor}</text>
        <text x="590" y="200" font-size="16" fill="${p.frame}" opacity="0.6">${p.decor}</text>
@@ -248,33 +306,40 @@ export function shineCardSvg(card: ShineCard): string {
   <rect x="18" y="18" width="${W - 36}" height="${H - 36}" rx="20" fill="none" stroke="${p.frame}" stroke-width="3"/>
   <rect x="26" y="26" width="${W - 52}" height="${H - 52}" rx="16" fill="none" stroke="${p.frame2}" stroke-width="1.5"/>
   ${decor}
-  <text x="${W / 2}" y="76" text-anchor="middle" font-family="Arial" font-size="17" letter-spacing="6" font-weight="bold" fill="${p.brand}">✦ KAYA SHINE CARD ✦</text>
+  <text x="${W / 2}" y="76" text-anchor="middle" font-family="Arial" font-size="17" letter-spacing="6" font-weight="bold" fill="${p.brand}">${isHelper ? S.helperHeader : S.kidHeader}</text>
   <g transform="translate(${W - 110},52) rotate(8)">
     <circle cx="34" cy="34" r="40" fill="url(#seal)"/>
     <text x="34" y="30" text-anchor="middle" font-family="Arial" font-size="17" font-weight="bold" fill="${p.sealText}">№${card.n}</text>
-    <text x="34" y="48" text-anchor="middle" font-family="Arial" font-size="9" font-weight="bold" letter-spacing="2" fill="${p.sealText}">SHINE</text>
+    <text x="34" y="48" text-anchor="middle" font-family="Arial" font-size="9" font-weight="bold" letter-spacing="2" fill="${p.sealText}">${isHelper ? S.helperSeal : S.seal}</text>
   </g>
   <circle cx="${W / 2}" cy="196" r="62" fill="${p.bg}" stroke="${p.frame}" stroke-width="4"/>
   <circle cx="${W / 2}" cy="196" r="70" fill="none" stroke="${p.frame2}" stroke-width="2"/>
   <text x="${W / 2}" y="220" text-anchor="middle" font-size="64">${card.kidEmoji}</text>
   <text x="${W / 2}" y="320" text-anchor="middle" font-family="Georgia, serif" font-size="40" font-weight="bold" fill="${p.name}">${esc(card.kidName)}</text>
-  ${card.category ? `<text x="${W / 2}" y="356" text-anchor="middle" font-family="Arial" font-size="14" letter-spacing="4" font-weight="bold" fill="${p.brand}">FOR · ${esc(card.category.toUpperCase())}</text>` : ''}
+  ${card.category ? `<text x="${W / 2}" y="356" text-anchor="middle" font-family="Arial" font-size="14" letter-spacing="4" font-weight="bold" fill="${p.brand}">${S.forWord} · ${esc(card.category.toUpperCase())}</text>` : ''}
   <text x="96" y="${quoteY - 34}" font-family="Georgia, serif" font-size="84" fill="${p.frame}">“</text>
   ${lines.map((l, i) =>
     `<text x="${W / 2}" y="${quoteY + i * lineH}" text-anchor="middle" font-family="Georgia, serif" font-size="27" fill="${p.quote}">${esc(l)}</text>`).join('\n  ')}
-  <text x="${W / 2}" y="${quoteY + lines.length * lineH + 34}" text-anchor="middle" font-family="Georgia, serif" font-style="italic" font-size="23" fill="${p.sig}">— with love, ${esc(card.byName)}</text>
-  ${card.doubleShine ? `<text x="${W / 2}" y="${quoteY + lines.length * lineH + 72}" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold" fill="${p.brand}">🤝 Double Shine — both of us celebrated this</text>` : ''}
-  ${card.gift ? `<text x="${W / 2}" y="${quoteY + lines.length * lineH + (card.doubleShine ? 104 : 72)}" text-anchor="middle" font-family="Arial" font-size="17" font-weight="bold" fill="${p.brand}">🎁 ${esc(card.gift)}</text>` : ''}
+  <text x="${W / 2}" y="${quoteY + lines.length * lineH + 34}" text-anchor="middle" font-family="Georgia, serif" font-style="italic" font-size="23" fill="${p.sig}">${S.withLove} ${esc(card.byName)}</text>
+  ${(() => {
+    // Stacked extras below the signature: Double Shine · gift · kids' words.
+    let y = quoteY + lines.length * lineH + 72;
+    const out: string[] = [];
+    if (card.doubleShine) { out.push(`<text x="${W / 2}" y="${y}" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold" fill="${p.brand}">${S.double}</text>`); y += 32; }
+    if (card.gift) { out.push(`<text x="${W / 2}" y="${y}" text-anchor="middle" font-family="Arial" font-size="17" font-weight="bold" fill="${p.brand}">🎁 ${esc(card.gift)}</text>`); y += 32; }
+    if (card.kidsLine) { out.push(`<text x="${W / 2}" y="${y}" text-anchor="middle" font-family="Georgia, serif" font-style="italic" font-size="17" fill="${p.sig}">💬 ${esc(card.kidsLine)}</text>`); }
+    return out.join('\n  ');
+  })()}
   <rect x="18" y="${H - 76}" width="${W - 36}" height="58" rx="14" fill="url(#band)"/>
   <text x="46" y="${H - 40}" font-family="Arial" font-size="16" font-weight="bold" fill="${p.bandText}">${dateStr}</text>
   <text x="${W / 2}" y="${H - 40}" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold" fill="${p.bandText}">${esc(card.pointsLabel)}</text>
-  <text x="${W - 46}" y="${H - 40}" text-anchor="end" font-family="Arial" font-size="16" font-weight="bold" fill="${p.bandText}">№${card.n} OF ${new Date(card.at).getFullYear()}</text>
+  <text x="${W - 46}" y="${H - 40}" text-anchor="end" font-family="Arial" font-size="16" font-weight="bold" fill="${p.bandText}">№${card.n} ${S.ofWord} ${new Date(card.at).getFullYear()}</text>
 </svg>`;
 }
 
 /** SVG → PNG blob via canvas (self-contained; emoji render natively). */
-export async function shineCardPngBlob(card: ShineCard): Promise<Blob> {
-  const svg = shineCardSvg(card);
+export async function shineCardPngBlob(card: ShineCard, langOverride?: CardLang): Promise<Blob> {
+  const svg = shineCardSvg(card, langOverride);
   const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
   try {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {

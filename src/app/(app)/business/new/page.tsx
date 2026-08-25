@@ -25,8 +25,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
-  BUSINESS_TYPES, BusinessType, CustomerChannel, PHASE1_BUSINESS_TYPES,
+  BusinessType, CustomerChannel,
   CUSTOMER_CHANNELS, UNIT_SUGGESTIONS, ProductDraft,
+  PRICING_MODELS, PricingModel, pricingModelMeta,
   createBusiness, newBusinessId, requestBusinessLaunch, readBusinessConfig,
 } from '@/lib/business';
 import { uploadBusinessPhotoFromDataUrl } from '@/lib/businessPhoto';
@@ -88,12 +89,27 @@ interface PersistedDraft {
   idea: string;
   showEditor: boolean;
   type: BusinessType;
+  /** Business 2.0 — the "how does your business work?" pick. Absent on drafts
+   *  saved before 2.0; derived from `type` on restore. */
+  model?: PricingModel;
   name: string;
   emoji: string;
   mission: string;
   channels: CustomerChannel[];
   forKid: string | null;
   rows: Array<Pick<Row, 'id' | 'name' | 'unit' | 'customUnit' | 'price'>>;
+}
+
+/** Legacy draft/AI type → the closest pricing model (mirror of
+ *  resolvePricingModel, for plain strings). */
+function modelFromType(t: string | undefined): PricingModel {
+  switch (t) {
+    case 'goods': return 'unit_stocked';
+    case 'advice': return 'hour';
+    case 'sport': case 'learning': return 'session';
+    case 'service': case 'adhoc': return 'job';
+    default: return 'unit_stocked';
+  }
 }
 
 export default function NewBusinessPage() {
@@ -113,7 +129,9 @@ export default function NewBusinessPage() {
   const [coachMsg, setCoachMsg] = useState('');
   const [showEditor, setShowEditor] = useState(false);
 
-  const [type, setType] = useState<BusinessType>('goods');
+  // Business 2.0 — the kid picks HOW the business works (5 plain-language
+  // cards); the coarse DB type + the stock switch derive from the model.
+  const [model, setModel] = useState<PricingModel>('unit_stocked');
   const [name, setName] = useState('');
   const [emoji, setEmoji] = useState('');
   const [mission, setMission] = useState('');
@@ -138,10 +156,11 @@ export default function NewBusinessPage() {
 
   const storageKey = profile?.familyId && profile?.uid ? `kaya:newbiz:${profile.familyId}:${profile.uid}` : '';
 
-  // Phase-1 creatable types only (goods / service / adhoc).
-  const pickable = BUSINESS_TYPES.filter((t) => PHASE1_BUSINESS_TYPES.includes(t.key));
-  const keepsInventory = !!BUSINESS_TYPES.find((t) => t.key === type)?.shape.includes('inventory');
-  const typeLabel = BUSINESS_TYPES.find((t) => t.key === type)?.label || 'Business';
+  const modelMeta = pricingModelMeta(model);
+  const type = modelMeta.type;              // internal — the kid never sees "type"
+  const stocked = modelMeta.stockTaking;    // stock-take vs menu (R2)
+  const isThings = model === 'unit_made' || model === 'unit_stocked'; // physical products (pictures)
+  const typeLabel = modelMeta.label;
 
   // Who owns this business. An explicit pick (forKid) always wins. A kid is
   // themselves — resolved from their profile link, and (because that link is
@@ -162,10 +181,11 @@ export default function NewBusinessPage() {
   // couldn't resolve their own identity (e.g. unlinked login) but the family has kids.
   const showOwnerPicker = children.length > 0 && (isParent || !ownerId);
 
-  const visibleRows = keepsInventory ? rows : rows.slice(0, 1);
+  // Business 2.0 — every model lists what it sells/offers (the rows drive the
+  // Pricing Studio after creation), so all rows show and ≥1 named is required.
+  const visibleRows = rows;
   const hasProduct = rows.some((r) => r.name.trim());
-  const canSubmit = name.trim().length > 1 && !!ownerId && channels.length > 0 && !saving
-    && (keepsInventory ? hasProduct : true);
+  const canSubmit = name.trim().length > 1 && !!ownerId && channels.length > 0 && !saving && hasProduct;
 
   const patchRow = (id: string, patch: Partial<Row>) =>
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
@@ -197,19 +217,27 @@ export default function NewBusinessPage() {
     try {
       if (!hasContent) { localStorage.removeItem(storageKey); return; }
       const d: PersistedDraft = {
-        v: 1, mode, idea, showEditor, type, name, emoji, mission, channels, forKid,
+        v: 1, mode, idea, showEditor, type, model, name, emoji, mission, channels, forKid,
         rows: rows.map((r) => ({ id: r.id, name: r.name, unit: r.unit, customUnit: r.customUnit, price: r.price })),
       };
       localStorage.setItem(storageKey, JSON.stringify(d));
     } catch { /* quota / unavailable — best-effort */ }
-  }, [loaded, storageKey, pendingDraft, mode, idea, showEditor, type, name, emoji, mission, channels, forKid, rows]);
+  }, [loaded, storageKey, pendingDraft, mode, idea, showEditor, type, model, name, emoji, mission, channels, forKid, rows]);
 
   const clearDraft = () => { try { if (storageKey) localStorage.removeItem(storageKey); } catch { /* ignore */ } };
+
+  // When the model changes, prefill empty unit fields with its default unit
+  // (hour / session / job) so the kid doesn't have to hunt the select.
+  useEffect(() => {
+    if (stocked) return;
+    setRows((prev) => prev.map((r) => (r.unit.trim() ? r : { ...r, unit: modelMeta.unitLabel, customUnit: false })));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [model]);
 
   const applyDraft = (d: PersistedDraft) => {
     if (d.mode) setMode(d.mode);
     setIdea(d.idea || '');
-    setType((d.type as BusinessType) || 'goods');
+    setModel(d.model || modelFromType(d.type));
     setName(d.name || '');
     setEmoji(d.emoji || '');
     setMission(d.mission || '');
@@ -226,7 +254,7 @@ export default function NewBusinessPage() {
     clearDraft();
     setPendingDraft(null);
     setMode('ai'); setIdea(''); setShowEditor(false);
-    setType('goods'); setName(''); setEmoji(''); setMission('');
+    setModel('unit_stocked'); setName(''); setEmoji(''); setMission('');
     setChannels(['family']); setRows([newRow()]);
     setCoachMsg(''); setLogoDataUrl(''); setLogoGenerating(false);
     setDraftError(''); setAiOff(false); setError('');
@@ -251,11 +279,14 @@ export default function NewBusinessPage() {
     });
   };
 
-  const autoDrawVisuals = (tKey: BusinessType, bizName: string, miss: string, drawRows: Row[]) => {
-    const tLabel = BUSINESS_TYPES.find((t) => t.key === tKey)?.label || 'Business';
-    void drawLogo(bizName, tLabel, miss);
-    const keeps = !!BUSINESS_TYPES.find((t) => t.key === tKey)?.shape.includes('inventory');
-    if (keeps) drawRows.forEach((r) => drawProduct(r, tLabel, bizName));
+  const autoDrawVisuals = (mKey: PricingModel, bizName: string, miss: string, drawRows: Row[]) => {
+    const m = pricingModelMeta(mKey);
+    void drawLogo(bizName, m.label, miss);
+    // Draw product pictures for physical things (made-fresh + stocked);
+    // hour/session/job offerings don't need one per row.
+    if (mKey === 'unit_made' || mKey === 'unit_stocked') {
+      drawRows.forEach((r) => drawProduct(r, m.label, bizName));
+    }
   };
 
   const draft = async () => {
@@ -270,10 +301,13 @@ export default function NewBusinessPage() {
       const j = await r.json();
       if (j?.skipped) { setAiOff(true); setShowEditor(true); return; }
       if (!r.ok || j?.error) { setDraftError(j?.error || 'Could not draft just now.'); return; }
-      const draftedType = (j.type as BusinessType) || 'goods';
+      // Business 2.0 — the drafter proposes a pricing model; older responses
+      // (or a missing field) fall back to the type mapping.
+      const draftedModel = (PRICING_MODELS.some((m) => m.key === j.pricingModel)
+        ? j.pricingModel : modelFromType((j.type || 'goods').toString())) as PricingModel;
       const draftedName = (j.name || '').toString();
       const draftedMission = (j.mission || '').toString();
-      setType(draftedType);
+      setModel(draftedModel);
       setName(draftedName);
       setMission(draftedMission);
       setEmoji((j.emoji || '').toString());
@@ -283,7 +317,7 @@ export default function NewBusinessPage() {
       const newRows = prods.length ? prods.map(toRow) : [newRow()];
       setRows(newRows);
       setShowEditor(true);
-      autoDrawVisuals(draftedType, draftedName, draftedMission, newRows.filter((x) => x.name.trim()));
+      autoDrawVisuals(draftedModel, draftedName, draftedMission, newRows.filter((x) => x.name.trim()));
     } catch {
       setDraftError('Could not draft just now.');
     } finally {
@@ -313,7 +347,7 @@ export default function NewBusinessPage() {
           const filled = prev.filter((p) => p.name.trim());
           return [...filled, ...added, ...blanks];
         });
-        if (keepsInventory) added.forEach((r2) => drawProduct(r2, typeLabel, name.trim()));
+        if (isThings) added.forEach((r2) => drawProduct(r2, typeLabel, name.trim()));
       }
     } catch { /* soft-fail — suggestions are a bonus */ } finally {
       setSuggesting(false);
@@ -357,11 +391,13 @@ export default function NewBusinessPage() {
           ...(photoUrl ? { photoUrl } : {}),
         });
       }
-      const bizEmoji = emoji.trim() || BUSINESS_TYPES.find((t) => t.key === type)?.emoji || '💼';
+      const bizEmoji = emoji.trim() || modelMeta.emoji || '💼';
       const created = await createBusiness(
         familyId,
         {
           type,
+          pricingModel: model,
+          stockTaking: stocked,
           name: name.trim(),
           emoji: bizEmoji,
           mission: mission.trim() || undefined,
@@ -501,7 +537,7 @@ export default function NewBusinessPage() {
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={logoDataUrl} alt="logo" className="w-full h-full object-cover" />
               ) : (
-                <span className="text-[26px]">{emoji || BUSINESS_TYPES.find((t) => t.key === type)?.emoji || '💼'}</span>
+                <span className="text-[26px]">{emoji || modelMeta.emoji || '💼'}</span>
               )}
             </div>
             <div className="flex-1 min-w-0">
@@ -518,18 +554,27 @@ export default function NewBusinessPage() {
             </div>
           </div>
 
-          {/* Type */}
-          <div className={label}>Type of business</div>
-          <div className="grid grid-cols-3 gap-2">
-            {pickable.map((t) => {
-              const active = type === t.key;
+          {/* Business 2.0 — how the business works (5 plain-language cards, R1/R5).
+              The kid never sees a "type"; the DB type + stock switch derive. */}
+          <div className={label}>How does your business work?</div>
+          <div className="grid grid-cols-1 gap-2">
+            {PRICING_MODELS.map((m) => {
+              const active = model === m.key;
               return (
-                <button key={t.key} type="button" onClick={() => setType(t.key)}
-                  className={`rounded-hive p-3 text-center border-2 transition ${
+                <button key={m.key} type="button" onClick={() => setModel(m.key)}
+                  className={`rounded-hive p-3 text-left border-2 flex items-center gap-3 transition ${
                     active ? 'border-hive-navy bg-hive-navy text-hive-honey shadow-sm' : 'border-hive-line bg-hive-paper text-hive-navy'
-                  } hover:border-hive-honey active:scale-[0.98]`}>
-                  <div className="text-[22px] leading-none">{t.emoji}</div>
-                  <div className="text-[11px] font-nunito font-extrabold mt-1">{t.label}</div>
+                  } hover:border-hive-honey active:scale-[0.99]`}>
+                  <div className="text-[24px] leading-none shrink-0">{m.emoji}</div>
+                  <div className="min-w-0">
+                    <div className="text-[13px] font-nunito font-extrabold">{m.label}</div>
+                    <div className={`text-[11px] leading-snug mt-0.5 ${active ? 'text-hive-honey-soft/80' : 'text-hive-muted'}`}>{m.blurb}</div>
+                  </div>
+                  {m.stockTaking && (
+                    <span className={`ml-auto shrink-0 text-[9.5px] font-nunito font-black uppercase tracking-wide px-2 py-0.5 rounded-hive-pill ${active ? 'bg-hive-honey text-hive-navy' : 'bg-hive-cream text-hive-muted'}`}>
+                      counts stock
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -541,7 +586,7 @@ export default function NewBusinessPage() {
             <input value={name} onChange={(e) => setName(e.target.value)} maxLength={50}
               placeholder="e.g. Nathan's Produce" className={field} />
             <input value={emoji} onChange={(e) => setEmoji(e.target.value)} maxLength={2}
-              placeholder={BUSINESS_TYPES.find((t) => t.key === type)?.emoji || '💼'}
+              placeholder={modelMeta.emoji || '💼'}
               className="w-14 h-11 px-0 text-center text-xl bg-hive-paper rounded-hive border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40 shrink-0" />
           </div>
 
@@ -550,10 +595,10 @@ export default function NewBusinessPage() {
             placeholder="What does this business do, in one line?"
             className="w-full px-3 py-2 bg-hive-paper rounded-hive border border-hive-line text-[14px] focus:outline-none focus:ring-2 focus:ring-hive-honey/40" />
 
-          {/* Products */}
+          {/* Products / menu / offerings — label follows the model (R5/R15). */}
           <div className={`${label} flex items-baseline gap-1.5`}>
-            {keepsInventory ? 'Products' : 'What you sell'}
-            {keepsInventory && <span className="normal-case tracking-normal font-nunito font-semibold text-hive-muted">· these become your Inventory</span>}
+            {stocked ? 'Products' : model === 'unit_made' ? 'Your menu' : 'What you offer'}
+            {stocked && <span className="normal-case tracking-normal font-nunito font-semibold text-hive-muted">· these become your Inventory</span>}
           </div>
 
           <div className="space-y-2.5">
@@ -563,30 +608,39 @@ export default function NewBusinessPage() {
                 row={r}
                 currency={currency}
                 detail={`${typeLabel} · ${name.trim()}`.trim()}
-                canRemove={keepsInventory && rows.length > 1}
+                canRemove={rows.length > 1}
                 onPatch={(p) => patchRow(r.id, p)}
                 onRemove={() => removeRow(r.id)}
               />
             ))}
           </div>
 
-          {keepsInventory && (
-            <div className="flex gap-2 mt-2.5">
-              <button type="button" onClick={() => setRows((prev) => [...prev, newRow()])}
-                className="flex-1 h-11 rounded-hive bg-hive-paper border border-hive-line text-hive-navy font-nunito font-extrabold text-[13px] hover:bg-hive-cream active:scale-[0.99] transition">
-                ＋ Add product
-              </button>
-              <button type="button" onClick={suggestMore} disabled={suggesting || aiOff}
-                className="flex-1 h-11 rounded-hive bg-hive-paper border border-hive-line text-hive-navy font-nunito font-extrabold text-[13px] disabled:opacity-40 hover:bg-hive-cream active:scale-[0.99] transition">
-                {suggesting ? 'Thinking… ✨' : '✨ Suggest more'}
-              </button>
-            </div>
-          )}
+          <div className="flex gap-2 mt-2.5">
+            <button type="button"
+              onClick={() => setRows((prev) => [...prev, { ...newRow(), unit: stocked ? '' : modelMeta.unitLabel }])}
+              className="flex-1 h-11 rounded-hive bg-hive-paper border border-hive-line text-hive-navy font-nunito font-extrabold text-[13px] hover:bg-hive-cream active:scale-[0.99] transition">
+              {stocked ? '＋ Add product' : model === 'unit_made' ? '＋ Add to menu' : '＋ Add offering'}
+            </button>
+            <button type="button" onClick={suggestMore} disabled={suggesting || aiOff}
+              className="flex-1 h-11 rounded-hive bg-hive-paper border border-hive-line text-hive-navy font-nunito font-extrabold text-[13px] disabled:opacity-40 hover:bg-hive-cream active:scale-[0.99] transition">
+              {suggesting ? 'Thinking… ✨' : '✨ Suggest more'}
+            </button>
+          </div>
 
-          {keepsInventory && (
+          {stocked ? (
             <div className="bg-hive-cream border border-hive-honey/60 rounded-hive p-3 mt-3 text-[12.5px] leading-relaxed text-hive-navy">
               📦 <b>Each product starts in your Inventory</b> with a count of <b>0</b>. On your first
               {' '}<b>stock-take</b> you set how many you actually have — and the worth fills in.
+            </div>
+          ) : (
+            <div className="bg-hive-cream border border-hive-honey/60 rounded-hive p-3 mt-3 text-[12.5px] leading-relaxed text-hive-navy">
+              {model === 'unit_made'
+                ? <>🧾 <b>No stock counting here</b> — you make each one fresh. After you create, the{' '}
+                    <b>Pricing Studio</b> helps you build each price from <b>cost + profit</b>, and a quick{' '}
+                    <b>Daily Check-in</b> replaces the stock-take (same House Points).</>
+                : <>⏱️ <b>No stock counting here</b> — you charge for your {model === 'hour' ? 'time' : model === 'session' ? 'sessions' : 'work'}.
+                    After you create, the <b>Pricing Studio</b> helps you set a fair rate, and a quick{' '}
+                    <b>Daily Check-in</b> replaces the stock-take (same House Points).</>}
             </div>
           )}
 
@@ -611,7 +665,7 @@ export default function NewBusinessPage() {
           <button type="button" onClick={submit} disabled={!canSubmit}
             className={`w-full mt-5 h-12 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[14px] disabled:opacity-40 hover:brightness-110 active:scale-[0.99] transition ${BTN_INLINE_LG}`}>
             {saving ? 'Creating…'
-              : keepsInventory && filledProducts > 0
+              : stocked && filledProducts > 0
                 ? `Create business + ${filledProducts} ${filledProducts === 1 ? 'product' : 'products'}`
                 : isParent ? 'Create business' : 'Start as Pilot →'}
           </button>
@@ -621,7 +675,7 @@ export default function NewBusinessPage() {
               {name.trim().length < 2 ? '✏️ Give it a name'
                 : !ownerId ? (children.length === 0 ? '👶 Add a child first in Settings → Family' : 'Pick whose business it is')
                 : channels.length === 0 ? 'Choose who can buy'
-                : keepsInventory && !hasProduct ? 'Add at least one product'
+                : !hasProduct ? (stocked ? 'Add at least one product' : model === 'unit_made' ? 'Add at least one menu item' : 'Add at least one offering')
                 : ''}
             </p>
           )}

@@ -30,7 +30,7 @@ import { uploadWorkplanProofMedia } from '@/lib/workplanProofUpload';
 import {
   type Business,
   subscribeToKidBusinesses, subscribeToStockTakes,
-  isStockTakeScheduledOn, todayKey,
+  isStockTakeScheduledOn, todayKey, keepsStock,
 } from '@/lib/business';
 import {
   subscribeToOwnerTasks, subscribeToTrackables, generateTasksNow,
@@ -147,8 +147,9 @@ export default function KidWorkplanToday({ familyId, childId, childName, date, r
       .filter((b) => isStockTakeScheduledOn(b, dow))
       .map<KidWorkplanItem>((b) => ({
         id: `stocktake:${b.id}`,
-        label: `Stock-take · ${b.name}`,
-        icon: '📋',
+        // Business 2.0 (R15): no-stock businesses do the Daily Check-in.
+        label: `${keepsStock(b) ? 'Stock-take' : 'Check-in'} · ${b.name}`,
+        icon: keepsStock(b) ? '📋' : '☀️',
         category: 'business',
         daysOfWeek: (b.stockTakeSchedule?.daysOfWeek ?? ['mon','tue','wed','thu','fri','sat','sun']),
         timeLocal: b.stockTakeSchedule?.timeLocal,

@@ -36,7 +36,15 @@ import { toDisplayDate } from '@/lib/dates';
 import { PolishControl, PolishedText } from '@/components/sparks/PolishedText';
 import AreaScreen from '@/components/sparks/AreaScreen';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
-import FilledDaysBrowser from '@/components/sparks/FilledDaysBrowser';
+import {
+  type TimelineDay, TimelineList, TimelineBrowse, MemoryLane,
+  ViewSwitcher, useRememberedView, previewLine,
+  timelineDayLabel, timelineMonthLabel,
+} from '@/components/sparks/TimelineViews';
+import TimelineHitMap from '@/components/sparks/TimelineHitMap';
+import NoteStudio from '@/components/sparks/NoteStudio';
+import MonthStory from '@/components/sparks/MonthStory';
+import { requestNoteShare, subscribeToKidRequests, type ApprovalRequest } from '@/lib/hive';
 import Link from 'next/link';
 import ReflectionOriginChip from '@/components/sparks/ReflectionOriginChip';
 import CelebrationBurst from '@/components/sparks/CelebrationBurst';
@@ -114,7 +122,7 @@ export default function ReflectionPage() {
     if (!familyId || !kidId) return;
     const u1 = subscribeToSparksProfile(familyId, kidId, setProfile);
     const u2 = subscribeToReflection(familyId, kidId, today, setTodayEntry);
-    const u3 = subscribeToReflections(familyId, kidId, setRecent, 366); // hit-map year-picker needs a full year of history
+    const u3 = subscribeToReflections(familyId, kidId, setRecent, 1830); // All-years hit-map zoom reads up to 5 years
     const u4 = subscribeToWeeklyReviews(familyId, kidId, setWeeklyReviews);
     return () => { u1(); u2(); u3(); u4(); };
   }, [familyId, kidId, today]);
@@ -122,6 +130,81 @@ export default function ReflectionPage() {
   const settings = readReflectionSettings(profile);
   const canType = typingAllowedOn(settings, today);
   const streak = useMemo(() => computeReflectionStreak(recent), [recent]);
+
+  // Timeline 2.0 (design v2) · the shared Years ▸ Months ▸ Days views.
+  // List is the default; each person's last pick is remembered per surface.
+  const [tlView, setTlView] = useRememberedView('reflection-kid', ['list', 'browse', 'hitmap', 'calendar'], 'list');
+  const tlDays = useMemo<TimelineDay[]>(() => recent.map((r) => ({
+    date: r.date,
+    emoji: r.ai_read?.mood_emoji,
+    preview: previewLine(r.text) || (r.scanUrl ? (sw ? '📷 Ukurasa ulioskaniwa' : '📷 Scanned page') : ''),
+    score: entryScore(r),
+    starred: !!r.parent_rating,
+    reply: r.note_replies?.length ? r.note_replies[r.note_replies.length - 1] : undefined,
+    photoUrl: r.scanUrl || undefined,
+    searchText: r.text || undefined,
+  })), [recent, sw]);
+
+  // 🖼 Note Studio (design v2 §3) — share the day's NOTE, beautifully.
+  const [noteFor, setNoteFor] = useState<string | null>(null);
+  // Kid flow: outside shares ride the parent-approval rail. (isParent is
+  // declared further down — read the role directly here.)
+  const viewerIsParent = authProfile?.role === 'parent';
+  const [noteAsks, setNoteAsks] = useState<ApprovalRequest[]>([]);
+  useEffect(() => {
+    if (!familyId || viewerIsParent) return;
+    return subscribeToKidRequests(familyId, kidId, (rows) =>
+      setNoteAsks(rows.filter((r) => r.type === 'note_share' && r.noteSurface === 'reflection')));
+  }, [familyId, kidId, viewerIsParent]);
+  const kidFirst = kidName.split(' ')[0];
+  const reflLabel = sw ? 'Tafakari' : 'My Reflection';
+
+  // ↗ Share the OPEN image (lightbox) — parents only. Native file share
+  // where the device supports it; else the proxied download.
+  const shareScan = async (url: string) => {
+    try {
+      const { fileInlineUrl, isProxyableStorageUrl } = await import('@/lib/fileUrl');
+      const src = isProxyableStorageUrl(url) ? fileInlineUrl(url) : url;
+      const res = await fetch(src);
+      const blob = await res.blob();
+      const file = new File([blob], `Kaya-${kidFirst}-scan.jpg`, { type: blob.type || 'image/jpeg' });
+      const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
+      if (nav.share && nav.canShare?.({ files: [file] })) {
+        try { await nav.share({ files: [file] }); } catch (e) { if ((e as Error).name !== 'AbortError') throw e; }
+        return;
+      }
+      const a = document.createElement('a');
+      const objUrl = URL.createObjectURL(blob);
+      a.href = objUrl; a.download = file.name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(objUrl), 4000);
+    } catch { /* best-effort */ }
+  };
+  const noteBase = useMemo(() => {
+    if (!noteFor) return null;
+    const e = recent.find((r) => r.date === noteFor);
+    if (!e) return null;
+    return {
+      kidName: kidFirst,
+      surfaceLabel: reflLabel,
+      dateLabel: timelineDayLabel(e.date, sw),
+      dateKey: e.date,
+      feeling: e.ai_read?.mood_emoji,
+      text: e.text?.trim() || (sw ? '(ukurasa ulioskaniwa)' : '(scanned handwriting page)'),
+    };
+  }, [noteFor, recent, kidFirst, reflLabel, sw]);
+  const noteMonth = useMemo(() => {
+    if (!noteFor) return [];
+    const pfx = noteFor.slice(0, 7);
+    return recent
+      .filter((r) => r.date.slice(0, 7) === pfx && r.text?.trim())
+      .sort((a, b) => (a.date < b.date ? -1 : 1))
+      .map((e) => ({
+        kidName: kidFirst, surfaceLabel: reflLabel,
+        dateLabel: timelineDayLabel(e.date, sw), dateKey: e.date,
+        feeling: e.ai_read?.mood_emoji, text: e.text.trim(),
+      }));
+  }, [noteFor, recent, kidFirst, reflLabel, sw]);
 
   // 2026-06-23 · scanned handwriting, indexed by day, so the weekly post +
   // recent list can show the real page next to the transcribed words.
@@ -892,33 +975,49 @@ export default function ReflectionPage() {
       {/* This-week strip */}
       <WeekStrip byDate={streak.byDate} sw={sw} />
 
-      {/* PAST-1 · 📚 the past, drill-down: Years ▸ Months ▸ filled days,
-          ⭐ where a parent rated. Taps open that day's sheet. */}
-      <FilledDaysBrowser
-        sw={sw}
-        accent="#5A3CB8" soft="#F6EFFF" line="#cdbdf0"
-        starLabel={sw ? 'mzazi amepima' : 'rated by a parent'}
-        days={recent.map((r) => ({
-          date: r.date,
-          emoji: r.ai_read?.mood_emoji,
-          starred: !!r.parent_rating,
-        }))}
-        onOpenDay={(d) => setScoreDate(d)}
-      />
-
-      {/* 2026-06-23 · Reflection hit-map — filterable calendar to spot missing
-          submissions, shaded by score, taps open the day. */}
-      <ReflectionHitMap
-        entries={recent}
-        activeDays={
-          profile?.reflection_reminders?.active_days?.length
-            ? new Set(profile.reflection_reminders.active_days)
-            : new Set<DayOfWeek>(['mon', 'tue', 'wed', 'thu', 'fri', 'sat'])
-        }
-        onOpenDay={(date) => setScoreDate(date)}
-        hasEntry={(date) => recent.some((r) => r.date === date)}
-        sw={sw}
-      />
+      {/* Timeline 2.0 (design v2) · 🎞 Memory Lane + the 📋/🗂/🔥 views.
+          List (Years ▸ Months ▸ Days, only days that exist) is the default;
+          Browse is the dropdown pair; Hit-map keeps the filterable
+          calendar. ⭐ where a parent rated. Taps open that day's sheet. */}
+      <MemoryLane days={tlDays} onOpenDay={(d) => setScoreDate(d)} sw={sw} />
+      <ViewSwitcher view={tlView} views={['list', 'browse', 'hitmap', 'calendar']} onChange={setTlView} sw={sw} />
+      {tlView === 'list' && (
+        <TimelineList days={tlDays} onOpenDay={(d) => setScoreDate(d)} onShareDay={(d) => setNoteFor(d)} sw={sw} />
+      )}
+      {tlView === 'browse' && (
+        <TimelineBrowse days={tlDays} onOpenDay={(d) => setScoreDate(d)} onShareDay={(d) => setNoteFor(d)} sw={sw}
+          monthExtra={(mk) => (
+            <MonthStory kidId={kidId} surface="reflection" monthKey={mk} isParent={isParent} sw={sw} />
+          )} />
+      )}
+      {/* Hit-map 2.0 · Month / 6 Months / Year / All-years micro-dots. */}
+      {tlView === 'hitmap' && (
+        <TimelineHitMap
+          days={tlDays}
+          activeDays={
+            profile?.reflection_reminders?.active_days?.length
+              ? new Set(profile.reflection_reminders.active_days)
+              : new Set<DayOfWeek>(['mon', 'tue', 'wed', 'thu', 'fri', 'sat'])
+          }
+          onOpenDay={(date) => setScoreDate(date)}
+          sw={sw}
+          layers={['score', 'feelings', 'presence']}
+        />
+      )}
+      {/* 🗓 Calendar keeps the original filterable range calendar. */}
+      {tlView === 'calendar' && (
+        <ReflectionHitMap
+          entries={recent}
+          activeDays={
+            profile?.reflection_reminders?.active_days?.length
+              ? new Set(profile.reflection_reminders.active_days)
+              : new Set<DayOfWeek>(['mon', 'tue', 'wed', 'thu', 'fri', 'sat'])
+          }
+          onOpenDay={(date) => setScoreDate(date)}
+          hasEntry={(date) => recent.some((r) => r.date === date)}
+          sw={sw}
+        />
+      )}
 
       {/* Slice 7r · scanned-page lightbox. Shows the original handwriting
           full-screen so the parent can verify what was uploaded vs the
@@ -931,6 +1030,7 @@ export default function ReflectionPage() {
           onClose={() => setScanViewOpen(false)}
           caption={sw ? 'Tafakari ya leo' : "Today's reflection"}
           subCaption={toDisplayDate(today)}
+          onShare={isParent ? shareScan : undefined}
         />
       )}
 
@@ -944,8 +1044,32 @@ export default function ReflectionPage() {
           onClose={() => setScanGallery(null)}
           caption={scanGallery.caption}
           subCaption={sw ? 'Mwandiko' : 'Handwritten note'}
+          onShare={isParent ? shareScan : undefined}
         />
       )}
+
+      {/* 🖼 Note Studio — themed keepsake card for one day's note. */}
+      <NoteStudio
+        open={!!noteBase}
+        onClose={() => setNoteFor(null)}
+        base={noteBase}
+        monthNotes={noteMonth}
+        monthLabel={noteFor ? timelineMonthLabel(noteFor, sw) : ''}
+        kidTags={[kidId]}
+        canShareOutside={isParent}
+        sendMeta={{ kidId, surface: 'reflection' }}
+        ask={!isParent && noteFor ? {
+          state: noteAsks.some((r) => r.noteDate === noteFor && r.status === 'approved') ? 'approved'
+            : noteAsks.some((r) => r.noteDate === noteFor && r.status === 'pending') ? 'pending' : 'none',
+          onAsk: async () => {
+            if (!familyId || !authProfile?.uid || !noteFor || !noteBase) return;
+            await requestNoteShare(familyId, kidId,
+              { date: noteFor, surface: 'reflection', preview: noteBase.text.slice(0, 60) },
+              authProfile.uid);
+          },
+        } : null}
+        sw={sw}
+      />
 
       {/* Day-detail / score sheet — opens for ANY day (today or a past
           entry). Parents score; kids see it read-only. */}
@@ -960,6 +1084,7 @@ export default function ReflectionPage() {
           onOpenScan={scoreEntry.scanUrl
             ? () => setScanGallery({ urls: [scoreEntry.scanUrl as string], index: 0, caption: toDisplayDate(scoreEntry.date) })
             : undefined}
+          onShareNote={() => { const d = scoreEntry.date; setScoreDate(null); setNoteFor(d); }}
           kidName={kidName}
           authorName={authProfile?.displayName || 'Parent'}
           onSave={async ({ stars, soundness_percent, handwriting_percent, notes }) => {
@@ -1863,7 +1988,7 @@ function AIReadCard({ read, text }: { read: ReflectionAIRead; text: string }) {
 
 function ReflectionRatingSheet({
   open, onClose, entry, kidName, authorName, onSave,
-  isParent, scoringAI, onScoreAI, onOpenScan,
+  isParent, scoringAI, onScoreAI, onOpenScan, onShareNote,
 }: {
   open: boolean;
   onClose: () => void;
@@ -1881,6 +2006,8 @@ function ReflectionRatingSheet({
   onScoreAI: () => void;
   /** Open the full scanned page (lightbox), when there's a scan. */
   onOpenScan?: () => void;
+  /** Timeline 2.0 · ↗ open the Note Studio for this day. */
+  onShareNote?: () => void;
 }) {
   const [stars, setStars] = useState<number | null>(entry.parent_rating?.stars ?? null);
   // 2026-06-23 · two 0-100 sliders — soundness (of the reflection) +
@@ -1938,10 +2065,20 @@ function ReflectionRatingSheet({
         className="relative w-full sm:max-w-md max-h-[92vh] sm:max-h-[88vh] overflow-y-auto bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl"
       >
         <div className="px-5 pt-5 pb-4 text-white" style={{ background: 'linear-gradient(135deg,#1B1547 0%,#5A3CB8 100%)' }}>
-          <div className="text-[12px] opacity-85">📔 {toDisplayDate(entry.date)}</div>
-          <h2 className="font-display font-extrabold text-[18px] m-0 mt-0.5">
-            {isParent ? 'Score' : 'Reflection'} · {kidName}
-          </h2>
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <div className="text-[12px] opacity-85">📔 {toDisplayDate(entry.date)}</div>
+              <h2 className="font-display font-extrabold text-[18px] m-0 mt-0.5">
+                {isParent ? 'Score' : 'Reflection'} · {kidName}
+              </h2>
+            </div>
+            {onShareNote && (
+              <button type="button" onClick={onShareNote}
+                className="shrink-0 rounded-full bg-white/15 hover:bg-white/25 px-3.5 py-1.5 text-[12px] font-nunito font-extrabold text-white">
+                ↗ Share
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="p-5 space-y-4">

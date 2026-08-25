@@ -8,6 +8,7 @@
 
 import Link from 'next/link';
 import { useReminders } from './useReminders';
+import CareDoseCards from './CareDoseCards';
 import { typeMeta, formatTime, relativeDays, displayTitle, type ReminderOccurrence } from '@/lib/reminders';
 import { cardIdFor } from '@/lib/greetingCards';
 
@@ -16,12 +17,15 @@ const CAL_DK = '#3E4DA0';
 const CAL_SOFT = '#E7EAFA';
 
 export default function RemindersInline({ wrapClassName = '' }: { wrapClassName?: string }) {
-  const { loading, todays, upcoming } = useReminders(30);
+  const { loading, todays, upcoming, careToday, applyDose } = useReminders(30);
   if (loading) return null;
-  if (todays.length === 0 && upcoming.length === 0) return null;
+  if (todays.length === 0 && upcoming.length === 0 && careToday.length === 0) return null;
 
   return (
     <div className={wrapClassName}>
+      {/* 💊 v5 — today's tickable dose cards (giver ✓ · kid 💪 · parent 👀). */}
+      <CareDoseCards events={careToday} onDose={applyDose} />
+
       {todays.length > 0 && (
         <div className="space-y-2 mb-3">
           {todays.map((o) => <TodayRow key={`${o.event.id}-${o.dateKey}`} o={o} />)}

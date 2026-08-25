@@ -18,7 +18,7 @@ export const runtime = 'nodejs';
 const apiKey = process.env.ANTHROPIC_API_KEY;
 const client = apiKey ? new Anthropic({ apiKey }) : null;
 
-type Mode = 'draft' | 'suggest';
+type Mode = 'draft' | 'suggest' | 'cost_recipe';
 
 interface DraftBody {
   mode?: Mode;
@@ -31,9 +31,21 @@ interface DraftBody {
   existing?: string[];
   currency?: string;
   coachName?: string;
+  /** cost_recipe mode — the product being priced in the Pricing Studio. */
+  product?: string;
+  unit?: string;
+  pricingModel?: string;
 }
 
-const ALLOWED_TYPES = ['goods', 'service', 'adhoc'] as const;
+const ALLOWED_TYPES = ['goods', 'service', 'adhoc', 'advice', 'sport'] as const;
+
+// Business 2.0 — the drafter now proposes a kid-facing pricing model; the
+// coarse type derives from it (mirrors PRICING_MODELS in business.ts without
+// importing the client lib into a server route).
+const ALLOWED_MODELS = ['unit_made', 'unit_stocked', 'hour', 'session', 'job'] as const;
+const MODEL_TO_TYPE: Record<(typeof ALLOWED_MODELS)[number], string> = {
+  unit_made: 'goods', unit_stocked: 'goods', hour: 'advice', session: 'sport', job: 'service',
+};
 
 const PRODUCT_SCHEMA = {
   type: 'object',
@@ -49,14 +61,14 @@ const PRODUCT_SCHEMA = {
 const DRAFT_SCHEMA = {
   type: 'object',
   properties: {
-    type: { type: 'string', enum: ALLOWED_TYPES },
+    pricingModel: { type: 'string', enum: ALLOWED_MODELS },
     name: { type: 'string' },
     mission: { type: 'string' },
     emoji: { type: 'string' },
     message: { type: 'string' },
     products: { type: 'array', items: PRODUCT_SCHEMA },
   },
-  required: ['type', 'name', 'mission', 'emoji', 'message', 'products'],
+  required: ['pricingModel', 'name', 'mission', 'emoji', 'message', 'products'],
   additionalProperties: false,
 } as const;
 
@@ -67,12 +79,37 @@ const SUGGEST_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+// Business 2.0 · Pricing Studio (R7) — "what goes into ONE glass?" starter
+// ingredient/cost lines the child then edits. Costs are per ONE unit.
+const RECIPE_SCHEMA = {
+  type: 'object',
+  properties: {
+    lines: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { name: { type: 'string' }, cost: { type: 'number' } },
+        required: ['name', 'cost'],
+        additionalProperties: false,
+      },
+    },
+    message: { type: 'string' },
+  },
+  required: ['lines', 'message'],
+  additionalProperties: false,
+} as const;
+
 const SYSTEM = `You help a CHILD start a tiny real micro-business inside the Kaya family app. From a one-line idea, you draft something they can run and tweak — you make the blank page easy.
 
 How to draft:
-- Pick the best TYPE: "goods" = sells physical things you keep stock of (produce, eggs, crafts, baked goods); "service" = does a job for people (car wash, dog walking, tutoring); "adhoc" = a one-off gig.
+- Pick the best PRICING MODEL — how the child charges:
+  • "unit_made" = makes each one FRESH to order (juice by the glass, salads, snacks, bracelets to order) — no stock is kept.
+  • "unit_stocked" = sells things kept in stock (produce, eggs, crafts made ahead, baked goods) — stock is counted daily.
+  • "hour" = charges by the hour (homework help, reading buddy, tech help).
+  • "session" = charges per session/lesson (football drills, dance lessons, drawing classes).
+  • "job" = charges a flat price per completed job (car wash, garden tidy, errand runs).
 - Give a short, clear NAME (Title Case), a one-line MISSION, and ONE friendly emoji.
-- List starter PRODUCTS: 3 for goods; 1-2 offerings for service/adhoc.
+- List starter PRODUCTS: 3 for unit_made/unit_stocked; 1-2 offerings for hour/session/job (unit = hour/session/job).
   • name: a STANDARDIZED, commonly-understood product name a kid would recognize — "Tomatoes", "Spinach", "Carrots", "Car wash" — not cute or vague ("my red ones").
   • unit: how it's sold — one short common unit like kg, g, bunch, dozen, pcs, litre, pack, box, plate, cup, wash, session, hour, job.
   • price: a SENSIBLE STARTER price per unit in the family's currency (a round, plausible number — the child WILL edit it).
@@ -112,9 +149,52 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const mode: Mode = body?.mode === 'suggest' ? 'suggest' : 'draft';
+  const mode: Mode = body?.mode === 'suggest' ? 'suggest' : body?.mode === 'cost_recipe' ? 'cost_recipe' : 'draft';
   const currency = (body.currency || 'USD').trim().slice(0, 8);
   const coachName = (body.coachName || 'Kaya Coach').trim().slice(0, 40);
+
+  // ── cost_recipe · Pricing Studio starter lines (R7) ──
+  if (mode === 'cost_recipe') {
+    const product = (body.product || '').trim().slice(0, 60);
+    if (!product) return NextResponse.json({ error: 'Which product?' }, { status: 400 });
+    const unit = (body.unit || 'one').trim().slice(0, 20);
+    const bizName = (body.name || '').trim().slice(0, 50);
+    const model = (body.pricingModel || '').trim().slice(0, 20);
+    try {
+      const response = await client.messages.create({
+        model: 'claude-opus-4-7',
+        max_tokens: 500,
+        system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
+        output_config: { format: { type: 'json_schema', schema: RECIPE_SCHEMA } },
+        messages: [{
+          role: 'user',
+          content: `Your name is "${coachName}". Family currency: ${currency}.
+The child is building a PRICE in the Pricing Studio and needs the COST side first.
+Product: "${product}" (sold per ${unit})${bizName ? ` — business "${bizName}"` : ''}${model ? ` — pricing model ${model}` : ''}.
+List the ingredient/cost lines that go into ONE ${unit} — 2 to 6 short lines, each with a name a child recognizes ("3 oranges", "Sugar", "Cup + straw") and a SENSIBLE STARTER cost in ${currency} (round numbers — the child WILL edit them).
+For time-based work (per hour/session/job) return 0-2 small material lines only (paper, soap) — a child's time itself costs nothing here.
+"message" = one warm sentence reminding them these are guesses to check against real prices.`,
+        }],
+      });
+      const text = response.content.find((b) => b.type === 'text');
+      if (!text || text.type !== 'text') return NextResponse.json({ error: 'No recipe returned' }, { status: 502 });
+      const p = JSON.parse(text.text) as { lines?: Array<{ name?: unknown; cost?: unknown }>; message?: unknown };
+      const lines = (Array.isArray(p.lines) ? p.lines : [])
+        .map((l) => ({
+          name: (typeof l?.name === 'string' ? l.name : '').trim().slice(0, 60),
+          costCents: typeof l?.cost === 'number' && Number.isFinite(l.cost) && l.cost > 0 ? Math.round(l.cost * 100) : 0,
+        }))
+        .filter((l) => l.name)
+        .slice(0, 8);
+      return NextResponse.json({
+        lines,
+        message: (typeof p.message === 'string' ? p.message : '').trim().slice(0, 280),
+      });
+    } catch (e: unknown) {
+      if (e instanceof Anthropic.APIError) return NextResponse.json({ error: e.message }, { status: e.status ?? 500 });
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Recipe failed' }, { status: 500 });
+    }
+  }
 
   if (mode === 'draft') {
     const idea = (body.idea || '').trim().slice(0, 280);
@@ -136,9 +216,11 @@ Draft a tiny business for this child's idea:
       const text = response.content.find((b) => b.type === 'text');
       if (!text || text.type !== 'text') return NextResponse.json({ error: 'No draft returned' }, { status: 502 });
       const p = JSON.parse(text.text) as Record<string, unknown>;
-      const type = ALLOWED_TYPES.includes(p.type as typeof ALLOWED_TYPES[number]) ? (p.type as string) : 'goods';
+      const pricingModel = ALLOWED_MODELS.includes(p.pricingModel as typeof ALLOWED_MODELS[number])
+        ? (p.pricingModel as typeof ALLOWED_MODELS[number]) : 'unit_stocked';
       return NextResponse.json({
-        type,
+        pricingModel,
+        type: MODEL_TO_TYPE[pricingModel], // back-compat for older clients
         name: (typeof p.name === 'string' ? p.name : '').trim().slice(0, 50),
         mission: (typeof p.mission === 'string' ? p.mission : '').trim().slice(0, 140),
         emoji: (typeof p.emoji === 'string' ? p.emoji : '').trim().slice(0, 4),

@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { getFamilyMembers, updateFamily, type UserProfile } from '@/lib/firestore';
+import { filterListedMembers } from '@/lib/helperVisibility';
 import { reservePost, finalizePost, uploadProcessedPhoto, type Post } from '@/lib/moments';
 import { processPhotoForUpload } from '@/lib/photoUpload';
 import { safeUploadBytes, compressImageBlob } from '@/lib/storageUpload';
@@ -114,7 +115,7 @@ export default function GreetingCardStudio({ target, initial, onClose, onChanged
 
   useEffect(() => {
     if (!familyId) return;
-    getFamilyMembers(familyId).then(setMembers).catch(() => setMembers([]));
+    getFamilyMembers(familyId).then((l) => setMembers(filterListedMembers(l))).catch(() => setMembers([]));
   }, [familyId]);
 
   useEffect(() => { if (theme && profile?.uid) remember(`kayaCardTheme:${profile.uid}`, theme); }, [theme, profile?.uid]);

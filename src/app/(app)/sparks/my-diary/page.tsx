@@ -26,6 +26,14 @@ import { uploadSparksPhotos } from '@/lib/sparks/uploadPhoto';
 import { toDisplayDate } from '@/lib/dates';
 import { EntryCard, DiaryTimeline, PinCreateModal } from '@/components/sparks/DiaryShared';
 import { PolishControl } from '@/components/sparks/PolishedText';
+import {
+  type TimelineDay, TimelineList, TimelineBrowse, MemoryLane,
+  ViewSwitcher, useRememberedView, previewLine,
+  timelineDayLabel, timelineMonthLabel,
+} from '@/components/sparks/TimelineViews';
+import TimelineHitMap from '@/components/sparks/TimelineHitMap';
+import NoteStudio from '@/components/sparks/NoteStudio';
+import MonthStory from '@/components/sparks/MonthStory';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 import DiaryInkCanvas, { type DiaryInkHandle } from '@/components/sparks/DiaryInkCanvas';
 
@@ -61,13 +69,12 @@ export default function MyDiaryPage() {
   const inkRef = useRef<DiaryInkHandle>(null);
   const [scanOpen, setScanOpen] = useState(false);
   const [scanFiles, setScanFiles] = useState<File[]>([]);
-  const [timelineOpen, setTimelineOpen] = useState(false);
   const [dayOpen, setDayOpen] = useState<string | null>(null);
   const [pinModalFor, setPinModalFor] = useState<null | { then: () => void }>(null);
 
   useEffect(() => {
     if (!familyId || !uid || !isParent) return;
-    return subscribeToDiary(familyId, uid, setEntries);
+    return subscribeToDiary(familyId, uid, setEntries, 1830); // All-years hit-map zoom
   }, [familyId, uid, isParent]);
   useEffect(() => {
     if (!uid || !isParent) return;
@@ -76,6 +83,57 @@ export default function MyDiaryPage() {
 
   const stats = useMemo(() => computeDiaryStats(entries ?? []), [entries]);
   const todays = useMemo(() => (entries ?? []).filter((e) => e.date === today), [entries, today]);
+
+  // Timeline 2.0 (design v2) · shared views. The owner sees their own
+  // locked pages, so 🔒 is a badge here, never a redaction.
+  const [tlView, setTlView] = useRememberedView('my-diary', ['list', 'browse', 'hitmap', 'calendar'], 'list');
+  const tlDays = useMemo<TimelineDay[]>(() => {
+    const byDay = new Map<string, DiaryEntry[]>();
+    for (const e of entries ?? []) byDay.set(e.date, [...(byDay.get(e.date) ?? []), e]);
+    return Array.from(byDay.entries()).map(([date, list]) => {
+      const ordered = list.slice().reverse();
+      const textBlock = ordered.flatMap((e) => e.blocks ?? []).find((b) => b.kind === 'text' && b.text?.trim());
+      const drawn = ordered.some((e) => (e.blocks ?? []).some((b) => b.kind === 'ink' || b.kind === 'scan'));
+      const replies = ordered.flatMap((e) => e.note_replies ?? []);
+      const allBlocks = ordered.flatMap((e) => e.blocks ?? []);
+      return {
+        date,
+        emoji: ordered.find((e) => e.feeling)?.feeling,
+        preview: previewLine(textBlock?.text) || (drawn ? (sw ? '🖊 Ukurasa uliochorwa' : '🖊 Drawn page') : ''),
+        locked: list.some((e) => e.locked),
+        count: list.length,
+        reply: replies.length ? replies[replies.length - 1] : undefined,
+        photoUrl: allBlocks.find((b) => (b.kind === 'scan' || b.kind === 'ink') && b.url)?.url,
+        searchText: allBlocks.filter((b) => b.kind === 'text' && b.text?.trim()).map((b) => b.text as string).join('\n') || undefined,
+      };
+    });
+  }, [entries, sw]);
+
+  // 🖼 Note Studio — locked pages never reach a share, even my own:
+  // a locked page is a private page (design v2 decisions).
+  const [noteFor, setNoteFor] = useState<string | null>(null);
+  const myDiaryLabel = sw ? 'Shajara yangu' : 'My Diary';
+  const shareableDay = (date: string) => {
+    const list = (entries ?? []).filter((e) => e.date === date && !e.locked).slice().reverse();
+    const texts = list.flatMap((e) =>
+      (e.blocks ?? []).filter((b) => b.kind === 'text' && b.text?.trim()).map((b) => (b.text as string).trim()));
+    if (texts.length === 0) return null;
+    return {
+      kidName: firstName, surfaceLabel: myDiaryLabel,
+      dateLabel: timelineDayLabel(date, sw), dateKey: date,
+      feeling: list.find((e) => e.feeling)?.feeling, text: texts.join('\n\n'),
+    };
+  };
+  const noteBase = useMemo(() => (noteFor ? shareableDay(noteFor) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [noteFor, entries, firstName, sw]);
+  const noteMonth = useMemo(() => {
+    if (!noteFor) return [];
+    const pfx = noteFor.slice(0, 7);
+    const dates = Array.from(new Set((entries ?? []).filter((e) => e.date.slice(0, 7) === pfx).map((e) => e.date))).sort();
+    return dates.map((d) => shareableDay(d)).filter(Boolean) as NonNullable<ReturnType<typeof shareableDay>>[];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noteFor, entries, firstName, sw]);
 
   const withPin = (then: () => void) => {
     if (meta?.hasPin) { then(); return; }
@@ -186,17 +244,11 @@ export default function MyDiaryPage() {
               )}
 
               {!writing && (
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => setWriting(true)}
-                    className="flex-1 rounded-2xl py-3 text-white font-nunito font-black text-[14px]"
-                    style={{ background: `linear-gradient(135deg, #2a1f3d, ${PLUM})` }}>
-                    ＋ {sw ? 'Andika' : 'Write'}
-                  </button>
-                  <button type="button" onClick={() => setTimelineOpen((v) => !v)}
-                    className="rounded-2xl py-3 px-4 font-nunito font-black text-[14px] bg-[#F9E4F1] text-[#7A2E5C]">
-                    📖 {sw ? 'Ratiba' : 'Timeline'}
-                  </button>
-                </div>
+                <button type="button" onClick={() => setWriting(true)}
+                  className="w-full rounded-2xl py-3 text-white font-nunito font-black text-[14px]"
+                  style={{ background: `linear-gradient(135deg, #2a1f3d, ${PLUM})` }}>
+                  ＋ {sw ? 'Andika' : 'Write'}
+                </button>
               )}
 
               {writing && (
@@ -285,16 +337,61 @@ export default function MyDiaryPage() {
                 </div>
               )}
 
-              {timelineOpen && (
-                <DiaryTimeline entries={entries ?? []} sw={sw} onOpenDay={(d) => setDayOpen(d)} />
+              {/* Timeline 2.0 (design v2) · 📋 List (default) · 🗂 Browse ·
+                  🗓 Calendar (the original emoji month — kept). ALWAYS
+                  visible, exactly like My Reflection — no toggle to find
+                  (Elia, 2026-08-25: "do the same for Diary"). */}
+              {tlDays.length > 0 && (
+                <>
+                  <div className="text-[10px] font-nunito font-black uppercase tracking-[1.2px] text-[#5A6488] mt-5">
+                    {sw ? 'Shajara yako' : 'Your diary'}
+                  </div>
+                  <MemoryLane days={tlDays} onOpenDay={(d) => setDayOpen(d)} sw={sw} />
+                  <ViewSwitcher view={tlView} views={['list', 'browse', 'hitmap', 'calendar']} onChange={setTlView} sw={sw} />
+                  {tlView === 'list' && (
+                    <TimelineList days={tlDays} onOpenDay={(d) => setDayOpen(d)} onShareDay={setNoteFor} sw={sw} />
+                  )}
+                  {tlView === 'browse' && (
+                    <TimelineBrowse days={tlDays} onOpenDay={(d) => setDayOpen(d)} onShareDay={setNoteFor} sw={sw}
+                      monthExtra={(mk) => (
+                        <MonthStory kidId={uid} surface="diary" monthKey={mk} isParent sw={sw} />
+                      )} />
+                  )}
+                  {tlView === 'hitmap' && (
+                    <TimelineHitMap days={tlDays} onOpenDay={(d) => setDayOpen(d)} sw={sw} layers={['feelings', 'presence']} />
+                  )}
+                  {tlView === 'calendar' && (
+                    <DiaryTimeline entries={entries ?? []} sw={sw} onOpenDay={(d) => setDayOpen(d)} />
+                  )}
+                </>
               )}
+
+              {/* 🖼 Note Studio — themed keepsake card for one day. */}
+              <NoteStudio
+                open={!!noteBase}
+                onClose={() => setNoteFor(null)}
+                base={noteBase}
+                monthNotes={noteMonth}
+                monthLabel={noteFor ? timelineMonthLabel(noteFor, sw) : ''}
+                kidTags={[]}
+                canShareOutside
+                sendMeta={{ kidId: uid, surface: 'diary' }}
+                sw={sw}
+              />
 
               {dayOpen && (
                 <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
                   <button type="button" aria-label="Close" onClick={() => setDayOpen(null)} className="absolute inset-0 bg-black/40" />
                   <div className="relative w-full sm:max-w-md max-h-[85vh] overflow-y-auto bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl">
-                    <div className="px-5 pt-4 pb-3 text-white sticky top-0" style={{ background: `linear-gradient(135deg, #2a1f3d, ${PLUM})` }}>
+                    <div className="px-5 pt-4 pb-3 text-white sticky top-0 flex items-center justify-between gap-2" style={{ background: `linear-gradient(135deg, #2a1f3d, ${PLUM})` }}>
                       <div className="font-display font-extrabold text-[16px]">📔 {toDisplayDate(dayOpen)}</div>
+                      {shareableDay(dayOpen) && (
+                        <button type="button"
+                          onClick={() => { const d = dayOpen; setDayOpen(null); setNoteFor(d); }}
+                          className="shrink-0 rounded-full bg-white/15 hover:bg-white/25 px-3.5 py-1.5 text-[12px] font-nunito font-extrabold text-white">
+                          ↗ {sw ? 'Shiriki' : 'Share'}
+                        </button>
+                      )}
                     </div>
                     <div className="p-4 space-y-2.5">
                       {(entries ?? []).filter((e) => e.date === dayOpen).slice().reverse().map((e) => (

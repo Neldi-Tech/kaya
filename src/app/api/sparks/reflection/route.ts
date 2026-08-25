@@ -270,6 +270,7 @@ export async function POST(req: NextRequest) {
   const snap = await col.where('kidId', '==', kidId).get();
   const rows = snap.docs.map((d) => serialize(d.data()) as { date?: string });
   rows.sort((a, b) => ((a.date || '') < (b.date || '') ? 1 : (a.date || '') > (b.date || '') ? -1 : 0));
-  const max = Math.max(1, Math.min(366, Number(body.max) || 60));
+  // Timeline 2.0 · the All-years hit-map zoom reads up to 5 years.
+  const max = Math.max(1, Math.min(1830, Number(body.max) || 60));
   return NextResponse.json({ entries: rows.slice(0, max) });
 }

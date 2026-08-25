@@ -37,6 +37,8 @@ import TodaysWorkplanCard from '@/components/helpers/TodaysWorkplanCard';
 import RoutineFillTab from '@/components/helpers/RoutineFillTab';
 import ScoreTab from '@/components/helpers/ScoreTab';
 import KidReviewsTab from '@/components/helpers/KidReviewsTab';
+import HelperRecognitionTab from '@/components/helpers/HelperRecognitionTab';
+import CompareHelpersView from '@/components/helpers/CompareHelpersView';
 import DayStepper from '@/components/helpers/DayStepper';
 import { listHelpers, getHelperLink } from '@/lib/helpers';
 import { getHelperPerformance, perfFace, type HelperPerformanceWindow } from '@/lib/helperPerformance';
@@ -98,7 +100,7 @@ export default function PantryWorkplanPage() {
   const searchParams = useSearchParams();
   const deepHelper = searchParams.get('helper');
   const deepTabRaw = searchParams.get('tab');
-  const deepTab: HelperTab | null = deepTabRaw === 'score' || deepTabRaw === 'fill' || deepTabRaw === 'reviews' || deepTabRaw === 'today' ? deepTabRaw : null;
+  const deepTab: HelperTab | null = deepTabRaw === 'score' || deepTabRaw === 'fill' || deepTabRaw === 'reviews' || deepTabRaw === 'today' || deepTabRaw === 'recognition' ? deepTabRaw : null;
   // HP2 D1/D2 (2026-08-23) — the family's performance policy drives
   // which helpers show performance surfaces at all (tracked) and
   // whether a helper may see their own (helpersSeeOwnScore).
@@ -142,10 +144,28 @@ export default function PantryWorkplanPage() {
   // Helpers reaching this page can only see their own row in detail
   // (rules already enforce workplan read-access); we hide other rows
   // entirely so the page makes sense to them too.
+  //
+  // 2026-08-25 (Elia): for a PARENT, an UNTRACKED helper has nothing to
+  // show on this page — no score, no dots, no Score / Kid reviews /
+  // Recognition tabs — so they rendered as dead "not tracked" rows and
+  // padded the rail. They are hidden here now. Nothing is stranded:
+  // their workplan stays fully editable on Settings → Helpers (same
+  // WorkplanEditor), and ＋ Assign one-off work still lists everyone.
+  //
+  // Two rows always survive the filter:
+  //   · the viewer's own row (a helper is never hidden from themselves)
+  //   · an explicitly deep-linked ?helper=<uid> (so an old link from an
+  //     email or the Score tab still resolves instead of silently
+  //     landing on somebody else)
+  const untrackedHidden = helpers && profile?.role === 'parent'
+    ? helpers.filter((h) => !isHelperTracked(policy, h.uid)
+        && h.uid !== profile?.uid && h.uid !== deepHelper).length
+    : 0;
   const visibleHelpers = helpers
     ? (profile?.role === 'helper'
         ? helpers.filter((h) => h.uid === profile.uid)
-        : helpers)
+        : helpers.filter((h) => isHelperTracked(policy, h.uid)
+            || h.uid === profile?.uid || h.uid === deepHelper))
     : null;
 
   // HP2 D16 — this week's routine-fill dots for every row: ONE ratings
@@ -184,6 +204,19 @@ export default function PantryWorkplanPage() {
   // HP2 D16 — desktop: which helper the detail pane shows + its tab.
   const [selectedUid, setSelectedUid] = useState<string | null>(deepHelper);
   const [desktopTab, setDesktopTab] = useState<HelperTab>(deepTab ?? 'today');
+  // 🤝 HR PR-1 — fold the rail to a slim avatar strip once a helper is
+  // picked (remembered), and ⚖️ compare mode for 2–3 helpers.
+  const [railFolded, setRailFoldedState] = useState(() => {
+    try { return localStorage.getItem('kayaHelperRailFolded') === '1'; } catch { return false; }
+  });
+  const setRailFolded = (v: boolean) => {
+    setRailFoldedState(v);
+    try { localStorage.setItem('kayaHelperRailFolded', v ? '1' : '0'); } catch { /* ignore */ }
+  };
+  const [compareOn, setCompareOn] = useState(false);
+  const [compareUids, setCompareUids] = useState<string[]>([]);
+  const toggleCompareUid = (uid: string) =>
+    setCompareUids((p) => p.includes(uid) ? p.filter((x) => x !== uid) : p.length >= 3 ? p : [...p, uid]);
   const selectedHelper = visibleHelpers?.find((h) => h.uid === selectedUid) ?? visibleHelpers?.[0] ?? null;
   const showPerfFor = (h: HelperLink) =>
     isHelperTracked(policy, h.uid) && (profile?.role === 'parent' || policy?.helpersSeeOwnScore !== false);
@@ -230,7 +263,26 @@ export default function PantryWorkplanPage() {
         </div>
       )}
 
-      {visibleHelpers && visibleHelpers.length === 0 && (
+      {/* Empty state — two different empties. A family with 6 helpers and
+          none tracked must NOT be told "No helpers yet"; they need the
+          tracking switch, not the add-helper form. */}
+      {visibleHelpers && visibleHelpers.length === 0 && untrackedHidden > 0 && (
+        <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-8 text-center">
+          <div className="text-4xl mb-2">⚖️</div>
+          <p className="font-nunito font-extrabold text-[14px]">No one is tracked yet</p>
+          <p className="text-[12px] text-hive-muted mt-1 mb-4">
+            You have {untrackedHidden} {untrackedHidden === 1 ? 'helper' : 'helpers'}, but performance tracking is off for {untrackedHidden === 1 ? 'them' : 'all of them'} — so there is nothing to show here. Turn tracking on for anyone whose work you want scored.
+          </p>
+          <Link
+            href="/settings/performance"
+            className="inline-flex items-center gap-1.5 h-10 px-4 rounded-hive-pill bg-pantry-leaf hover:bg-pantry-leaf-dk text-white font-nunito font-extrabold text-[12px] no-underline"
+          >
+            ⚖️ Choose who&apos;s tracked
+          </Link>
+        </div>
+      )}
+
+      {visibleHelpers && visibleHelpers.length === 0 && untrackedHidden === 0 && (
         <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-8 text-center">
           <div className="text-4xl mb-2">🤝</div>
           <p className="font-nunito font-extrabold text-[14px]">No helpers yet</p>
@@ -273,26 +325,81 @@ export default function PantryWorkplanPage() {
 
       {/* ── Desktop (≥1024px): two panes — helper rail + detail (HP2 D16) ── */}
       {isLg && visibleHelpers && visibleHelpers.length > 0 && (
-        <div className="hidden lg:grid lg:grid-cols-[300px_minmax(0,1fr)] lg:gap-6 lg:items-start">
+        <div className={`hidden lg:grid lg:gap-6 lg:items-start ${railFolded ? "lg:grid-cols-[64px_minmax(0,1fr)]" : "lg:grid-cols-[300px_minmax(0,1fr)]"}`}>
           <aside className="lg:sticky lg:top-6 bg-hive-paper border border-hive-line rounded-hive-lg p-2">
-            <p className="px-2 pt-1 pb-2 text-[10px] uppercase tracking-[1.5px] font-nunito font-black text-hive-muted">
-              Helpers · {visibleHelpers.length}{profile?.role === 'parent' ? ` · ${visibleHelpers.filter((h) => showPerfFor(h)).length} tracked` : ''}
-            </p>
+            {railFolded ? (
+              /* 🤝 HR PR-1 — slim avatar strip: results get the room. */
+              <div className="flex flex-col items-center gap-1.5 py-1">
+                <button type="button" onClick={() => setRailFolded(false)}
+                  title="Open the helper list"
+                  className="w-10 h-8 rounded-hive text-[13px] font-nunito font-black text-hive-muted hover:bg-hive-cream">›</button>
+                {visibleHelpers.map((h) => (
+                  <button
+                    key={h.uid}
+                    type="button"
+                    onClick={() => { setSelectedUid(h.uid); if (compareOn) toggleCompareUid(h.uid); }}
+                    title={h.displayName}
+                    className={`w-10 h-10 rounded-hive text-xl flex items-center justify-center transition-colors ${
+                      (compareOn ? compareUids.includes(h.uid) : selectedHelper?.uid === h.uid)
+                        ? 'bg-hive-honey border-2 border-hive-honey-dk' : 'hover:bg-hive-cream'
+                    }`}
+                  >{PRESET_EMOJI[h.preset]}</button>
+                ))}
+              </div>
+            ) : (
+            <>
+            <div className="flex items-center gap-1 px-2 pt-1 pb-2">
+              <p className="flex-1 text-[10px] uppercase tracking-[1.5px] font-nunito font-black text-hive-muted">
+                Helpers · {visibleHelpers.length}{untrackedHidden > 0 ? ` · ${untrackedHidden} not tracked` : ''}
+              </p>
+              {profile?.role === 'parent' && visibleHelpers.length >= 2 && (
+                <button type="button"
+                  onClick={() => {
+                    const next = !compareOn;
+                    setCompareOn(next);
+                    if (next) setCompareUids(selectedHelper ? [selectedHelper.uid] : []);
+                  }}
+                  className={`px-2 py-1 rounded-full text-[10px] font-nunito font-black border ${compareOn ? 'bg-hive-ink text-white border-transparent' : 'bg-white text-hive-muted border-hive-line'}`}>
+                  ⚖️ Compare
+                </button>
+              )}
+              <button type="button" onClick={() => setRailFolded(true)} title="Fold the list"
+                className="px-1.5 py-1 rounded-full text-[11px] font-nunito font-black text-hive-muted hover:bg-hive-cream">‹</button>
+            </div>
+            {compareOn && (
+              <p className="px-2 pb-1.5 text-[10px] text-hive-muted font-bold">Pick 2–3 to compare · {compareUids.length} chosen</p>
+            )}
             <div className="space-y-0.5">
               {visibleHelpers.map((h) => (
-                <RailRow
-                  key={h.uid}
-                  helper={h}
-                  familyId={family.id}
-                  selected={selectedHelper?.uid === h.uid}
-                  onSelect={() => setSelectedUid(h.uid)}
-                  showPerf={showPerfFor(h)}
-                  isParent={profile?.role === 'parent'}
-                  weekCodes={weekCodes[h.uid]}
-                />
+                <div key={h.uid} className={compareOn && compareUids.includes(h.uid) ? 'rounded-hive ring-2 ring-hive-honey-dk' : ''}>
+                  <RailRow
+                    helper={h}
+                    familyId={family.id}
+                    selected={compareOn ? compareUids.includes(h.uid) : selectedHelper?.uid === h.uid}
+                    onSelect={() => (compareOn ? toggleCompareUid(h.uid) : setSelectedUid(h.uid))}
+                    showPerf={showPerfFor(h)}
+                    isParent={profile?.role === 'parent'}
+                    weekCodes={weekCodes[h.uid]}
+                  />
+                </div>
               ))}
             </div>
-            {profile?.role === 'parent' && (
+            </>
+            )}
+            {/* Why the count shrank — untracked helpers are hidden here,
+                not gone. One muted line keeps them one tap away. */}
+            {!railFolded && untrackedHidden > 0 && (
+              <Link
+                href="/settings/performance"
+                className="mt-2 flex items-center justify-between gap-2 px-2.5 py-2 rounded-hive bg-hive-paper border border-hive-line no-underline"
+              >
+                <span className="text-[10.5px] text-hive-muted">
+                  ⚖️ {untrackedHidden} not tracked — hidden here
+                </span>
+                <span className="text-[10.5px] font-nunito font-black text-pantry-leaf-dk shrink-0">Change →</span>
+              </Link>
+            )}
+            {!railFolded && profile?.role === 'parent' && (
               <Link
                 href="/pantry/workplan/assign"
                 className="mt-3 block w-full text-center bg-hive-honey hover:bg-hive-honey-dk text-hive-ink font-nunito font-black text-[13px] py-3 rounded-hive border-2 border-hive-honey-dk no-underline"
@@ -302,7 +409,18 @@ export default function PantryWorkplanPage() {
             )}
           </aside>
           <section className="min-w-0">
-            {selectedHelper && (
+            {compareOn && compareUids.length >= 2 && profile?.role === 'parent' ? (
+              <CompareHelpersView
+                familyId={family.id}
+                helpers={visibleHelpers.filter((h) => compareUids.includes(h.uid))}
+              />
+            ) : compareOn ? (
+              <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-8 text-center">
+                <p className="text-3xl mb-2">⚖️</p>
+                <p className="font-nunito font-extrabold text-[14px]">Pick {compareUids.length === 1 ? 'one more helper' : '2–3 helpers'} on the left to compare.</p>
+              </div>
+            ) : null}
+            {!(compareOn) && selectedHelper && (
               <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-5 space-y-4">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-center gap-3 min-w-0">
@@ -481,6 +599,9 @@ function HelperPanel({ helper, familyId, isParent, showPerf, selectedDate, tab, 
       {activeTab === 'reviews' && isParent && (
         <KidReviewsTab helper={helper} />
       )}
+      {activeTab === 'recognition' && isParent && (
+        <HelperRecognitionTab helper={helper} familyId={familyId} />
+      )}
 
       {activeTab === 'today' && <>
       {dayStepper}
@@ -601,12 +722,14 @@ function WeekDots({ codes }: { codes?: string }) {
 }
 
 // ── HP2 · tabs inside a helper card (D15) ───────────────────────
-type HelperTab = 'today' | 'fill' | 'score' | 'reviews';
+type HelperTab = 'today' | 'fill' | 'score' | 'reviews' | 'recognition';
 const HELPER_TABS: { id: HelperTab; label: string; parentOnly?: boolean; soon?: boolean }[] = [
   { id: 'today',   label: 'Today' },
   { id: 'fill',    label: 'Routine fill' },
   { id: 'score',   label: 'Score' },
   { id: 'reviews', label: 'Kid reviews', parentOnly: true },
+  // 🤝 HR PR-1 — the recognition scorecard (5 dials), parent-only.
+  { id: 'recognition', label: '🤝 Recognition', parentOnly: true },
 ];
 function HelperTabs({ tab, onChange, isParent }: { tab: HelperTab; onChange: (t: HelperTab) => void; isParent: boolean }) {
   const tabs = HELPER_TABS.filter((t) => !t.parentOnly || isParent);

@@ -39,6 +39,7 @@ import {
 import { computeFamilyCatchUps, CATCHUP_PERIODS, type KidCatchUps, type CatchUpPeriod } from '@/lib/catchUpBoard';
 import { computeWindowRange, computeReview, computeDayScores } from '@/lib/meetingReview';
 import SundaySurpriseStep, { type SurpriseRecord } from '@/components/meetings/SundaySurpriseStep';
+import NoteOfWeekStep, { type NoteOfWeekRecord } from '@/components/meetings/NoteOfWeekStep';
 import { giveAward } from '@/lib/firestore';
 import { leaderHandover, listLeaderNotes, draftLeaderReport, type LeaderNote } from '@/lib/leaderWeek';
 import { sendMessage } from '@/lib/messaging';
@@ -80,6 +81,7 @@ const STEPS = [
   { id: 'catchup',       title: 'Catch-Up Corner',    emoji: '⏰', sub: 'Celebrate what got cleared, face what\'s still open — then promise the catch-up.' },
   { id: 'goals',         title: 'Goals Review',       emoji: '🎯', sub: 'Mark last week\'s goals done, revisit older outstanding ones, then commit for next week.' },
   { id: 'openfloor',     title: 'Open Floor',         emoji: '🗣️', sub: 'Topics anyone raised — discuss together; the leader keeps the notes.' },
+  { id: 'noteofweek',    title: 'Note of the Week',   emoji: '🌟', sub: 'Kaya nominates the week\'s best journal notes — the family crowns one.' },
   { id: 'reflection',    title: 'Closing Reflection', emoji: '✨', sub: 'Pick one — or all — of story, song, or family prayer.' },
   { id: 'surprise',      title: 'Sunday Surprise',    emoji: '🎁', sub: 'One shared moment to end the night — tonight\'s pick is a surprise.' },
 ] as const;
@@ -138,6 +140,8 @@ export default function MeetingPresenterPage() {
       if (s.id === 'openfloor') return family?.meetingSetup?.openFloorEnabled === true;
       // ⏰ Catch-Up Corner (2026-08-10) — own flag, default ON (absent=on).
       if (s.id === 'catchup') return family?.meetingSetup?.catchUpCornerEnabled !== false;
+      // 🌟 Note of the Week (Timeline 2.0) — own flag, default ON.
+      if (s.id === 'noteofweek') return family?.meetingSetup?.noteOfWeekEnabled !== false;
       if (s.id === 'surprise') return surpriseOn;
       if (!enabled || enabled.length === 0) return true;
       return enabledSet.has(s.id);
@@ -152,11 +156,11 @@ export default function MeetingPresenterPage() {
     const withCustom: StepDef[] = customOn
       ? [...filteredRest, { id: 'custom', title: (cs!.name || '').trim(), emoji: cs!.emoji || '⭐', sub: 'Your family\u2019s own moment — the leader keeps the notes.' }]
       : [...filteredRest];
-    const REORDERABLE = ['appreciations', 'catchup', 'goals', 'openfloor', 'reflection', 'custom'];
+    const REORDERABLE = ['appreciations', 'catchup', 'goals', 'openfloor', 'noteofweek', 'reflection', 'custom'];
     const savedOrder = family?.meetingSetup?.agendaOrder;
     let tailOrder = (savedOrder && savedOrder.length > 0)
-      ? [...savedOrder.filter((id) => REORDERABLE.includes(id)), ...REORDERABLE.filter((id) => !savedOrder.includes(id) && id !== 'catchup')]
-      : REORDERABLE.filter((id) => id !== 'catchup');
+      ? [...savedOrder.filter((id) => REORDERABLE.includes(id)), ...REORDERABLE.filter((id) => !savedOrder.includes(id) && id !== 'catchup' && id !== 'noteofweek')]
+      : REORDERABLE.filter((id) => id !== 'catchup' && id !== 'noteofweek');
     // 'catchup' slots BEFORE goals for families with saved orders from
     // before it existed (append would bury it at the end).
     if (!tailOrder.includes('catchup')) {
@@ -164,6 +168,14 @@ export default function MeetingPresenterPage() {
       tailOrder = gi >= 0
         ? [...tailOrder.slice(0, gi), 'catchup', ...tailOrder.slice(gi)]
         : [...tailOrder, 'catchup'];
+    }
+    // 🌟 'noteofweek' (Timeline 2.0) slots BEFORE the closing reflection —
+    // same migration rule as catchup for pre-existing saved orders.
+    if (!tailOrder.includes('noteofweek')) {
+      const ri = tailOrder.indexOf('reflection');
+      tailOrder = ri >= 0
+        ? [...tailOrder.slice(0, ri), 'noteofweek', ...tailOrder.slice(ri)]
+        : [...tailOrder, 'noteofweek'];
     }
     const head = withCustom.filter((st) => !REORDERABLE.includes(st.id) && st.id !== 'surprise');
     const tail = tailOrder.map((id) => withCustom.find((st) => st.id === id)).filter((st): st is StepDef => !!st);
@@ -175,7 +187,7 @@ export default function MeetingPresenterPage() {
       const custom = (labels[s.id] || '').trim();
       return custom ? { ...s, title: custom } : s;
     });
-  }, [family?.meetingSetup?.agendaSteps, family?.meetingSetup?.stepLabels, family?.meetingSetup?.openingWordEnabled, family?.meetingSetup?.sundaySurpriseEnabled, family?.meetingSetup?.openFloorEnabled, family?.meetingSetup?.agendaOrder, family?.meetingSetup?.customStep, family?.meetingSetup?.catchUpCornerEnabled]);
+  }, [family?.meetingSetup?.agendaSteps, family?.meetingSetup?.stepLabels, family?.meetingSetup?.openingWordEnabled, family?.meetingSetup?.sundaySurpriseEnabled, family?.meetingSetup?.openFloorEnabled, family?.meetingSetup?.agendaOrder, family?.meetingSetup?.customStep, family?.meetingSetup?.catchUpCornerEnabled, family?.meetingSetup?.noteOfWeekEnabled]);
 
   // Step index — persisted in sessionStorage so navigating away (e.g.
   // "Open Points Review" → /meetings/review → browser Back) returns
@@ -286,6 +298,8 @@ export default function MeetingPresenterPage() {
   const [openingWordDone, setOpeningWordDone] = useState(false);
   // 🎁 Sunday Surprise (SM3.1 · #7) — tonight's captured surprise.
   const [surpriseRecord, setSurpriseRecord] = useState<SurpriseRecord | null>(null);
+  // 🌟 Note of the Week (Timeline 2.0) — tonight's crowned note.
+  const [noteOfWeekRecord, setNoteOfWeekRecord] = useState<NoteOfWeekRecord | null>(null);
   // Finish-stuck fix (2026-06-21): a failed save shows a retryable error
   // instead of leaving the button dead on 'Saving…'. Also: while a surprise
   // photo/video is still uploading, Finish waits (no half-saved meeting).
@@ -1067,6 +1081,7 @@ export default function MeetingPresenterPage() {
           ...(surpriseRecord.missions ? { missions: surpriseRecord.missions } : {}),
         },
       } : {}),
+      ...(noteOfWeekRecord ? { noteOfWeek: noteOfWeekRecord } : {}),
       ...(roleEntries.length > 0 ? { roles: Object.fromEntries(roleEntries.map((r) => [r.id, r.childId])) } : {}),
       ...(voteStage === 'done' && voteOptions.length > 0 ? (() => {
         const winner = voteOptions.reduce((best, o) => ((voteCounts[o] || 0) > (voteCounts[best] || 0) ? o : best), voteOptions[0]);
@@ -1628,6 +1643,20 @@ export default function MeetingPresenterPage() {
                     if (next.has(kidId)) next.delete(kidId); else next.add(kidId);
                     return next;
                   })}
+                />
+              )}
+
+              {/* 🌟 Note of the Week (Timeline 2.0) — Kaya nominates, the
+                  family crowns, the card lands in Moments. */}
+              {step.id === 'noteofweek' && profile?.familyId && (
+                <NoteOfWeekStep
+                  familyId={profile.familyId}
+                  meUid={profile.uid}
+                  meName={profile.displayName || 'Kaya parent'}
+                  childrenList={children.map((c) => ({ id: c.id, name: c.name }))}
+                  record={noteOfWeekRecord}
+                  onRecord={setNoteOfWeekRecord}
+                  sw={false}
                 />
               )}
 

@@ -27,10 +27,13 @@ interface Props {
   caption?: string;
   /** Sub-caption — usually the display date. */
   subCaption?: string;
+  /** Timeline 2.0 · optional ↗ share for the CURRENT photo — pages
+   *  pass it only for viewers allowed to share (e.g. parents). */
+  onShare?: (url: string) => void;
 }
 
 export default function PhotoLightbox({
-  photos, index, onIndexChange, onClose, caption, subCaption,
+  photos, index, onIndexChange, onClose, caption, subCaption, onShare,
 }: Props) {
   const current = photos[index];
   const hasPrev = index > 0;
@@ -101,6 +104,18 @@ export default function PhotoLightbox({
       >
         ✕
       </button>
+
+      {/* ↗ Share — top left, only when the page allows it */}
+      {onShare && (
+        <button
+          type="button"
+          onClick={() => onShare(current)}
+          aria-label="Share photo"
+          className="absolute top-4 left-4 h-10 px-4 rounded-full bg-white/15 hover:bg-white/25 text-white grid place-items-center text-[13px] font-extrabold backdrop-blur-sm transition-colors z-10"
+        >
+          ↗ Share
+        </button>
+      )}
 
       {/* Prev / next arrows — only when there's more than one photo */}
       {photos.length > 1 && (
