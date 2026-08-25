@@ -26,6 +26,10 @@ import { uploadSparksPhotos } from '@/lib/sparks/uploadPhoto';
 import { toDisplayDate } from '@/lib/dates';
 import { EntryCard, DiaryTimeline, PinCreateModal } from '@/components/sparks/DiaryShared';
 import { PolishControl } from '@/components/sparks/PolishedText';
+import {
+  type TimelineDay, TimelineList, TimelineBrowse, MemoryLane,
+  ViewSwitcher, useRememberedView, previewLine,
+} from '@/components/sparks/TimelineViews';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 import DiaryInkCanvas, { type DiaryInkHandle } from '@/components/sparks/DiaryInkCanvas';
 
@@ -76,6 +80,26 @@ export default function MyDiaryPage() {
 
   const stats = useMemo(() => computeDiaryStats(entries ?? []), [entries]);
   const todays = useMemo(() => (entries ?? []).filter((e) => e.date === today), [entries, today]);
+
+  // Timeline 2.0 (design v2) · shared views. The owner sees their own
+  // locked pages, so 🔒 is a badge here, never a redaction.
+  const [tlView, setTlView] = useRememberedView('my-diary', ['list', 'browse', 'calendar'], 'list');
+  const tlDays = useMemo<TimelineDay[]>(() => {
+    const byDay = new Map<string, DiaryEntry[]>();
+    for (const e of entries ?? []) byDay.set(e.date, [...(byDay.get(e.date) ?? []), e]);
+    return Array.from(byDay.entries()).map(([date, list]) => {
+      const ordered = list.slice().reverse();
+      const textBlock = ordered.flatMap((e) => e.blocks ?? []).find((b) => b.kind === 'text' && b.text?.trim());
+      const drawn = ordered.some((e) => (e.blocks ?? []).some((b) => b.kind === 'ink' || b.kind === 'scan'));
+      return {
+        date,
+        emoji: ordered.find((e) => e.feeling)?.feeling,
+        preview: previewLine(textBlock?.text) || (drawn ? (sw ? '🖊 Ukurasa uliochorwa' : '🖊 Drawn page') : ''),
+        locked: list.some((e) => e.locked),
+        count: list.length,
+      };
+    });
+  }, [entries, sw]);
 
   const withPin = (then: () => void) => {
     if (meta?.hasPin) { then(); return; }
@@ -285,8 +309,22 @@ export default function MyDiaryPage() {
                 </div>
               )}
 
+              {/* Timeline 2.0 (design v2) · 📋 List (default) · 🗂 Browse ·
+                  🗓 Calendar (the original emoji month — kept). */}
               {timelineOpen && (
-                <DiaryTimeline entries={entries ?? []} sw={sw} onOpenDay={(d) => setDayOpen(d)} />
+                <>
+                  <MemoryLane days={tlDays} onOpenDay={(d) => setDayOpen(d)} sw={sw} />
+                  <ViewSwitcher view={tlView} views={['list', 'browse', 'calendar']} onChange={setTlView} sw={sw} />
+                  {tlView === 'list' && (
+                    <TimelineList days={tlDays} onOpenDay={(d) => setDayOpen(d)} sw={sw} />
+                  )}
+                  {tlView === 'browse' && (
+                    <TimelineBrowse days={tlDays} onOpenDay={(d) => setDayOpen(d)} sw={sw} />
+                  )}
+                  {tlView === 'calendar' && (
+                    <DiaryTimeline entries={entries ?? []} sw={sw} onOpenDay={(d) => setDayOpen(d)} />
+                  )}
+                </>
               )}
 
               {dayOpen && (
