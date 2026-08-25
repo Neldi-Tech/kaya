@@ -7,9 +7,10 @@
 
 import { useEffect, useState } from 'react';
 import { computeHelperDials, DIAL_META, dialColor, type HelperDials } from '@/lib/helperRecognition';
+import { shareScorecardPng, HELPER_COLORS } from '@/lib/helperScorecardPng';
+import { useFamily } from '@/contexts/FamilyContext';
+import { asLocale, localeForCountry, type Locale } from '@/lib/i18n';
 import type { HelperLink } from '@/lib/firestore';
-
-const HELPER_COLORS = ['#6B3FE0', '#11C5A8', '#C46A1B'];
 
 type Row = { helper: HelperLink; dials: HelperDials };
 
@@ -26,6 +27,7 @@ export default function CompareHelpersView({ familyId, helpers }: {
   familyId: string;
   helpers: HelperLink[];
 }) {
+  const { family } = useFamily();
   const [rows, setRows] = useState<Row[] | null>(null);
 
   useEffect(() => {
@@ -37,56 +39,28 @@ export default function CompareHelpersView({ familyId, helpers }: {
     return () => { alive = false; };
   }, [familyId, helpers]);
 
+  // 📤 PNG share — now goes through lib/helperScorecardPng so the compare
+  // picture and a single helper's card are rendered by ONE code path and
+  // can never drift. Bilingual: the people in the picture are usually the
+  // audience for it.
+  // Default to the language the compared helpers actually read — the
+  // parent-set default for the first of them, else the country's language
+  // (same chain useLocale walks for a helper).
+  const compareDefaultLang: Locale =
+    asLocale(family?.memberLanguageDefaults?.[helpers[0]?.uid ?? ''])
+    ?? localeForCountry(family?.location?.country);
+  const [shareLang, setShareLang] = useState<Locale>(compareDefaultLang);
+  const [sharing, setSharing] = useState(false);
   const sharePng = async () => {
     if (!rows || rows.length === 0) return;
-    const scale = 2;
-    const W = 900, H = 200 + rows.length * 40 + DIAL_META.length * 56;
-    const canvas = document.createElement('canvas');
-    canvas.width = W * scale; canvas.height = H * scale;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.scale(scale, scale);
-    ctx.fillStyle = '#FDFBF7'; ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = '#1E120B'; ctx.font = '900 26px Nunito, Arial';
-    ctx.fillText('🤝 Helper comparison — recognition dials', 32, 48);
-    ctx.font = '700 13px Nunito, Arial'; ctx.fillStyle = '#9B8A72';
-    ctx.fillText(new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }), 32, 70);
-    let y = 108;
-    rows.forEach((r, i) => {
-      ctx.fillStyle = HELPER_COLORS[i % HELPER_COLORS.length];
-      ctx.font = '900 17px Nunito, Arial';
-      ctx.fillText(`● ${r.helper.displayName} — score ${r.dials.score ?? '—'}`, 32, y);
-      y += 34;
-    });
-    y += 8;
-    for (const m of DIAL_META) {
-      ctx.fillStyle = '#1E120B'; ctx.font = '800 14px Nunito, Arial';
-      ctx.fillText(`${m.emoji} ${m.label}`, 32, y);
-      rows.forEach((r, i) => {
-        const v = r.dials[m.key];
-        const barY = y + 8 + i * 12;
-        ctx.fillStyle = '#F0EBE3';
-        ctx.fillRect(240, barY - 8, 560, 8);
-        ctx.fillStyle = HELPER_COLORS[i % HELPER_COLORS.length];
-        ctx.fillRect(240, barY - 8, 560 * ((v ?? 0) / 100), 8);
-        ctx.fillStyle = '#1E120B'; ctx.font = '900 11px Nunito, Arial';
-        ctx.fillText(v === null ? '—' : String(v), 810, barY);
-      });
-      y += 20 + rows.length * 12;
-    }
-    const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
-    if (!blob) return;
-    const file = new File([blob], 'Kaya-helper-comparison.png', { type: 'image/png' });
-    const nav = navigator as Navigator & { canShare?: (d: { files: File[] }) => boolean };
-    if (nav.share && (!nav.canShare || nav.canShare({ files: [file] }))) {
-      await nav.share({ files: [file], title: 'Kaya helper comparison' }).catch(() => {});
-    } else {
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'Kaya-helper-comparison.png';
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-    }
+    setSharing(true);
+    try {
+      await shareScorecardPng(
+        rows.map((r) => ({ name: r.helper.displayName, dials: r.dials })),
+        shareLang,
+        'Kaya-helper-comparison',
+      );
+    } finally { setSharing(false); }
   };
 
   if (!rows) return <p className="text-[12.5px] text-hive-muted py-6">Computing {helpers.length} scorecards…</p>;
@@ -98,9 +72,17 @@ export default function CompareHelpersView({ familyId, helpers }: {
     <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-5 space-y-4">
       <div className="flex items-center gap-2 flex-wrap">
         <p className="font-nunito font-black text-lg flex-1">⚖️ Comparing {rows.length} helpers</p>
-        <button type="button" onClick={() => void sharePng()}
-          className="px-3.5 py-2 rounded-hive bg-hive-honey hover:bg-hive-honey-dk text-hive-ink font-nunito font-black text-[12px] border-2 border-hive-honey-dk">
-          📤 Share as picture
+        <div className="flex rounded-full border border-hive-line overflow-hidden">
+          {(['en', 'sw'] as Locale[]).map((l) => (
+            <button key={l} type="button" onClick={() => setShareLang(l)}
+              className={`px-3 py-1 text-[11px] font-nunito font-black ${shareLang === l ? 'bg-hive-ink text-white' : 'bg-white text-hive-muted'}`}>
+              {l === 'en' ? 'English' : 'Kiswahili'}
+            </button>
+          ))}
+        </div>
+        <button type="button" disabled={sharing} onClick={() => void sharePng()}
+          className="px-3.5 py-2 rounded-hive bg-hive-honey hover:bg-hive-honey-dk text-hive-ink font-nunito font-black text-[12px] border-2 border-hive-honey-dk disabled:opacity-60">
+          {sharing ? '…' : '📤 Share as picture'}
         </button>
       </div>
 

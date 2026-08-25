@@ -7,6 +7,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { computeHelperDials, fetchKidWords, DIAL_META, dialColor, type HelperDials, type KidWord } from '@/lib/helperRecognition';
+import { shareScorecardPng } from '@/lib/helperScorecardPng';
 import type { HelperLink } from '@/lib/firestore';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -71,6 +72,11 @@ export default function HelperRecognitionTab({ helper, familyId }: {
   // 💬 HR PR-4 — the kids' own review lines; one can ride the card.
   const [kidWords, setKidWords] = useState<KidWord[]>([]);
   const [kidsLine, setKidsLine] = useState<string | null>(null);
+  // 📤 Scorecard share (2026-08-25) — same pattern as ⚖️ Compare mode, but
+  // for ONE helper, and in a language they actually read. Its own state so
+  // picking a share language never disturbs the Asante composer above.
+  const [shareLang, setShareLang] = useState<CardLang>(defaultLang);
+  const [sharing, setSharing] = useState(false);
   const [creating, setCreating] = useState(false);
   const [composerMsg, setComposerMsg] = useState('');
   const [cards, setCards] = useState<ShineCard[]>([]);
@@ -268,13 +274,49 @@ export default function HelperRecognitionTab({ helper, familyId }: {
       )}
 
       {/* Composite */}
-      <div className="flex items-center gap-3 bg-white border border-hive-line rounded-hive p-3">
-        <span className="font-nunito font-black text-3xl" style={{ color: dialColor(dials.score) }}>
-          {dials.score === null ? '—' : dials.score}
-        </span>
-        <div className="min-w-0">
-          <p className="font-nunito font-extrabold text-[13px]">🤝 Helper Score · last 4 weeks</p>
-          <p className="text-[11px] text-hive-muted">Weighted blend of the five dials below (missing dials sit out, weights renormalise).</p>
+      <div className="bg-white border border-hive-line rounded-hive p-3 space-y-2.5">
+        <div className="flex items-center gap-3">
+          <span className="font-nunito font-black text-3xl" style={{ color: dialColor(dials.score) }}>
+            {dials.score === null ? '—' : dials.score}
+          </span>
+          <div className="min-w-0">
+            <p className="font-nunito font-extrabold text-[13px]">🤝 Helper Score · last 4 weeks</p>
+            <p className="text-[11px] text-hive-muted">Weighted blend of the five dials below (missing dials sit out, weights renormalise).</p>
+          </div>
+        </div>
+        {/* 📤 Share this one helper's card — the ⚖️ Compare pattern, for one
+            person, in the language they read. */}
+        <div className="flex items-center gap-2 flex-wrap pt-0.5 border-t border-hive-line/70">
+          <button
+            type="button"
+            disabled={sharing}
+            onClick={async () => {
+              setSharing(true);
+              try {
+                await shareScorecardPng(
+                  [{ name: helper.displayName, dials }],
+                  shareLang,
+                  `Kaya-${firstName}-scorecard`,
+                );
+              } finally { setSharing(false); }
+            }}
+            className="mt-2 px-3.5 py-2 rounded-hive bg-hive-honey hover:bg-hive-honey-dk text-hive-ink font-nunito font-black text-[12px] border-2 border-hive-honey-dk disabled:opacity-60"
+          >
+            {sharing ? '…' : '📤 Share as picture'}
+          </button>
+          <div className="mt-2 flex rounded-full border border-hive-line overflow-hidden">
+            {(['en', 'sw'] as CardLang[]).map((l) => (
+              <button key={l} type="button" onClick={() => setShareLang(l)}
+                className={`px-3 py-1 text-[11px] font-nunito font-black ${shareLang === l ? 'bg-hive-ink text-white' : 'bg-white text-hive-muted'}`}>
+                {l === 'en' ? 'English' : 'Kiswahili'}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-[10.5px] text-hive-muted basis-full sm:basis-auto">
+            {shareLang === defaultLang
+              ? `${firstName}'s language`
+              : 'Not their usual language'}
+          </p>
         </div>
       </div>
 

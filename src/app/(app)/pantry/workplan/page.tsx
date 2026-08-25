@@ -144,10 +144,28 @@ export default function PantryWorkplanPage() {
   // Helpers reaching this page can only see their own row in detail
   // (rules already enforce workplan read-access); we hide other rows
   // entirely so the page makes sense to them too.
+  //
+  // 2026-08-25 (Elia): for a PARENT, an UNTRACKED helper has nothing to
+  // show on this page — no score, no dots, no Score / Kid reviews /
+  // Recognition tabs — so they rendered as dead "not tracked" rows and
+  // padded the rail. They are hidden here now. Nothing is stranded:
+  // their workplan stays fully editable on Settings → Helpers (same
+  // WorkplanEditor), and ＋ Assign one-off work still lists everyone.
+  //
+  // Two rows always survive the filter:
+  //   · the viewer's own row (a helper is never hidden from themselves)
+  //   · an explicitly deep-linked ?helper=<uid> (so an old link from an
+  //     email or the Score tab still resolves instead of silently
+  //     landing on somebody else)
+  const untrackedHidden = helpers && profile?.role === 'parent'
+    ? helpers.filter((h) => !isHelperTracked(policy, h.uid)
+        && h.uid !== profile?.uid && h.uid !== deepHelper).length
+    : 0;
   const visibleHelpers = helpers
     ? (profile?.role === 'helper'
         ? helpers.filter((h) => h.uid === profile.uid)
-        : helpers)
+        : helpers.filter((h) => isHelperTracked(policy, h.uid)
+            || h.uid === profile?.uid || h.uid === deepHelper))
     : null;
 
   // HP2 D16 — this week's routine-fill dots for every row: ONE ratings
@@ -245,7 +263,26 @@ export default function PantryWorkplanPage() {
         </div>
       )}
 
-      {visibleHelpers && visibleHelpers.length === 0 && (
+      {/* Empty state — two different empties. A family with 6 helpers and
+          none tracked must NOT be told "No helpers yet"; they need the
+          tracking switch, not the add-helper form. */}
+      {visibleHelpers && visibleHelpers.length === 0 && untrackedHidden > 0 && (
+        <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-8 text-center">
+          <div className="text-4xl mb-2">⚖️</div>
+          <p className="font-nunito font-extrabold text-[14px]">No one is tracked yet</p>
+          <p className="text-[12px] text-hive-muted mt-1 mb-4">
+            You have {untrackedHidden} {untrackedHidden === 1 ? 'helper' : 'helpers'}, but performance tracking is off for {untrackedHidden === 1 ? 'them' : 'all of them'} — so there is nothing to show here. Turn tracking on for anyone whose work you want scored.
+          </p>
+          <Link
+            href="/settings/performance"
+            className="inline-flex items-center gap-1.5 h-10 px-4 rounded-hive-pill bg-pantry-leaf hover:bg-pantry-leaf-dk text-white font-nunito font-extrabold text-[12px] no-underline"
+          >
+            ⚖️ Choose who&apos;s tracked
+          </Link>
+        </div>
+      )}
+
+      {visibleHelpers && visibleHelpers.length === 0 && untrackedHidden === 0 && (
         <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-8 text-center">
           <div className="text-4xl mb-2">🤝</div>
           <p className="font-nunito font-extrabold text-[14px]">No helpers yet</p>
@@ -313,7 +350,7 @@ export default function PantryWorkplanPage() {
             <>
             <div className="flex items-center gap-1 px-2 pt-1 pb-2">
               <p className="flex-1 text-[10px] uppercase tracking-[1.5px] font-nunito font-black text-hive-muted">
-                Helpers · {visibleHelpers.length}{profile?.role === 'parent' ? ` · ${visibleHelpers.filter((h) => showPerfFor(h)).length} tracked` : ''}
+                Helpers · {visibleHelpers.length}{untrackedHidden > 0 ? ` · ${untrackedHidden} not tracked` : ''}
               </p>
               {profile?.role === 'parent' && visibleHelpers.length >= 2 && (
                 <button type="button"
@@ -348,6 +385,19 @@ export default function PantryWorkplanPage() {
               ))}
             </div>
             </>
+            )}
+            {/* Why the count shrank — untracked helpers are hidden here,
+                not gone. One muted line keeps them one tap away. */}
+            {!railFolded && untrackedHidden > 0 && (
+              <Link
+                href="/settings/performance"
+                className="mt-2 flex items-center justify-between gap-2 px-2.5 py-2 rounded-hive bg-hive-paper border border-hive-line no-underline"
+              >
+                <span className="text-[10.5px] text-hive-muted">
+                  ⚖️ {untrackedHidden} not tracked — hidden here
+                </span>
+                <span className="text-[10.5px] font-nunito font-black text-pantry-leaf-dk shrink-0">Change →</span>
+              </Link>
             )}
             {!railFolded && profile?.role === 'parent' && (
               <Link
