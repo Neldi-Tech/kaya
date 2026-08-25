@@ -17,6 +17,7 @@ import {
   subscribeToBusiness, subscribeToBusinessRequests, subscribeToLedger, subscribeToBusinessMilestones, subscribeToStockTakes,
   subscribeToStockMovements,
   setBusinessStatus, requestBusinessLaunch, updateBusiness, readBusinessConfig,
+  keepsStock, resolvePricingModel, pricingModelMeta,
 } from '@/lib/business';
 import { uploadBusinessPhotoFromDataUrl } from '@/lib/businessPhoto';
 import { ApprovalRequest } from '@/lib/hive';
@@ -137,6 +138,9 @@ export default function BusinessDashboardPage() {
   const stats = business.stats;
   const split = business.hiveSplit;
   const statCard = 'bg-hive-paper border border-hive-line rounded-hive p-3.5';
+  // Business 2.0 — stock-take vs Daily Check-in surfaces (R14/R15).
+  const stocked = keepsStock(business);
+  const modelMeta = pricingModelMeta(resolvePricingModel(business));
 
   // Web-Fit (2026-08-23): content tier, detail archetype. Desktop: the
   // books/activity cards (recent activity · snapshot · stock-take history ·
@@ -231,10 +235,12 @@ export default function BusinessDashboardPage() {
             ) : (
               <ul className="space-y-1.5 text-[12.5px]">
                 <li className="flex items-center justify-between gap-2">
-                  <span>📋 Stock-take</span>
+                  <span>{stocked ? '📋 Stock-take' : '☀️ Check-in'}</span>
                   <span className="font-nunito font-extrabold">
                     {snap.take
-                      ? <>✓ done · {snap.take.itemsTouched} item{snap.take.itemsTouched === 1 ? '' : 's'} touched</>
+                      ? stocked
+                        ? <>✓ done · {snap.take.itemsTouched} item{snap.take.itemsTouched === 1 ? '' : 's'} touched</>
+                        : <>✓ done</>
                       : <span className="text-hive-muted">○ not done</span>}
                   </span>
                 </li>
@@ -325,7 +331,7 @@ export default function BusinessDashboardPage() {
         <div className="flex-1 min-w-0">
           <div className="font-nunito font-black text-[16px] truncate">{business.name}</div>
           <div className="text-[11px] text-hive-honey-soft/80">
-            {t.label} · since {fmtDate(business.startedAt) || fmtDate(business.createdAt)}
+            {modelMeta.shortLabel} · since {fmtDate(business.startedAt) || fmtDate(business.createdAt)}
             {business.createdByName ? ` · ${business.createdByRole === 'parent' ? 'set up by' : 'started by'} ${business.createdByName}` : ''}
           </div>
         </div>
@@ -468,11 +474,12 @@ export default function BusinessDashboardPage() {
 
       {error && <p className="text-hive-rose text-[12px] font-bold mb-3">{error}</p>}
 
-      {/* Daily stock-take — the everyday habit (counts + a photo). */}
+      {/* The everyday habit: stock-take (counts + photo) for stocked
+          businesses, the Daily Check-in for everyone else (R14). */}
       {canAct && business.status !== 'closed' && (
-        <Link href={`/business/${businessId}/stocktake`}
+        <Link href={`/business/${businessId}/${stocked ? 'stocktake' : 'checkin'}`}
           className="w-full flex items-center justify-center gap-2 h-12 mb-3 rounded-hive bg-hive-honey text-hive-navy font-nunito font-black text-[14px] hover:brightness-105 active:scale-[0.99] transition no-underline">
-          📋 Daily stock-take
+          {stocked ? '📋 Daily stock-take' : '☀️ Daily check-in'}
         </Link>
       )}
 
@@ -499,7 +506,9 @@ export default function BusinessDashboardPage() {
         </Link>
       )}
 
-      {/* Inventory — the books that drive worth. */}
+      {/* Inventory — the books that drive worth. No-stock businesses have no
+          shelf to count: their menu lives in the Pricing Studio (R15). */}
+      {stocked && (
       <Link
         href={`/business/${businessId}/inventory`}
         className="w-full flex items-center justify-between gap-2 h-12 px-4 mb-3 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[14px] hover:brightness-110 active:scale-[0.99] transition no-underline"
@@ -507,11 +516,12 @@ export default function BusinessDashboardPage() {
         <span>📦 Inventory &amp; worth</span>
         <span className="text-hive-honey-soft">{formatWorth(stats.worthCents, config.currency, bizConfig.displayRounding)} →</span>
       </Link>
+      )}
 
       {/* Recent stock changes peek — surfaces "what moved" right under
           the Inventory tile so the parent doesn't have to drill into
           the inventory detail to see activity. Full log lives there. */}
-      {moves.length > 0 && (
+      {stocked && moves.length > 0 && (
         <div className="bg-hive-paper border border-hive-line rounded-hive p-3 mb-3">
           <div className="flex items-baseline justify-between mb-1">
             <h3 className="font-nunito font-extrabold text-[13px]">📊 Recent stock changes</h3>

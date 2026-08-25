@@ -78,6 +78,8 @@ export interface PricingModelMeta {
   key: PricingModel;
   /** Kid-facing card label — plain language, locked copy (R5). */
   label: string;
+  /** Compact form for identity lines / chips ("Made fresh", "By the hour"). */
+  shortLabel: string;
   emoji: string;
   /** Kid-facing example line under the label. */
   blurb: string;
@@ -92,11 +94,11 @@ export interface PricingModelMeta {
 }
 
 export const PRICING_MODELS: PricingModelMeta[] = [
-  { key: 'unit_made',    label: 'I make each one fresh', emoji: '🧃', blurb: 'Juice by the glass, salads, snacks — made when someone orders.', unitLabel: 'pcs',     stockTaking: false, type: 'goods' },
-  { key: 'unit_stocked', label: 'I sell things I keep',  emoji: '📦', blurb: 'Eggs, veggies, crafts made ahead — you count your stock.',       unitLabel: 'pcs',     stockTaking: true,  type: 'goods' },
-  { key: 'hour',         label: 'I charge by the hour',  emoji: '⏰', blurb: 'Homework help, reading buddy, tech help.',                       unitLabel: 'hour',    stockTaking: false, type: 'advice', halfSteps: true },
-  { key: 'session',      label: 'I charge per session',  emoji: '🎯', blurb: 'Football drills, dance lessons, drawing classes.',               unitLabel: 'session', stockTaking: false, type: 'sport' },
-  { key: 'job',          label: 'I charge per job',      emoji: '🛠️', blurb: 'Car wash, garden tidy, errand runs.',                            unitLabel: 'job',     stockTaking: false, type: 'service' },
+  { key: 'unit_made',    label: 'I make each one fresh', shortLabel: 'Made fresh',    emoji: '🧃', blurb: 'Juice by the glass, salads, snacks — made when someone orders.', unitLabel: 'pcs',     stockTaking: false, type: 'goods' },
+  { key: 'unit_stocked', label: 'I sell things I keep',  shortLabel: 'Stocked goods', emoji: '📦', blurb: 'Eggs, veggies, crafts made ahead — you count your stock.',       unitLabel: 'pcs',     stockTaking: true,  type: 'goods' },
+  { key: 'hour',         label: 'I charge by the hour',  shortLabel: 'By the hour',   emoji: '⏰', blurb: 'Homework help, reading buddy, tech help.',                       unitLabel: 'hour',    stockTaking: false, type: 'advice', halfSteps: true },
+  { key: 'session',      label: 'I charge per session',  shortLabel: 'Per session',   emoji: '🎯', blurb: 'Football drills, dance lessons, drawing classes.',               unitLabel: 'session', stockTaking: false, type: 'sport' },
+  { key: 'job',          label: 'I charge per job',      shortLabel: 'Per job',       emoji: '🛠️', blurb: 'Car wash, garden tidy, errand runs.',                            unitLabel: 'job',     stockTaking: false, type: 'service' },
 ];
 
 export function pricingModelMeta(key: PricingModel | undefined): PricingModelMeta {
