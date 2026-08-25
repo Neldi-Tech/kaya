@@ -38,6 +38,7 @@ import {
   type TimelineDay, TimelineList, TimelineBrowse,
   ViewSwitcher, useRememberedView, previewLine,
 } from '@/components/sparks/TimelineViews';
+import TimelineHitMap from '@/components/sparks/TimelineHitMap';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 import DiaryInkCanvas, { type DiaryInkHandle } from '@/components/sparks/DiaryInkCanvas';
 import { uploadSparksPhotos } from '@/lib/sparks/uploadPhoto';
@@ -116,7 +117,7 @@ export default function DiaryPage() {
       // subscribeToDiary maps API failures to [] — probe once for the
       // sibling-403 case so we can show the honest private state.
       setEntries(rows);
-    });
+    }, 1830); // All-years hit-map zoom reads up to 5 years
   }, [familyId, kidId, knownOtherKid, router]);
 
   // Distinguish "empty diary" from "access denied" with one probe.
@@ -171,7 +172,7 @@ export default function DiaryPage() {
   // Timeline 2.0 (design v2) · one TimelineDay per calendar day. Preview
   // comes from the first text block the viewer can see (redacted pages
   // arrive with blocks=[] so a parent never previews a locked page).
-  const [tlView, setTlView] = useRememberedView('diary-kid', ['list', 'browse', 'calendar'], 'list');
+  const [tlView, setTlView] = useRememberedView('diary-kid', ['list', 'browse', 'hitmap', 'calendar'], 'list');
   const tlDays = useMemo<TimelineDay[]>(() => {
     const byDay = new Map<string, DiaryEntry[]>();
     for (const e of entries ?? []) byDay.set(e.date, [...(byDay.get(e.date) ?? []), e]);
@@ -403,12 +404,22 @@ export default function DiaryPage() {
           🗓 Calendar (the Slice-8c emoji month — nothing taken away). */}
       {timelineOpen && (
         <>
-          <ViewSwitcher view={tlView} views={['list', 'browse', 'calendar']} onChange={setTlView} sw={sw} />
+          <ViewSwitcher view={tlView} views={['list', 'browse', 'hitmap', 'calendar']} onChange={setTlView} sw={sw} />
           {tlView === 'list' && (
             <TimelineList days={tlDays} onOpenDay={(d) => setDayOpen(d)} sw={sw} />
           )}
           {tlView === 'browse' && (
             <TimelineBrowse days={tlDays} onOpenDay={(d) => setDayOpen(d)} sw={sw} />
+          )}
+          {/* Hit-map 2.0 · no scores in the diary — feelings + presence
+              layers only, and no "missed" concept (no expected days). */}
+          {tlView === 'hitmap' && (
+            <TimelineHitMap
+              days={tlDays}
+              onOpenDay={(d) => setDayOpen(d)}
+              sw={sw}
+              layers={['feelings', 'presence']}
+            />
           )}
           {tlView === 'calendar' && (
             <DiaryTimeline

@@ -40,6 +40,7 @@ import {
   type TimelineDay, TimelineList, TimelineBrowse, MemoryLane,
   ViewSwitcher, useRememberedView, previewLine,
 } from '@/components/sparks/TimelineViews';
+import TimelineHitMap from '@/components/sparks/TimelineHitMap';
 import Link from 'next/link';
 import ReflectionOriginChip from '@/components/sparks/ReflectionOriginChip';
 import CelebrationBurst from '@/components/sparks/CelebrationBurst';
@@ -117,7 +118,7 @@ export default function ReflectionPage() {
     if (!familyId || !kidId) return;
     const u1 = subscribeToSparksProfile(familyId, kidId, setProfile);
     const u2 = subscribeToReflection(familyId, kidId, today, setTodayEntry);
-    const u3 = subscribeToReflections(familyId, kidId, setRecent, 366); // hit-map year-picker needs a full year of history
+    const u3 = subscribeToReflections(familyId, kidId, setRecent, 1830); // All-years hit-map zoom reads up to 5 years
     const u4 = subscribeToWeeklyReviews(familyId, kidId, setWeeklyReviews);
     return () => { u1(); u2(); u3(); u4(); };
   }, [familyId, kidId, today]);
@@ -128,7 +129,7 @@ export default function ReflectionPage() {
 
   // Timeline 2.0 (design v2) · the shared Years ▸ Months ▸ Days views.
   // List is the default; each person's last pick is remembered per surface.
-  const [tlView, setTlView] = useRememberedView('reflection-kid', ['list', 'browse', 'hitmap'], 'list');
+  const [tlView, setTlView] = useRememberedView('reflection-kid', ['list', 'browse', 'hitmap', 'calendar'], 'list');
   const tlDays = useMemo<TimelineDay[]>(() => recent.map((r) => ({
     date: r.date,
     emoji: r.ai_read?.mood_emoji,
@@ -911,14 +912,29 @@ export default function ReflectionPage() {
           Browse is the dropdown pair; Hit-map keeps the filterable
           calendar. ⭐ where a parent rated. Taps open that day's sheet. */}
       <MemoryLane days={tlDays} onOpenDay={(d) => setScoreDate(d)} sw={sw} />
-      <ViewSwitcher view={tlView} views={['list', 'browse', 'hitmap']} onChange={setTlView} sw={sw} />
+      <ViewSwitcher view={tlView} views={['list', 'browse', 'hitmap', 'calendar']} onChange={setTlView} sw={sw} />
       {tlView === 'list' && (
         <TimelineList days={tlDays} onOpenDay={(d) => setScoreDate(d)} sw={sw} />
       )}
       {tlView === 'browse' && (
         <TimelineBrowse days={tlDays} onOpenDay={(d) => setScoreDate(d)} sw={sw} />
       )}
+      {/* Hit-map 2.0 · Month / 6 Months / Year / All-years micro-dots. */}
       {tlView === 'hitmap' && (
+        <TimelineHitMap
+          days={tlDays}
+          activeDays={
+            profile?.reflection_reminders?.active_days?.length
+              ? new Set(profile.reflection_reminders.active_days)
+              : new Set<DayOfWeek>(['mon', 'tue', 'wed', 'thu', 'fri', 'sat'])
+          }
+          onOpenDay={(date) => setScoreDate(date)}
+          sw={sw}
+          layers={['score', 'feelings', 'presence']}
+        />
+      )}
+      {/* 🗓 Calendar keeps the original filterable range calendar. */}
+      {tlView === 'calendar' && (
         <ReflectionHitMap
           entries={recent}
           activeDays={
