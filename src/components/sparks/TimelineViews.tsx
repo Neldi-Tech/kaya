@@ -452,3 +452,14 @@ export function previewLine(text: string | undefined | null, max = 90): string {
   const line = text.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }
+
+/** "MON · 04-Aug-2026" — the day-card label, shared with Note Studio. */
+export function timelineDayLabel(date: string, sw: boolean): string {
+  return `${dowLabel(date, sw)} · ${toDisplayDate(date)}`;
+}
+
+/** "August 2026" from a YYYY-MM-DD key — month-book covers etc. */
+export function timelineMonthLabel(date: string, sw: boolean): string {
+  const m = Number(date.slice(5, 7)) - 1;
+  return `${(sw ? MONTHS_FULL_SW : MONTHS_FULL_EN)[m] ?? ''} ${date.slice(0, 4)}`;
+}

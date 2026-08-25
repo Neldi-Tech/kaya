@@ -57,7 +57,9 @@ export type ApprovalType =
   // ── Rewards store (RWD PR1, approved v2 FINAL 26-Jul-2026) ─────
   | 'reward_redeem'          // a kid asks to redeem a reward — resolve = transactional points + wallet + statement + history
   | 'reward_contribute'      // 👨‍👩‍👧 RWD PR5 — a kid chips points into a FAMILY goal
-  | 'reward_proposal';       // 💡 RWI PR-A — a kid proposes a NEW reward idea (no money effect; parent inbox in Manage Rewards)
+  | 'reward_proposal'        // 💡 RWI PR-A — a kid proposes a NEW reward idea (no money effect; parent inbox in Manage Rewards)
+  // ── Timeline 2.0 · Sparks notes (design v2, 2026-08-25) ────────
+  | 'note_share';            // 🖼 a kid asks to share a reflection/diary note OUTSIDE the family (no money effect)
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 
 // Categories used both as the `category` on a HiveTransaction AND as the
@@ -499,7 +501,7 @@ export interface ApprovalRequest {
   /** Discriminates the parent inbox into sections. Absent / 'hive' = a Hive
    *  request. Resolved business requests are retained (never deleted) so the
    *  Business console can show them as approval history for future reference. */
-  module?: 'hive' | 'business' | 'rewards';
+  module?: 'hive' | 'business' | 'rewards' | 'sparks';
   // ── Rewards store (reward_redeem; RWD PR1) ────────────────────────
   rewardId?: string;
   /** Denormalized so the approval card + history survive reward edits. */
@@ -515,6 +517,11 @@ export interface ApprovalRequest {
    *  on the parent card. `rewardTitle` carries the idea name and
    *  `rewardPointsCost` the kid's points guess (absent = let parents decide). */
   proposedWhy?: string;
+  // ── 🖼 Note shares (note_share; Timeline 2.0) ────────────────────
+  /** note_share — the day the kid wants to share (YYYY-MM-DD). */
+  noteDate?: string;
+  /** note_share — which journal the note lives in. */
+  noteSurface?: 'reflection' | 'diary';
   businessId?: string;
   instrumentSymbol?: string;        // investment_buy / investment_sell
   shares?: number;                  // investment_buy / investment_sell
@@ -1307,6 +1314,19 @@ export async function resolveApprovalRequest(
       return;
     }
 
+    // 🖼 Timeline 2.0 — a note-share ask has no money effect either:
+    // approve = record the pass; the kid's Note Studio unlocks the
+    // outside-share buttons for that day. Resolves before any wallet read.
+    if (req.type === 'note_share') {
+      tx.update(reqRef, {
+        status: 'approved' as ApprovalStatus,
+        ...(approvalNote?.trim() ? { approvalNote: approvalNote.trim() } : {}),
+        resolvedAt: serverTimestamp(),
+        resolvedBy: approverUid,
+      });
+      return;
+    }
+
     // ── Approval branches per request type ────────────────────────
     const wRef = walletPath(familyId, req.kidId);
     const wSnap = await tx.get(wRef);
@@ -1768,6 +1788,30 @@ export async function proposeReward(
     ...(why ? { proposedWhy: why } : {}),
     ...(Number.isInteger(guess) && (guess as number) > 0 ? { rewardPointsCost: guess } : {}),
     description: `💡 Reward idea: ${title}`,
+    status: 'pending' as ApprovalStatus,
+    createdAt: serverTimestamp(),
+    createdBy,
+  });
+  return ref.id;
+}
+
+/** 🖼 Timeline 2.0 — a kid asks to share a reflection/diary note OUTSIDE
+ *  the family (image / WhatsApp / PDF). No money effect; approve = the
+ *  kid's Note Studio unlocks for that day. Kids can create their own
+ *  pending docs under the existing rules — zero rules deploys. */
+export async function requestNoteShare(
+  familyId: string,
+  kidId: string,
+  note: { date: string; surface: 'reflection' | 'diary'; preview?: string },
+  createdBy: string,
+): Promise<string> {
+  const ref = await addDoc(requestCol(familyId), {
+    kidId,
+    type: 'note_share' as ApprovalType,
+    module: 'sparks',
+    noteDate: note.date,
+    noteSurface: note.surface,
+    description: `🖼 ${note.surface === 'diary' ? '📔' : '🪞'} ${note.date}${note.preview ? ` · “${note.preview.slice(0, 60)}”` : ''}`,
     status: 'pending' as ApprovalStatus,
     createdAt: serverTimestamp(),
     createdBy,
