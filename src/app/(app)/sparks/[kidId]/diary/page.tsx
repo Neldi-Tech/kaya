@@ -778,8 +778,15 @@ export default function DiaryPage() {
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
           <button type="button" aria-label="Close" onClick={() => setDayOpen(null)} className="absolute inset-0 bg-black/40" />
           <div className="relative w-full sm:max-w-md max-h-[85vh] overflow-y-auto bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl">
-            <div className="px-5 pt-4 pb-3 text-white sticky top-0" style={{ background: `linear-gradient(135deg, ${PLUM}, #C05299)` }}>
+            <div className="px-5 pt-4 pb-3 text-white sticky top-0 flex items-center justify-between gap-2" style={{ background: `linear-gradient(135deg, ${PLUM}, #C05299)` }}>
               <div className="font-display font-extrabold text-[16px]">📔 {toDisplayDate(dayOpen)}</div>
+              {shareableDay(dayOpen) && (
+                <button type="button"
+                  onClick={() => { const d = dayOpen; setDayOpen(null); setNoteFor(d); }}
+                  className="shrink-0 rounded-full bg-white/15 hover:bg-white/25 px-3.5 py-1.5 text-[12px] font-nunito font-extrabold text-white">
+                  ↗ {sw ? 'Shiriki' : 'Share'}
+                </button>
+              )}
             </div>
             <div className="p-4 space-y-2.5">
               {(entries ?? []).filter((e) => e.date === dayOpen).slice().reverse().map((e) => (
