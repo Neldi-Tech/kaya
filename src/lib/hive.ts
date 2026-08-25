@@ -526,7 +526,10 @@ export interface ApprovalRequest {
   instrumentSymbol?: string;        // investment_buy / investment_sell
   shares?: number;                  // investment_buy / investment_sell
   points?: number;                  // business_hp — House Points to grant on approve
-  awardDate?: string;               // business_hp — the stock-take day (YYYY-MM-DD)
+  awardDate?: string;               // business_hp — the stock-take day (YYYY-MM-DD) or `review-YYYY-MM-DD`
+  /** business_hp — the day's record was a Daily Check-in (Business 2.0), so
+   *  the parent card + award reason say "check-in", not "stock-take". */
+  isCheckin?: boolean;
   itemId?: string;                  // business_sale — the product sold
   productName?: string;             // business_sale — display name of the product
   saleQty?: number;                 // business_sale — quantity

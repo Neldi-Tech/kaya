@@ -237,7 +237,7 @@ function ApprovalRow({ req, kidName, familyId, approverUid }: { req: ApprovalReq
       <div className="flex items-start gap-3">
         <div className="w-10 h-10 rounded-[12px] bg-hive-honey-soft text-hive-honey-dk flex items-center justify-center text-xl shrink-0">{isReviewHp ? '📝' : ICONS[req.type] || '🚀'}</div>
         <div className="flex-1 min-w-0">
-          <p className="font-nunito font-extrabold text-[13px]">{req.type === 'business_hp' ? (isReviewHp ? 'Business Review points' : 'Stock-take points') : LABELS[req.type] || 'Launch request'}</p>
+          <p className="font-nunito font-extrabold text-[13px]">{req.type === 'business_hp' ? (isReviewHp ? 'Business Review points' : req.isCheckin ? 'Check-in points' : 'Stock-take points') : LABELS[req.type] || 'Launch request'}</p>
           <p className="text-[12.5px] text-hive-navy mt-0.5 leading-snug">{req.description}</p>
           <p className="text-[11px] text-hive-muted mt-1">For <strong className="text-hive-navy">{kidName || 'unknown kid'}</strong></p>
           {req.aiContext && <p className="text-[11px] text-hive-muted mt-1 italic">AI: {req.aiContext}</p>}

@@ -1214,9 +1214,11 @@ export async function requestStockTakeHp(
   points: number,
   date: string,
   createdByUid: string,
+  habit: 'stocktake' | 'checkin' = 'stocktake',
 ): Promise<string> {
   if (isGuestActive()) return 'guest-request';
   const pts = Math.max(0, Math.round(points));
+  const word = habit === 'checkin' ? 'check-in' : 'stock-take';
   const ref = await addDoc(approvalRequestsCol(familyId), {
     kidId: business.ownerId,
     type: 'business_hp',
@@ -1224,7 +1226,8 @@ export async function requestStockTakeHp(
     businessId: business.id,
     points: pts,
     awardDate: date,
-    description: `${pts} House Point${pts === 1 ? '' : 's'} for today's stock-take of "${business.name}" ${business.emoji}.`,
+    ...(habit === 'checkin' ? { isCheckin: true } : {}),
+    description: `${pts} House Point${pts === 1 ? '' : 's'} for today's ${word} of "${business.name}" ${business.emoji}.`,
     status: 'pending',
     createdBy: createdByUid,
     createdAt: serverTimestamp(),
@@ -1317,6 +1320,7 @@ export async function resolveBusinessRequest(
   let hpPoints = 0;
   let hpBusinessId: string | null = null;
   let hpAwardDate = '';
+  let hpIsCheckin = false;
   let saleKidId: string | null = null;
   let saleBusinessId: string | null = null;
   let saleItemId = '';
@@ -1338,12 +1342,12 @@ export async function resolveBusinessRequest(
       'type' | 'status' | 'businessId' | 'kidId' | 'instrumentSymbol' | 'shares' | 'amountCents' | 'points'
       | 'itemId' | 'productName' | 'saleQty' | 'saleUnitPriceCents' | 'awardDate'
       | 'costType' | 'description' | 'createdBy'
-      | 'targetPricingModel' | 'targetStockTaking' | 'newPriceCents'>;
+      | 'targetPricingModel' | 'targetStockTaking' | 'newPriceCents' | 'isCheckin'>;
     if (req.status !== 'pending') throw new Error('Request already resolved.');
 
     // Stock-take key (for writing the parent's comment back onto the day) —
     // captured before the reject early-return so a declined review keeps the note too.
-    if (req.type === 'business_hp') { hpBusinessId = req.businessId || null; hpAwardDate = req.awardDate || ''; }
+    if (req.type === 'business_hp') { hpBusinessId = req.businessId || null; hpAwardDate = req.awardDate || ''; hpIsCheckin = !!req.isCheckin; }
 
     const now = serverTimestamp();
     if (decision === 'rejected') {
@@ -1448,12 +1452,17 @@ export async function resolveBusinessRequest(
   if (investedKidId) {
     try { await unlockInvestingMilestones(familyId, investedKidId); } catch { /* best-effort */ }
   }
-  // Grant stock-take House Points after the transaction commits.
+  // Grant the habit's House Points after the transaction commits. The reason
+  // follows what was actually done (R15): stock-take / check-in / review.
   if (hpKidId && hpPoints > 0) {
     try {
+      const reason = hpAwardDate.startsWith('review-')
+        ? 'Kaya Business — Business Review done'
+        : hpIsCheckin ? 'Kaya Business — daily check-in done'
+        : 'Kaya Business — stock-take done';
       await giveAward(familyId, {
         childId: hpKidId, kind: 'regular', points: hpPoints,
-        reason: 'Kaya Business — stock-take done', category: 'business',
+        reason, category: 'business',
         awardedBy: approverUid, awardedByName: 'Parent', senderRole: 'parent',
       });
     } catch { /* best-effort — request already marked approved */ }
