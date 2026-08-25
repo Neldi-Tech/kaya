@@ -20,6 +20,9 @@ const DOCS = [
   { href: '/legal/terms', label: 'Terms of Service' },
   { href: '/legal/privacy', label: 'Privacy Policy' },
   { href: '/legal/childrens-privacy', label: 'Children’s Privacy' },
+  // Google Play requires the account-deletion route to be "readily
+  // discoverable" — cross-linking it from every legal page is what makes it so.
+  { href: '/legal/delete-account', label: 'Delete your account' },
 ] as const;
 
 export function LegalSection({ title, children }: { title: string; children: React.ReactNode }) {
