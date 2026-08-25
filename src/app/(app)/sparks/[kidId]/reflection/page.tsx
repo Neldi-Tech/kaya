@@ -36,7 +36,10 @@ import { toDisplayDate } from '@/lib/dates';
 import { PolishControl, PolishedText } from '@/components/sparks/PolishedText';
 import AreaScreen from '@/components/sparks/AreaScreen';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
-import FilledDaysBrowser from '@/components/sparks/FilledDaysBrowser';
+import {
+  type TimelineDay, TimelineList, TimelineBrowse, MemoryLane,
+  ViewSwitcher, useRememberedView, previewLine,
+} from '@/components/sparks/TimelineViews';
 import Link from 'next/link';
 import ReflectionOriginChip from '@/components/sparks/ReflectionOriginChip';
 import CelebrationBurst from '@/components/sparks/CelebrationBurst';
@@ -122,6 +125,17 @@ export default function ReflectionPage() {
   const settings = readReflectionSettings(profile);
   const canType = typingAllowedOn(settings, today);
   const streak = useMemo(() => computeReflectionStreak(recent), [recent]);
+
+  // Timeline 2.0 (design v2) · the shared Years ▸ Months ▸ Days views.
+  // List is the default; each person's last pick is remembered per surface.
+  const [tlView, setTlView] = useRememberedView('reflection-kid', ['list', 'browse', 'hitmap'], 'list');
+  const tlDays = useMemo<TimelineDay[]>(() => recent.map((r) => ({
+    date: r.date,
+    emoji: r.ai_read?.mood_emoji,
+    preview: previewLine(r.text) || (r.scanUrl ? (sw ? '📷 Ukurasa ulioskaniwa' : '📷 Scanned page') : ''),
+    score: entryScore(r),
+    starred: !!r.parent_rating,
+  })), [recent, sw]);
 
   // 2026-06-23 · scanned handwriting, indexed by day, so the weekly post +
   // recent list can show the real page next to the transcribed words.
@@ -892,33 +906,31 @@ export default function ReflectionPage() {
       {/* This-week strip */}
       <WeekStrip byDate={streak.byDate} sw={sw} />
 
-      {/* PAST-1 · 📚 the past, drill-down: Years ▸ Months ▸ filled days,
-          ⭐ where a parent rated. Taps open that day's sheet. */}
-      <FilledDaysBrowser
-        sw={sw}
-        accent="#5A3CB8" soft="#F6EFFF" line="#cdbdf0"
-        starLabel={sw ? 'mzazi amepima' : 'rated by a parent'}
-        days={recent.map((r) => ({
-          date: r.date,
-          emoji: r.ai_read?.mood_emoji,
-          starred: !!r.parent_rating,
-        }))}
-        onOpenDay={(d) => setScoreDate(d)}
-      />
-
-      {/* 2026-06-23 · Reflection hit-map — filterable calendar to spot missing
-          submissions, shaded by score, taps open the day. */}
-      <ReflectionHitMap
-        entries={recent}
-        activeDays={
-          profile?.reflection_reminders?.active_days?.length
-            ? new Set(profile.reflection_reminders.active_days)
-            : new Set<DayOfWeek>(['mon', 'tue', 'wed', 'thu', 'fri', 'sat'])
-        }
-        onOpenDay={(date) => setScoreDate(date)}
-        hasEntry={(date) => recent.some((r) => r.date === date)}
-        sw={sw}
-      />
+      {/* Timeline 2.0 (design v2) · 🎞 Memory Lane + the 📋/🗂/🔥 views.
+          List (Years ▸ Months ▸ Days, only days that exist) is the default;
+          Browse is the dropdown pair; Hit-map keeps the filterable
+          calendar. ⭐ where a parent rated. Taps open that day's sheet. */}
+      <MemoryLane days={tlDays} onOpenDay={(d) => setScoreDate(d)} sw={sw} />
+      <ViewSwitcher view={tlView} views={['list', 'browse', 'hitmap']} onChange={setTlView} sw={sw} />
+      {tlView === 'list' && (
+        <TimelineList days={tlDays} onOpenDay={(d) => setScoreDate(d)} sw={sw} />
+      )}
+      {tlView === 'browse' && (
+        <TimelineBrowse days={tlDays} onOpenDay={(d) => setScoreDate(d)} sw={sw} />
+      )}
+      {tlView === 'hitmap' && (
+        <ReflectionHitMap
+          entries={recent}
+          activeDays={
+            profile?.reflection_reminders?.active_days?.length
+              ? new Set(profile.reflection_reminders.active_days)
+              : new Set<DayOfWeek>(['mon', 'tue', 'wed', 'thu', 'fri', 'sat'])
+          }
+          onOpenDay={(date) => setScoreDate(date)}
+          hasEntry={(date) => recent.some((r) => r.date === date)}
+          sw={sw}
+        />
+      )}
 
       {/* Slice 7r · scanned-page lightbox. Shows the original handwriting
           full-screen so the parent can verify what was uploaded vs the

@@ -34,7 +34,10 @@ import AreaScreen from '@/components/sparks/AreaScreen';
 import { EntryCard, DiaryTimeline, PinCreateModal } from '@/components/sparks/DiaryShared';
 import { PolishControl } from '@/components/sparks/PolishedText';
 import { YearInPixelsCard, OnThisDayCard } from '@/components/sparks/DiaryFeatures';
-import FilledDaysBrowser from '@/components/sparks/FilledDaysBrowser';
+import {
+  type TimelineDay, TimelineList, TimelineBrowse,
+  ViewSwitcher, useRememberedView, previewLine,
+} from '@/components/sparks/TimelineViews';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 import DiaryInkCanvas, { type DiaryInkHandle } from '@/components/sparks/DiaryInkCanvas';
 import { uploadSparksPhotos } from '@/lib/sparks/uploadPhoto';
@@ -165,18 +168,27 @@ export default function DiaryPage() {
     return Array.from(byDay.entries()).slice(0, 7);
   }, [entries, today]);
 
-  // PAST-1 · 📚 filled days for the drill-down browser (one chip per day).
-  const filledDays = useMemo(() => {
-    const m = new Map<string, { date: string; emoji?: string; starred: boolean; locked: boolean; count: number }>();
-    for (const e of entries ?? []) {
-      const cur = m.get(e.date) ?? { date: e.date, emoji: e.feeling, starred: false, locked: false, count: 0 };
-      cur.count += 1;
-      if (e.parent_stars && Object.keys(e.parent_stars).length > 0) cur.starred = true;
-      if (e.locked && !e.knock_open) cur.locked = true;
-      m.set(e.date, cur);
-    }
-    return Array.from(m.values());
-  }, [entries]);
+  // Timeline 2.0 (design v2) · one TimelineDay per calendar day. Preview
+  // comes from the first text block the viewer can see (redacted pages
+  // arrive with blocks=[] so a parent never previews a locked page).
+  const [tlView, setTlView] = useRememberedView('diary-kid', ['list', 'browse', 'calendar'], 'list');
+  const tlDays = useMemo<TimelineDay[]>(() => {
+    const byDay = new Map<string, DiaryEntry[]>();
+    for (const e of entries ?? []) byDay.set(e.date, [...(byDay.get(e.date) ?? []), e]);
+    return Array.from(byDay.entries()).map(([date, list]) => {
+      const ordered = list.slice().reverse(); // subscribe is newest-first → read oldest-first
+      const textBlock = ordered.flatMap((e) => e.blocks ?? []).find((b) => b.kind === 'text' && b.text?.trim());
+      const drawn = ordered.some((e) => (e.blocks ?? []).some((b) => b.kind === 'ink' || b.kind === 'scan'));
+      return {
+        date,
+        emoji: ordered.find((e) => e.feeling)?.feeling,
+        preview: previewLine(textBlock?.text) || (drawn ? (sw ? '🖊 Ukurasa uliochorwa' : '🖊 Drawn page') : ''),
+        locked: list.some((e) => e.locked && !e.knock_open),
+        starred: list.some((e) => e.parent_stars && Object.keys(e.parent_stars).length > 0),
+        count: list.length,
+      };
+    });
+  }, [entries, sw]);
 
   // Slice 8g · feeling optional — Kaya infers when skipped (✨ badge).
   const canSave = !saving
@@ -387,15 +399,24 @@ export default function DiaryPage() {
         </button>
       )}
 
-      {/* Slice 8c · emoji timeline — Year → Month → Day. */}
+      {/* Timeline 2.0 (design v2) · 📋 List (default) · 🗂 Browse ·
+          🗓 Calendar (the Slice-8c emoji month — nothing taken away). */}
       {timelineOpen && (
         <>
-          <DiaryTimeline
-            entries={entries ?? []}
-            sw={sw}
-            onOpenDay={(d) => setDayOpen(d)}
-          />
-          <FilledDaysBrowser days={filledDays} sw={sw} onOpenDay={(d) => setDayOpen(d)} />
+          <ViewSwitcher view={tlView} views={['list', 'browse', 'calendar']} onChange={setTlView} sw={sw} />
+          {tlView === 'list' && (
+            <TimelineList days={tlDays} onOpenDay={(d) => setDayOpen(d)} sw={sw} />
+          )}
+          {tlView === 'browse' && (
+            <TimelineBrowse days={tlDays} onOpenDay={(d) => setDayOpen(d)} sw={sw} />
+          )}
+          {tlView === 'calendar' && (
+            <DiaryTimeline
+              entries={entries ?? []}
+              sw={sw}
+              onOpenDay={(d) => setDayOpen(d)}
+            />
+          )}
           <YearInPixelsCard
             entries={entries ?? []}
             year={new Date().getFullYear()}
