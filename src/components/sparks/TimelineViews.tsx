@@ -33,6 +33,10 @@ export interface TimelineDay {
   count?: number;        // entries that day (>1 shows ×n)
   /** 💌 latest Send-to-Someone reply pinned to this day. */
   reply?: { by: string; emoji?: string; text?: string };
+  /** 📸 the day's photo (diary image block / reflection scan). */
+  photoUrl?: string;
+  /** 🔍 the viewer-visible full text — powers Find (never rendered raw). */
+  searchText?: string;
 }
 
 export type TimelineView = 'list' | 'browse' | 'hitmap' | 'calendar';
@@ -141,14 +145,21 @@ function DayCard({ d, onOpen, onShare, sw }: {
           )}
         </span>
       </button>
-      <span className="shrink-0 flex flex-col items-end gap-1">
-        {d.locked ? <span className="text-[15px]" aria-label="locked">🔒</span> : scoreChip(d.score)}
-        {onShare && !d.locked && (
-          <button type="button" onClick={() => onShare(d.date)}
-            className="font-nunito font-black text-[11.5px] text-[#C05299]">
-            ↗ {sw ? 'Shiriki' : 'Share'}
-          </button>
+      <span className="shrink-0 flex items-center gap-2">
+        {d.photoUrl && (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img src={d.photoUrl} alt="" aria-hidden
+            className="w-[34px] h-[34px] rounded-lg object-cover border border-[#EDE6DA]" />
         )}
+        <span className="flex flex-col items-end gap-1">
+          {d.locked ? <span className="text-[15px]" aria-label="locked">🔒</span> : scoreChip(d.score)}
+          {onShare && !d.locked && (
+            <button type="button" onClick={() => onShare(d.date)}
+              className="font-nunito font-black text-[11.5px] text-[#C05299]">
+              ↗ {sw ? 'Shiriki' : 'Share'}
+            </button>
+          )}
+        </span>
       </span>
     </div>
   );
@@ -250,6 +261,7 @@ export function TimelineList({ days, onOpenDay, onShareDay, sw }: {
                           <span aria-hidden>📅</span>
                           <span className="truncate">{MONTHS_FULL[mo.m]}</span>
                           {feelings && <span className="text-[12px]" aria-hidden>{feelings}</span>}
+                          {mo.days.some((d) => d.photoUrl) && <span className="text-[11px]" aria-hidden>📸</span>}
                         </span>
                         <span className="justify-self-end rounded-full bg-[#F4ECDB] px-2.5 py-[2px] text-center text-[10.5px] font-nunito font-extrabold text-[#5A6488] tabular-nums" style={{ minWidth: 48 }}>
                           {mo.days.length}
@@ -284,16 +296,31 @@ export function TimelineList({ days, onOpenDay, onShareDay, sw }: {
 
 // ─── 🗂 Browse — the approved dropdown pair (kept from v1) ──────────
 
-export function TimelineBrowse({ days, onOpenDay, onShareDay, sw }: {
+export function TimelineBrowse({ days, onOpenDay, onShareDay, sw, monthExtra }: {
   days: TimelineDay[];
   onOpenDay: (date: string) => void;
   onShareDay?: (date: string) => void;
   sw: boolean;
+  /** Rendered above the selected month's day list (e.g. 📖 Month Story). */
+  monthExtra?: (monthKey: string) => React.ReactNode;
 }) {
   const tree = useMemo(() => buildTree(days), [days]);
   const [selYear, setSelYear] = useState<string>(() => tree[0]?.y ?? '');
   const [selMonth, setSelMonth] = useState<string>(() => tree[0]?.months[0]?.key ?? '');
   const [panel, setPanel] = useState<'year' | 'month' | null>(null);
+  // 🔍 Find + ⭐ Bookmarked — cross-month filters (design v2 innovation #4).
+  const [q, setQ] = useState('');
+  const [starOnly, setStarOnly] = useState(false);
+  const query = q.trim().toLowerCase();
+  const filtered = useMemo(() => {
+    if (query.length < 2 && !starOnly) return null;
+    return days
+      .filter((d) => (!starOnly || d.starred)
+        && (query.length < 2
+          || (d.searchText ?? d.preview ?? '').toLowerCase().includes(query)))
+      .sort((a, b) => (a.date < b.date ? 1 : -1))
+      .slice(0, 50);
+  }, [days, query, starOnly]);
 
   if (tree.length === 0) return null;
 
@@ -318,7 +345,7 @@ export function TimelineBrowse({ days, onOpenDay, onShareDay, sw }: {
 
   return (
     <div className="mt-3">
-      <div className="flex gap-2 mb-2">
+      <div className="flex gap-2 mb-2 flex-wrap">
         <button type="button" onClick={jumpLatest}
           className="rounded-full bg-[#7A2E5C] px-3 py-1.5 font-nunito font-extrabold text-[11.5px] text-white">
           ⚡ {sw ? 'Za karibuni' : 'Latest'}
@@ -327,8 +354,34 @@ export function TimelineBrowse({ days, onOpenDay, onShareDay, sw }: {
           className="rounded-full border-[1.5px] border-[#EDE6DA] bg-white px-3 py-1.5 font-nunito font-extrabold text-[11.5px] text-[#7A2E5C]">
           🎲 {sw ? 'Nishangaze' : 'Surprise me'}
         </button>
+        <button type="button" onClick={() => setStarOnly((v) => !v)}
+          className={`rounded-full border-[1.5px] px-3 py-1.5 font-nunito font-extrabold text-[11.5px] ${
+            starOnly ? 'border-[#D4A847] bg-[#FFFAEB] text-[#8A6100]' : 'border-[#EDE6DA] bg-white text-[#7A2E5C]'
+          }`}>
+          ⭐ {sw ? 'Zenye nyota' : 'Bookmarked'}
+        </button>
       </div>
 
+      {/* 🔍 Find a word across every unlocked note */}
+      <input value={q} onChange={(e) => setQ(e.target.value)}
+        placeholder={sw ? '🔍 Tafuta neno…' : '🔍 Find a word…'}
+        className="w-full mb-2 rounded-xl border-[1.5px] border-[#EDE6DA] bg-white px-3 py-2 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#C05299]/30" />
+
+      {/* filter results replace the month browser while active */}
+      {filtered ? (
+        <div className="space-y-1.5">
+          <div className="text-[10.5px] font-bold text-[#5A6488] px-0.5">
+            {filtered.length === 0
+              ? (sw ? 'Hakuna siku iliyopatikana' : 'No days found')
+              : (sw ? `Siku ${filtered.length} zimepatikana` : `${filtered.length} ${filtered.length === 1 ? 'day' : 'days'} found`)}
+            {starOnly ? ' · ⭐' : ''}{query.length >= 2 ? ` · “${q.trim()}”` : ''}
+          </div>
+          {filtered.map((d) => (
+            <DayCard key={d.date} d={d} onOpen={onOpenDay} onShare={onShareDay} sw={sw} />
+          ))}
+        </div>
+      ) : (
+      <>
       <div className="flex gap-2">
         <button type="button" onClick={() => setPanel(panel === 'year' ? null : 'year')}
           className="flex-1 flex items-center justify-between rounded-xl border-[1.5px] border-[#EDE6DA] bg-white px-3 py-2 font-nunito font-extrabold text-[13.5px] text-[#0F1F44]">
@@ -393,10 +446,13 @@ export function TimelineBrowse({ days, onOpenDay, onShareDay, sw }: {
       )}
 
       <div className="mt-2 space-y-1.5">
+        {monthBucket && monthExtra?.(monthBucket.key)}
         {(monthBucket?.days ?? []).map((d) => (
           <DayCard key={d.date} d={d} onOpen={onOpenDay} onShare={onShareDay} sw={sw} />
         ))}
       </div>
+      </>
+      )}
     </div>
   );
 }

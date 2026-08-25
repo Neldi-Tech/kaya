@@ -133,6 +133,23 @@ export default function NoteStudio({
     window.open('/sparks/note-print', '_blank');
   };
 
+  /** 📚 month book — the cached 📖 Month Story becomes the cover intro. */
+  const openMonthBook = () => act('book', async () => {
+    let intro: string | undefined;
+    if (sendMeta && base) {
+      try {
+        const { getMonthStory } = await import('@/lib/noteSend');
+        const s = await getMonthStory({
+          kidId: sendMeta.kidId, surface: sendMeta.surface,
+          monthKey: base.dateKey.slice(0, 7),
+        });
+        intro = s.story ?? undefined;
+      } catch { /* the cover simply skips the intro */ }
+    }
+    stashNotesForPrint({ title: monthLabel, theme, notes: monthNotes, ...(intro ? { intro } : {}) });
+    window.open('/sparks/note-print', '_blank');
+  }, sw ? '✓ Kitabu kimeandaliwa' : '✓ Book staged');
+
   const askOutside = () => act('ask', async () => { await ask?.onAsk(); },
     sw ? '🙋 Umemwomba mzazi — subiri kidogo' : '🙋 Asked — waiting for a parent');
 
@@ -198,8 +215,8 @@ export default function NoteStudio({
                   📄 {sw ? 'PDF A5' : 'A5 PDF'}
                 </button>
                 {monthNotes.length > 1 && (
-                  <button type="button" onClick={() => openPrint(monthNotes, monthLabel)} disabled={!!busy} className={btn}>
-                    📚 {sw ? `Kitabu cha ${monthLabel}` : `${monthLabel} book`}
+                  <button type="button" onClick={openMonthBook} disabled={!!busy} className={btn}>
+                    {busy === 'book' ? '…' : `📚 ${sw ? `Kitabu cha ${monthLabel}` : `${monthLabel} book`}`}
                   </button>
                 )}
                 {sendMeta && contacts.length > 0 && (

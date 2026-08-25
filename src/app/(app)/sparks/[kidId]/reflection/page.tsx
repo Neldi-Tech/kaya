@@ -43,6 +43,7 @@ import {
 } from '@/components/sparks/TimelineViews';
 import TimelineHitMap from '@/components/sparks/TimelineHitMap';
 import NoteStudio from '@/components/sparks/NoteStudio';
+import MonthStory from '@/components/sparks/MonthStory';
 import { requestNoteShare, subscribeToKidRequests, type ApprovalRequest } from '@/lib/hive';
 import Link from 'next/link';
 import ReflectionOriginChip from '@/components/sparks/ReflectionOriginChip';
@@ -140,6 +141,8 @@ export default function ReflectionPage() {
     score: entryScore(r),
     starred: !!r.parent_rating,
     reply: r.note_replies?.length ? r.note_replies[r.note_replies.length - 1] : undefined,
+    photoUrl: r.scanUrl || undefined,
+    searchText: r.text || undefined,
   })), [recent, sw]);
 
   // 🖼 Note Studio (design v2 §3) — share the day's NOTE, beautifully.
@@ -960,7 +963,10 @@ export default function ReflectionPage() {
         <TimelineList days={tlDays} onOpenDay={(d) => setScoreDate(d)} onShareDay={(d) => setNoteFor(d)} sw={sw} />
       )}
       {tlView === 'browse' && (
-        <TimelineBrowse days={tlDays} onOpenDay={(d) => setScoreDate(d)} onShareDay={(d) => setNoteFor(d)} sw={sw} />
+        <TimelineBrowse days={tlDays} onOpenDay={(d) => setScoreDate(d)} onShareDay={(d) => setNoteFor(d)} sw={sw}
+          monthExtra={(mk) => (
+            <MonthStory kidId={kidId} surface="reflection" monthKey={mk} isParent={isParent} sw={sw} />
+          )} />
       )}
       {/* Hit-map 2.0 · Month / 6 Months / Year / All-years micro-dots. */}
       {tlView === 'hitmap' && (
