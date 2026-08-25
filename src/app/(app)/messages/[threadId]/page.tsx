@@ -162,7 +162,7 @@ export default function MessageThreadPage() {
   useEffect(() => {
     if (!familyId || !addingMember) return;
     let alive = true;
-    messageableMembers(familyId, children).then((mem) => { if (alive) setAllFamilyMembers(mem); }).catch(() => {});
+    messageableMembers(familyId, children, uid).then((mem) => { if (alive) setAllFamilyMembers(mem); }).catch(() => {});
     return () => { alive = false; };
   }, [familyId, children, addingMember]);
   const saveTitle = async () => {

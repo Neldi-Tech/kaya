@@ -13,6 +13,7 @@ import {
   notifyMomentReaction, notifyMomentComment, notifyMomentMention, notifyMomentNewPost,
 } from './notify';
 import { createNotification, getUserProfile, getFamilyMembers, UserProfile } from './firestore';
+import { isListedMember } from './helperVisibility';
 import { Post, Reaction } from './moments';
 import { getHelperLink } from './helpers';
 
@@ -179,8 +180,11 @@ export async function notifyOnNewPost(
           helperGrantsByUid[m.uid] = true; // fail-open
         }
       }));
+    // 🤝 2026-08-25 — on top of the Moments module grant, an outside
+    // helper (no kid assigned, or paused/removed) never receives a
+    // moment ping. Both gates must pass.
     const canReceive = (m: UserProfile): boolean =>
-      m.role !== 'helper' || helperGrantsByUid[m.uid] !== false;
+      m.role !== 'helper' || (helperGrantsByUid[m.uid] !== false && isListedMember(m));
     const others: UserProfile[] = [];
     const mentionedTargets: UserProfile[] = [];
     for (const m of members) {

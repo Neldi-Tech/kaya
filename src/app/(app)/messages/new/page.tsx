@@ -50,7 +50,7 @@ export default function NewGroupPage() {
   useEffect(() => {
     if (!familyId) return;
     let alive = true;
-    messageableMembers(familyId, children).then((mem) => { if (alive) setAllMembers(mem); }).catch(() => {});
+    messageableMembers(familyId, children, profile?.uid).then((mem) => { if (alive) setAllMembers(mem); }).catch(() => {});
     return () => { alive = false; };
   }, [familyId, children]);
 

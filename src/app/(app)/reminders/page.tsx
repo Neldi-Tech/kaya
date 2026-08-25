@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { getFamilyMembers, type UserProfile, type Child } from '@/lib/firestore';
+import { filterListedMembers } from '@/lib/helperVisibility';
 import { toDisplayDate, dayOfWeek } from '@/lib/dates';
 import {
   fetchReminders, saveReminder, deleteReminder, decideReminder,
@@ -231,7 +232,12 @@ export default function RemindersPage() {
         getFamilyMembers(profile.familyId).catch(() => [] as UserProfile[]),
       ]);
       setEvents(evs);
-      setMembers(mems.filter((m) => !!m.email));
+      // 🤝 2026-08-25 — outside helpers (driver, gardener…) drop out of
+      // the recipient checklist, the built-in groups and the honoree
+      // picker. A saved reminder that already names one keeps them: the
+      // address simply falls through to the ✉️ external list below
+      // (see `externals`), so nothing is lost and it stays removable.
+      setMembers(filterListedMembers(mems, profile.uid).filter((m) => !!m.email));
       listCards().then((cs) => setCards(Object.fromEntries(cs.map((c) => [c.id, c])))).catch(() => {});
     } catch {
       setEvents([]);

@@ -57,6 +57,15 @@ export interface UserProfile {
   role: Role;
   familyId: string;
   childId?: string; // if role === 'kid', which child they are
+  /** 🤝 Helper visibility mirror (2026-08-25). Parent-controlled verdict
+   *  mirrored from `families/{f}/helpers/{uid}` by /api/helpers/visibility:
+   *  true when the helper is `active` AND has at least one kid assigned.
+   *  Communication surfaces list a helper only when this is not false.
+   *  `undefined` = listed (fail-open — legacy helpers with no HelperLink
+   *  doc, and any family not yet backfilled). Helpers cannot see the
+   *  source doc from a kid's session, which is why this lives here. See
+   *  lib/helperVisibility.ts. */
+  helperListed?: boolean;
   // ── Language (i18n) ──
   // This person's own language choice. Unset = follow the family's
   // primaryLanguage (which itself falls back to the country, then English).

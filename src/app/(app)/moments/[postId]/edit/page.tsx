@@ -25,6 +25,7 @@ import {
 } from '@/lib/photoUpload';
 import EventTagPicker from '@/components/moments/EventTagPicker';
 import { getFamilyMembers, UserProfile } from '@/lib/firestore';
+import { filterListedMembers } from '@/lib/helperVisibility';
 import BackButton from '@/components/ui/BackButton';
 import { Page, PageHeader, BTN_INLINE_LG } from '@/components/layout/Page';
 import KidAvatar from '@/components/ui/KidAvatar';
@@ -124,7 +125,7 @@ export default function EditMomentPage() {
     if (!profile?.familyId) return;
     let cancelled = false;
     getFamilyMembers(profile.familyId)
-      .then((list) => { if (!cancelled) setMembers(list.filter((m) => m.uid !== profile.uid)); })
+      .then((list) => { if (!cancelled) setMembers(filterListedMembers(list).filter((m) => m.uid !== profile.uid)); })
       .catch(() => { /* silent — mentions just won't autocomplete */ });
     return () => { cancelled = true; };
   }, [profile?.familyId, profile?.uid]);

@@ -25,6 +25,7 @@ import {
   giveAward, getFamilyMembers, readPointSystemConfig,
   type AwardKind,
 } from '@/lib/firestore';
+import { filterListedMembers } from '@/lib/helperVisibility';
 import { rewardsFloorFor, depositCash, readHiveConfig, type FamilyRewardsSlice } from '@/lib/hive';
 import { formatCents } from '@/components/pantry/format';
 import {
@@ -237,7 +238,10 @@ export default function RecognitionWizard() {
       // ⑥d — parent/helper emails (best-effort).
       (async () => {
         try {
-          const members = await getFamilyMembers(familyId);
+          // 🤝 2026-08-25 — outside helpers (no kid assigned) are not
+          // mailed about a kid's award; parents can add their address
+          // by hand in Settings → Email groups if they want them on it.
+          const members = filterListedMembers(await getFamilyMembers(familyId));
           const to = members
             .filter((m) => (m.role === 'parent' || m.role === 'helper') && m.uid !== profile.uid && m.email && m.notifyOnAward !== false)
             .map((m) => m.email);

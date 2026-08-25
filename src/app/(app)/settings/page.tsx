@@ -18,6 +18,7 @@ import {
   getFamilyMembers, removeUserFromFamily, UserProfile,
   updateChild,
 } from '@/lib/firestore';
+import { filterListedMembers, hiddenHelperCount } from '@/lib/helperVisibility';
 import { AvatarEmojiPickerModal } from '@/components/ui/AvatarEmojiPicker';
 import { defaultAvatarEmoji } from '@/lib/avatarEmojis';
 import {
@@ -606,6 +607,14 @@ export default function SettingsPage() {
       .catch(() => { if (!cancelled) setMembers([]); });
     return () => { cancelled = true; };
   }, [profile?.familyId, isGuest]);
+
+  // 🤝 2026-08-25 — outside helpers (no kid assigned in Settings →
+  // Helpers, or paused/removed) don't populate this roster either. They
+  // are NOT invisible: the muted line below counts them and links to the
+  // helper manager, which is never filtered. `members` keeps the full
+  // list so the count stays truthful.
+  const listedMembers = members === null ? null : filterListedMembers(members, profile?.uid);
+  const hiddenHelpers = members === null ? 0 : hiddenHelperCount(members, profile?.uid);
 
   const handleRemoveMember = async (m: UserProfile) => {
     if (!profile || removingMember) return;
@@ -2304,20 +2313,20 @@ export default function SettingsPage() {
           {isParent && (
             <CollapsibleSection
               title="Family members"
-              summary={members === null ? '…' : `${members.length} ${members.length === 1 ? 'person' : 'people'}`}
+              summary={listedMembers === null ? '…' : `${listedMembers.length} ${listedMembers.length === 1 ? 'person' : 'people'}`}
             >
               <p className="text-[11px] text-kaya-sand mb-3 leading-relaxed">
                 Everyone with access to your family right now. Remove anyone you didn&apos;t intend to add — they keep their account but lose access until you invite them again.
               </p>
 
-              {members === null ? (
+              {listedMembers === null ? (
                 <p className="text-[11px] text-kaya-sand-light italic">Loading…</p>
-              ) : members.length === 0 ? (
+              ) : listedMembers.length === 0 ? (
                 <p className="text-[11px] text-kaya-sand-light italic">No members yet.</p>
               ) : (
                 <div className="space-y-2">
                   {/* Sort: parents first, then helpers, kids, guests; self at top of role bucket */}
-                  {[...members]
+                  {[...listedMembers]
                     .sort((a, b) => {
                       const order: Record<string, number> = { parent: 0, helper: 1, kid: 2, guest: 3 };
                       const ra = order[a.role] ?? 9;
@@ -2376,6 +2385,18 @@ export default function SettingsPage() {
                       );
                     })}
                 </div>
+              )}
+
+              {hiddenHelpers > 0 && (
+                <button
+                  onClick={() => router.push('/settings/helpers')}
+                  className="w-full mt-3 flex items-center justify-between gap-2 px-3 py-2 rounded-kaya-sm bg-kaya-warm/60 text-left"
+                >
+                  <span className="text-[11px] text-kaya-sand">
+                    🤝 {hiddenHelpers} {hiddenHelpers === 1 ? 'helper' : 'helpers'} without kid access
+                  </span>
+                  <span className="text-[11px] font-bold text-kaya-gold shrink-0">Manage →</span>
+                </button>
               )}
 
               <p className="text-[10px] text-kaya-sand-light mt-3 leading-relaxed">
