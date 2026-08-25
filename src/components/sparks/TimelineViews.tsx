@@ -17,7 +17,7 @@
 //  • ViewSwitcher + useRememberedView — the 📋/🗂/🔥/🗓 pills; each
 //    person's last choice is remembered per surface (localStorage).
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toDisplayDate } from '@/lib/dates';
 
 // ─── data contract ─────────────────────────────────────────────────
@@ -218,6 +218,19 @@ export function TimelineList({ days, onOpenDay, onShareDay, sw }: {
   const [openYears, setOpenYears] = useState<Set<string>>(() => new Set(newestY ? [newestY] : []));
   const [openMonths, setOpenMonths] = useState<Set<string>>(() => new Set(defaultMonths));
   const [fullMonths, setFullMonths] = useState<Set<string>>(() => new Set());
+  // Entries stream in AFTER the first render (the gateway is async), so
+  // the lazy initializers above usually see an empty tree. Apply the
+  // default-open state ONCE, the first time data exists — after that the
+  // person's own opens/closes are never overridden.
+  const defaultsApplied = useRef(false);
+  const defaultKey = `${newestY}|${defaultMonths.join(',')}`;
+  useEffect(() => {
+    if (defaultsApplied.current || !newestY) return;
+    defaultsApplied.current = true;
+    setOpenYears(new Set([newestY]));
+    setOpenMonths(new Set(defaultMonths));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultKey]);
 
   if (tree.length === 0) return null;
 
