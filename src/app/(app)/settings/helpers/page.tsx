@@ -278,6 +278,19 @@ export default function HelpersSettingsPage() {
         Helpers (nannies, tutors, grandparents, drivers) can log routines and feedback for the kids you give them access to.
       </p>
 
+      {/* Cross-link — parents kept coming HERE looking for the "tracked"
+          switch, which lives on the performance policy page (Elia,
+          2026-08-25). One muted line closes the loop. */}
+      <button
+        onClick={() => router.push('/settings/performance')}
+        className="mt-3 inline-flex items-center gap-2 px-3 py-2 rounded-kaya-sm bg-kaya-warm/60 text-left hover:bg-kaya-warm transition-colors"
+      >
+        <span className="text-[11px] text-kaya-sand">
+          ⚖️ Scoring a helper&apos;s performance? Choose who&apos;s tracked in <strong className="text-kaya-chocolate">Performance</strong>
+        </span>
+        <span className="text-[11px] font-bold text-kaya-gold shrink-0">Open →</span>
+      </button>
+
       {/* Helpers list */}
       <PageSplit rail={rail} railMobile="first" railWidth={360} sticky={false}>
       <div className="mt-8 lg:mt-0 flex items-center justify-between">
