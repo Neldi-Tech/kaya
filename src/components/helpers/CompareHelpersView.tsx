@@ -7,21 +7,13 @@
 
 import { useEffect, useState } from 'react';
 import { computeHelperDials, DIAL_META, dialColor, type HelperDials } from '@/lib/helperRecognition';
-import { shareScorecardPng, HELPER_COLORS } from '@/lib/helperScorecardPng';
+import { shareScorecardPng, HELPER_COLORS, type ScorecardView } from '@/lib/helperScorecardPng';
+import DialPentagon from './DialPentagon';
 import { useFamily } from '@/contexts/FamilyContext';
 import { asLocale, localeForCountry, type Locale } from '@/lib/i18n';
 import type { HelperLink } from '@/lib/firestore';
 
 type Row = { helper: HelperLink; dials: HelperDials };
-
-function radarPoints(values: Array<number | null>, cx: number, cy: number, r: number): string {
-  const n = values.length;
-  return values.map((v, i) => {
-    const angle = (Math.PI * 2 * i) / n - Math.PI / 2;
-    const len = ((v ?? 0) / 100) * r;
-    return `${(cx + Math.cos(angle) * len).toFixed(1)},${(cy + Math.sin(angle) * len).toFixed(1)}`;
-  }).join(' ');
-}
 
 export default function CompareHelpersView({ familyId, helpers }: {
   familyId: string;
@@ -51,6 +43,7 @@ export default function CompareHelpersView({ familyId, helpers }: {
     ?? localeForCountry(family?.location?.country);
   const [shareLang, setShareLang] = useState<Locale>(compareDefaultLang);
   const [sharing, setSharing] = useState(false);
+  const [shareView, setShareView] = useState<ScorecardView>('bars');
   const sharePng = async () => {
     if (!rows || rows.length === 0) return;
     setSharing(true);
@@ -59,6 +52,7 @@ export default function CompareHelpersView({ familyId, helpers }: {
         rows.map((r) => ({ name: r.helper.displayName, dials: r.dials })),
         shareLang,
         'Kaya-helper-comparison',
+        shareView,
       );
     } finally { setSharing(false); }
   };
@@ -72,6 +66,16 @@ export default function CompareHelpersView({ familyId, helpers }: {
     <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-5 space-y-4">
       <div className="flex items-center gap-2 flex-wrap">
         <p className="font-nunito font-black text-lg flex-1">⚖️ Comparing {rows.length} helpers</p>
+        <div className="flex rounded-full border border-hive-line overflow-hidden">
+          {([['bars', '▤'], ['pentagon', '⬟']] as const).map(([v, label]) => (
+            <button key={v} type="button" onClick={() => setShareView(v)}
+              aria-pressed={shareView === v}
+              title={v === 'bars' ? 'Share as bars' : 'Share as pentagon'}
+              className={`px-3 py-1 text-[11px] font-nunito font-black ${shareView === v ? 'bg-hive-ink text-white' : 'bg-white text-hive-muted'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
         <div className="flex rounded-full border border-hive-line overflow-hidden">
           {(['en', 'sw'] as Locale[]).map((l) => (
             <button key={l} type="button" onClick={() => setShareLang(l)}
@@ -101,28 +105,14 @@ export default function CompareHelpersView({ familyId, helpers }: {
 
       {/* Radar + per-dial rows */}
       <div className="lg:flex lg:gap-5 lg:items-start">
-        <svg width="230" height="210" viewBox="0 0 230 210" className="mx-auto lg:mx-0 shrink-0">
-          {[100, 66, 33].map((ring) => (
-            <polygon key={ring} points={radarPoints([ring, ring, ring, ring, ring], 115, 105, 78)}
-              fill="none" stroke="#E8E0D4" strokeWidth="1" />
-          ))}
-          {rows.map((r, i) => (
-            <polygon key={r.helper.uid}
-              points={radarPoints(DIAL_META.map((m) => r.dials[m.key]), 115, 105, 78)}
-              fill={`${HELPER_COLORS[i % HELPER_COLORS.length]}26`}
-              stroke={HELPER_COLORS[i % HELPER_COLORS.length]} strokeWidth="2" />
-          ))}
-          {DIAL_META.map((m, i) => {
-            const angle = (Math.PI * 2 * i) / DIAL_META.length - Math.PI / 2;
-            const x = 115 + Math.cos(angle) * 97;
-            const y = 105 + Math.sin(angle) * 95;
-            return (
-              <text key={m.key} x={x} y={y} textAnchor="middle" fontSize="8.5" fontWeight="800" fill="#9B8A72">
-                {m.label.toUpperCase()}
-              </text>
-            );
-          })}
-        </svg>
+        <DialPentagon
+          size={230}
+          series={rows.map((r, i) => ({
+            key: r.helper.uid,
+            color: HELPER_COLORS[i % HELPER_COLORS.length],
+            dials: r.dials,
+          }))}
+        />
         <div className="flex-1 space-y-2 mt-3 lg:mt-0">
           {DIAL_META.map((m) => {
             const vals = rows.map((r) => r.dials[m.key]);
