@@ -69,7 +69,6 @@ export default function MyDiaryPage() {
   const inkRef = useRef<DiaryInkHandle>(null);
   const [scanOpen, setScanOpen] = useState(false);
   const [scanFiles, setScanFiles] = useState<File[]>([]);
-  const [timelineOpen, setTimelineOpen] = useState(false);
   const [dayOpen, setDayOpen] = useState<string | null>(null);
   const [pinModalFor, setPinModalFor] = useState<null | { then: () => void }>(null);
 
@@ -245,17 +244,11 @@ export default function MyDiaryPage() {
               )}
 
               {!writing && (
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => setWriting(true)}
-                    className="flex-1 rounded-2xl py-3 text-white font-nunito font-black text-[14px]"
-                    style={{ background: `linear-gradient(135deg, #2a1f3d, ${PLUM})` }}>
-                    ＋ {sw ? 'Andika' : 'Write'}
-                  </button>
-                  <button type="button" onClick={() => setTimelineOpen((v) => !v)}
-                    className="rounded-2xl py-3 px-4 font-nunito font-black text-[14px] bg-[#F9E4F1] text-[#7A2E5C]">
-                    📖 {sw ? 'Ratiba' : 'Timeline'}
-                  </button>
-                </div>
+                <button type="button" onClick={() => setWriting(true)}
+                  className="w-full rounded-2xl py-3 text-white font-nunito font-black text-[14px]"
+                  style={{ background: `linear-gradient(135deg, #2a1f3d, ${PLUM})` }}>
+                  ＋ {sw ? 'Andika' : 'Write'}
+                </button>
               )}
 
               {writing && (
@@ -345,9 +338,14 @@ export default function MyDiaryPage() {
               )}
 
               {/* Timeline 2.0 (design v2) · 📋 List (default) · 🗂 Browse ·
-                  🗓 Calendar (the original emoji month — kept). */}
-              {timelineOpen && (
+                  🗓 Calendar (the original emoji month — kept). ALWAYS
+                  visible, exactly like My Reflection — no toggle to find
+                  (Elia, 2026-08-25: "do the same for Diary"). */}
+              {tlDays.length > 0 && (
                 <>
+                  <div className="text-[10px] font-nunito font-black uppercase tracking-[1.2px] text-[#5A6488] mt-5">
+                    {sw ? 'Shajara yako' : 'Your diary'}
+                  </div>
                   <MemoryLane days={tlDays} onOpenDay={(d) => setDayOpen(d)} sw={sw} />
                   <ViewSwitcher view={tlView} views={['list', 'browse', 'hitmap', 'calendar']} onChange={setTlView} sw={sw} />
                   {tlView === 'list' && (

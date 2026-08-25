@@ -85,10 +85,9 @@ export default function DiaryPage() {
   const inkRef = useRef<DiaryInkHandle>(null);
   const [scanOpen, setScanOpen] = useState(false);
   const [scanFiles, setScanFiles] = useState<File[]>([]);
-  // Slice 8c · timeline visibility + tapped-day sheet.
+  // Timeline 2.0 · the views are ALWAYS visible now; this flag only
+  // reveals the big 🎨 Year-in-Pixels poster (collapsed by default).
   const [timelineOpen, setTimelineOpen] = useState(false);
-  // PAST-1 · parents land with the past open — no hidden toggle.
-  useEffect(() => { if (isParent) setTimelineOpen(true); }, [isParent]);
   const [dayOpen, setDayOpen] = useState<string | null>(null);
   // Slice 8d · privacy: kid PIN gate + parent quiet-open flow.
   const [hasPin, setHasPin] = useState<boolean | null>(null);
@@ -427,28 +426,19 @@ export default function DiaryPage() {
 
       {/* Composer — owner kid only (parents never write here). */}
       {isOwnerKid && !writing && (
-        <div className="flex gap-2">
-          <button type="button" onClick={() => setWriting(true)}
-            className="flex-1 rounded-2xl py-3 text-white font-nunito font-black text-[14px]"
-            style={{ background: `linear-gradient(135deg, ${PLUM}, #C05299)` }}>
-            ＋ {sw ? 'Andika kwenye shajara yangu' : 'Write in my diary'}
-          </button>
-          <button type="button" onClick={() => setTimelineOpen((v) => !v)}
-            className="rounded-2xl py-3 px-4 font-nunito font-black text-[14px] bg-[#F9E4F1] text-[#7A2E5C]">
-            📖 {sw ? 'Ratiba' : 'My timeline'}
-          </button>
-        </div>
-      )}
-      {!isOwnerKid && (
-        <button type="button" onClick={() => setTimelineOpen((v) => !v)}
-          className="w-full rounded-2xl py-3 font-nunito font-black text-[14px] bg-[#F9E4F1] text-[#7A2E5C]">
-          📖 {sw ? 'Ratiba ya shajara' : 'Diary timeline'}
+        <button type="button" onClick={() => setWriting(true)}
+          className="w-full rounded-2xl py-3 text-white font-nunito font-black text-[14px]"
+          style={{ background: `linear-gradient(135deg, ${PLUM}, #C05299)` }}>
+          ＋ {sw ? 'Andika kwenye shajara yangu' : 'Write in my diary'}
         </button>
       )}
 
       {/* Timeline 2.0 (design v2) · 📋 List (default) · 🗂 Browse ·
-          🗓 Calendar (the Slice-8c emoji month — nothing taken away). */}
-      {timelineOpen && (
+          🗓 Calendar (the Slice-8c emoji month — nothing taken away).
+          ALWAYS visible for kid AND parent, exactly like Reflection —
+          no toggle to find (Elia, 2026-08-25: "do the same for Diary");
+          the old 📖 toggle now reveals only the 🎨 Year-in-Pixels poster. */}
+      {(entries ?? []).length > 0 && (
         <>
           <ViewSwitcher view={tlView} views={['list', 'browse', 'hitmap', 'calendar']} onChange={setTlView} sw={sw} />
           {tlView === 'list' && (
@@ -477,6 +467,15 @@ export default function DiaryPage() {
               onOpenDay={(d) => setDayOpen(d)}
             />
           )}
+          {/* 🎨 Year in Pixels — the big poster, behind its own reveal. */}
+          <button type="button" onClick={() => setTimelineOpen((v) => !v)}
+            className="w-full rounded-2xl py-2.5 mt-1 font-nunito font-black text-[13px] bg-[#F9E4F1] text-[#7A2E5C]">
+            🎨 {timelineOpen ? (sw ? 'Ficha mwaka kwa rangi' : 'Hide year in pixels') : (sw ? 'Mwaka kwa rangi' : 'Year in pixels')}
+          </button>
+        </>
+      )}
+      {timelineOpen && (
+        <>
           <YearInPixelsCard
             entries={entries ?? []}
             year={new Date().getFullYear()}
