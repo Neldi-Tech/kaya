@@ -747,10 +747,13 @@ function Editor({
 
   const toggleArr = <T,>(arr: T[], v: T): T[] => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
 
-  // ── 💊 v5 Care — section toggle + medicine-photo upload ─────────────────
+  // ── 💊 v5 Care — section toggle + medicine-photo upload + AI label read ─
+  const { user: authUser } = useAuth();
   const isCare = isCareType(form.type);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoErr, setPhotoErr] = useState('');
+  const [aiReading, setAiReading] = useState(false);
+  const [aiRead, setAiRead] = useState<string>('');
   async function pickCarePhoto(file: File | null) {
     if (!file || !familyId || uploadingPhoto) return;
     setUploadingPhoto(true); setPhotoErr('');
@@ -762,10 +765,48 @@ function Editor({
       const r = storageRef(storage, path);
       await safeUploadBytes(r, blob, { contentType: 'image/jpeg' });
       set('carePhotoUrl', await getDownloadURL(r));
+      void readLabel(blob);
     } catch (e) {
       setPhotoErr(e instanceof Error ? e.message : 'Could not upload the photo — try again.');
     }
     setUploadingPhoto(false);
+  }
+  /** ✨ Transcription-only label read — pre-fills EMPTY fields only; the
+   *  parent confirms everything (approved Logic close #5). */
+  async function readLabel(blob: Blob) {
+    if (form.type !== 'medicine' || aiReading) return;
+    setAiReading(true); setAiRead('');
+    try {
+      const b64 = await new Promise<string>((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
+        fr.onerror = reject;
+        fr.readAsDataURL(blob);
+      });
+      const token = await authUser?.getIdToken();
+      if (!token || !b64) { setAiReading(false); return; }
+      const res = await fetch('/api/reminders/care-label', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        body: JSON.stringify({ imageBase64: b64, mediaType: 'image/jpeg' }),
+      });
+      const j = await res.json().catch(() => ({ found: false }));
+      if (j?.found && j.name) {
+        const fullName = [j.name, j.strength].filter(Boolean).join(' ');
+        setForm((f) => ({
+          ...f,
+          ...(f.title.trim() ? {} : { title: fullName }),
+          careLabelName: fullName,
+          ...(f.carePackCount ? {} : (j.packCount ? { carePackCount: j.packCount } : {})),
+          ...(j.withFood ? { careWithFood: true } : {}),
+          ...(f.careDose.trim() ? {} : (j.form && j.form !== 'other' && j.form !== '' ? { careDose: `1 ${j.form}` } : {})),
+        }));
+        setAiRead([fullName, j.packCount ? `${j.packCount} in the pack` : '', j.instructions].filter(Boolean).join(' · '));
+      } else {
+        setAiRead('couldn’t read this label — fill the fields yourself, nothing is blocked.');
+      }
+    } catch { setAiRead('couldn’t read this label — fill the fields yourself, nothing is blocked.'); }
+    setAiReading(false);
   }
 
   // ── v4 Nth Birthday/Anniversary — origin date + live ✨ preview ─────────
@@ -925,6 +966,14 @@ function Editor({
                     </div>
                   </div>
                   {photoErr && <div className="text-[11px] text-red-600 mt-1">{photoErr}</div>}
+                  {(aiReading || aiRead) && (
+                    <div className="mt-2 rounded-kaya-sm border border-dashed px-3 py-2 text-[12px]"
+                      style={{ borderColor: CARE, background: CARE_SOFT, color: '#1F4F47' }}>
+                      {aiReading
+                        ? '✨ Kaya is reading the label…'
+                        : <>✨ <b>Kaya read:</b> {aiRead} — <b>please check every detail.</b> Always follow your doctor’s instructions.</>}
+                    </div>
+                  )}
                 </Field>
               )}
 
