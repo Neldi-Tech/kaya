@@ -13,7 +13,7 @@ import {
   Business, BusinessItem, StockTake, StockMedia,
   subscribeToBusiness, subscribeToBusinessItems, subscribeToStockTakes,
   updateBusinessItem, saveStockTake, todayKey, stockTakeStreak,
-  readBusinessConfig, requestStockTakeHp, flagStockTakeHp,
+  readBusinessConfig, requestStockTakeHp, flagStockTakeHp, keepsStock,
 } from '@/lib/business';
 import { uploadBusinessPhoto, uploadBusinessVideo } from '@/lib/businessPhoto';
 import { auth } from '@/lib/firebase';
@@ -63,6 +63,12 @@ export default function StockTakePage() {
     const u3 = subscribeToStockTakes(familyId, businessId, setTakes, 30);
     return () => { u1(); u2(); u3(); };
   }, [familyId, businessId]);
+
+  // Business 2.0 (R14) — no-stock businesses do the Daily Check-in instead;
+  // old links and Workplan rows bounce across.
+  useEffect(() => {
+    if (business && !keepsStock(business)) router.replace(`/business/${businessId}/checkin`);
+  }, [business, businessId, router]);
 
   const isParent = profile?.role === 'parent';
   const isOwner = profile?.role === 'kid' && profile?.childId === business?.ownerId;

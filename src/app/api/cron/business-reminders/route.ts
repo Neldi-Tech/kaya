@@ -22,6 +22,16 @@ function utcDateKey(d: Date): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 }
 
+// Business 2.0 (R14/R15) — does this business keep countable stock? Mirrors
+// keepsStock() in business.ts without importing the client lib into a server
+// route: the per-business switch wins, else the model default, else the
+// legacy type mapping (only goods counted stock before 2.0).
+function bizKeepsStock(b: { stockTaking?: boolean; pricingModel?: string; type?: string }): boolean {
+  if (typeof b.stockTaking === 'boolean') return b.stockTaking;
+  if (b.pricingModel) return b.pricingModel === 'unit_stocked';
+  return b.type === 'goods';
+}
+
 async function run(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
   if (secret) {
@@ -61,9 +71,9 @@ async function run(req: NextRequest) {
     } catch { /* leave empty */ }
 
     for (const d of due) {
-      const biz = d.data() as { ownerId?: string; name?: string };
+      const biz = d.data() as { ownerId?: string; name?: string; stockTaking?: boolean; pricingModel?: string; type?: string };
       const bizId = d.id;
-      // Already stock-taken today? skip.
+      // Already stock-taken / checked-in today? skip.
       try {
         const took = await d.ref.collection('stockTakes').doc(dateKey).get();
         if (took.exists) continue;
@@ -78,9 +88,13 @@ async function run(req: NextRequest) {
       }
       if (recipients.size === 0) continue;
 
-      const title = '📋 Stock-take time';
-      const message = `Update ${biz.name || 'your business'} for today — counts + a photo.`;
-      const link = `/business/${bizId}/stocktake`;
+      // Business 2.0 — wording + destination follow the stock switch (R15).
+      const stocked = bizKeepsStock(biz);
+      const title = stocked ? '📋 Stock-take time' : '☀️ Check-in time';
+      const message = stocked
+        ? `Update ${biz.name || 'your business'} for today — counts + a photo.`
+        : `How did ${biz.name || 'your business'} go today? Log your sales — it takes a minute.`;
+      const link = `/business/${bizId}/${stocked ? 'stocktake' : 'checkin'}`;
       for (const uid of recipients) {
         try {
           await fam.ref.collection('notifications').add({

@@ -13,6 +13,7 @@ import { useHive } from '@/contexts/HiveContext';
 import {
   Business, subscribeToBusiness, setBusinessReminder, updateBusiness, UNIT_SUGGESTIONS,
   setBusinessStockTakeSchedule, DEFAULT_STOCKTAKE_SCHEDULE, type StockTakeSchedule,
+  keepsStock,
 } from '@/lib/business';
 import type { DayOfWeek } from '@/lib/firestore';
 import { Page, BTN_INLINE_LG } from '@/components/layout/Page';
@@ -96,6 +97,9 @@ export default function BusinessSettingsPage() {
   const isParent = profile?.role === 'parent';
   const isOwner = profile?.role === 'kid' && profile?.childId === business?.ownerId;
   const canEdit = isParent || isOwner;
+  // Business 2.0 (R15) — schedule/reminder copy follows the stock switch.
+  const stocked = business ? keepsStock(business) : true;
+  const habitWord = stocked ? 'stock-take' : 'check-in';
 
   const hours = useMemo(() => Array.from({ length: 24 }, (_, h) => ({ h, label: labelForHour(h) })), []);
 
@@ -211,7 +215,7 @@ export default function BusinessSettingsPage() {
         <div className="bg-hive-paper border border-hive-line rounded-hive p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="font-nunito font-extrabold text-[14px]">📋 Stock-take schedule</h3>
+              <h3 className="font-nunito font-extrabold text-[14px]">{stocked ? '📋 Stock-take schedule' : '☀️ Check-in schedule'}</h3>
               <p className="text-[12px] text-hive-muted mt-0.5">Lands as a task in the owner kid&apos;s Workplan on these days.</p>
             </div>
             <button
@@ -265,7 +269,7 @@ export default function BusinessSettingsPage() {
               </div>
 
               <p className="text-[11px] text-hive-muted mt-2 leading-snug">
-                Tapping the Workplan task opens the stock-take page. Saving the take ticks it complete and grants the usual House Points (instant-cadence) — this schedule only controls when the row appears.
+                Tapping the Workplan task opens the {habitWord} page. Saving it ticks it complete and grants the usual House Points (instant-cadence) — this schedule only controls when the row appears.
               </p>
             </>
           )}
@@ -284,8 +288,8 @@ export default function BusinessSettingsPage() {
         <div className="bg-hive-paper border border-hive-line rounded-hive p-4">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="font-nunito font-extrabold text-[14px]">Daily stock-take reminder</h3>
-              <p className="text-[12px] text-hive-muted mt-0.5">A gentle nudge to update counts + snap a photo.</p>
+              <h3 className="font-nunito font-extrabold text-[14px]">{stocked ? 'Daily stock-take reminder' : 'Daily check-in reminder'}</h3>
+              <p className="text-[12px] text-hive-muted mt-0.5">{stocked ? 'A gentle nudge to update counts + snap a photo.' : 'A gentle nudge to log the day\u2019s sales.'}</p>
             </div>
             <button
               onClick={() => setEnabled((v) => !v)}
@@ -306,7 +310,7 @@ export default function BusinessSettingsPage() {
               >
                 {hours.map((o) => <option key={o.h} value={o.h}>{o.label}</option>)}
               </select>
-              <p className="text-[11px] text-hive-muted mt-1.5">Sent to {business?.ownerId ? 'the kid + parents' : 'parents'} each day, unless the stock-take is already done.</p>
+              <p className="text-[11px] text-hive-muted mt-1.5">Sent to {business?.ownerId ? 'the kid + parents' : 'parents'} each day, unless the {habitWord} is already done.</p>
             </div>
           )}
 
