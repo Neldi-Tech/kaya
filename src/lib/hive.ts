@@ -51,6 +51,7 @@ export type ApprovalType =
   | 'business_hp'            // House Points for a stock-take (instant cadence, parent-review)
   | 'business_sale'          // a kid's daily auto-sale, sent for parent approval → logSale on approve
   | 'business_reinvest'      // a kid spends their OWN Honey Pot into a business — one parent OK → Pot out + business cost
+  | 'business_nature_change' // Business 2.0 — a kid asks to change how the business works (pricing model / stock switch)
   // ── Kaya Chat ──────────────────────────────────────────────────
   | 'create_group_chat'      // a kid asks a parent to open a new group chat (rename/groups, 2026-05-27)
   // ── Rewards store (RWD PR1, approved v2 FINAL 26-Jul-2026) ─────
@@ -526,6 +527,14 @@ export interface ApprovalRequest {
   /** business_reinvest — the business cost type to book (CostType in
    *  business.ts; typed as string here to avoid a hive↔business import cycle). */
   costType?: string;
+  // ── Business 2.0 · nature change + price change (typed as strings to
+  //    avoid a hive↔business import cycle, same as costType above) ──
+  /** business_nature_change — the PricingModel the kid wants to switch to. */
+  targetPricingModel?: string;
+  /** business_nature_change — whether the business should keep counting stock. */
+  targetStockTaking?: boolean;
+  /** business_price_change — the new per-unit price to apply on approve. */
+  newPriceCents?: number;
   proposedTitle?: string;           // create_group_chat — group name the kid picked
   proposedMemberUids?: string[];    // create_group_chat — uids the kid asked to include
   proposedMembers?: Array<{ uid: string; name: string; role: string; avatar?: string }>; // create_group_chat — denormalized for the parent card

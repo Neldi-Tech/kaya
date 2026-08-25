@@ -66,6 +66,76 @@ export type BusinessType =
 
 export type BusinessStatus = 'idea' | 'pilot' | 'active' | 'paused' | 'closed';
 
+// ── Business 2.0 · pricing models (2026-08-25) ────────────────────
+// The kid-facing "How does your business work?" choice. The real variables
+// are HOW YOU CHARGE × WHETHER YOU HOLD STOCK — the coarse BusinessType is
+// derived internally (kids never see the word "type"). Legacy businesses
+// have no stored pricingModel; resolvePricingModel() derives one from type
+// so nothing needs a migration write.
+export type PricingModel = 'unit_made' | 'unit_stocked' | 'hour' | 'session' | 'job';
+
+export interface PricingModelMeta {
+  key: PricingModel;
+  /** Kid-facing card label — plain language, locked copy (R5). */
+  label: string;
+  emoji: string;
+  /** Kid-facing example line under the label. */
+  blurb: string;
+  /** Default unit for the headline price ("hour", "session", "job"…). */
+  unitLabel: string;
+  /** Default for the per-business stock switch (only unit_stocked counts). */
+  stockTaking: boolean;
+  /** Internal mapping onto the coarse BusinessType (drives shapes/rules). */
+  type: BusinessType;
+  /** Sales log in 0.5 steps (hours) instead of whole units (R6). */
+  halfSteps?: boolean;
+}
+
+export const PRICING_MODELS: PricingModelMeta[] = [
+  { key: 'unit_made',    label: 'I make each one fresh', emoji: '🧃', blurb: 'Juice by the glass, salads, snacks — made when someone orders.', unitLabel: 'pcs',     stockTaking: false, type: 'goods' },
+  { key: 'unit_stocked', label: 'I sell things I keep',  emoji: '📦', blurb: 'Eggs, veggies, crafts made ahead — you count your stock.',       unitLabel: 'pcs',     stockTaking: true,  type: 'goods' },
+  { key: 'hour',         label: 'I charge by the hour',  emoji: '⏰', blurb: 'Homework help, reading buddy, tech help.',                       unitLabel: 'hour',    stockTaking: false, type: 'advice', halfSteps: true },
+  { key: 'session',      label: 'I charge per session',  emoji: '🎯', blurb: 'Football drills, dance lessons, drawing classes.',               unitLabel: 'session', stockTaking: false, type: 'sport' },
+  { key: 'job',          label: 'I charge per job',      emoji: '🛠️', blurb: 'Car wash, garden tidy, errand runs.',                            unitLabel: 'job',     stockTaking: false, type: 'service' },
+];
+
+export function pricingModelMeta(key: PricingModel | undefined): PricingModelMeta {
+  return PRICING_MODELS.find((m) => m.key === key) ?? PRICING_MODELS[1]; // unit_stocked = the legacy default
+}
+
+/** The effective model for any business, old or new: the stored field wins,
+ *  else derived from the coarse type (goods → unit_stocked, advice → hour,
+ *  sport/learning → session, everything else → job). Zero-migration. */
+export function resolvePricingModel(b: Pick<Business, 'pricingModel' | 'type'>): PricingModel {
+  if (b.pricingModel) return b.pricingModel;
+  switch (b.type) {
+    case 'goods': return 'unit_stocked';
+    case 'advice': return 'hour';
+    case 'sport':
+    case 'learning': return 'session';
+    default: return 'job'; // service, adhoc, coop
+  }
+}
+
+/** Does this business keep countable stock? Drives stock-take vs the Daily
+ *  Check-in, the Inventory tile, and reminder wording. The per-business
+ *  switch wins; absent = the model's default (R2). */
+export function keepsStock(b: Pick<Business, 'pricingModel' | 'type' | 'stockTaking'>): boolean {
+  if (typeof b.stockTaking === 'boolean') return b.stockTaking;
+  return pricingModelMeta(resolvePricingModel(b)).stockTaking;
+}
+
+/** Review cadence for the Business Review (R18). Default weekly. */
+export type ReviewCadence = 'weekly' | 'biweekly' | 'monthly';
+export const REVIEW_CADENCES: Array<{ key: ReviewCadence; label: string; days: number }> = [
+  { key: 'weekly',   label: 'Every week',    days: 7 },
+  { key: 'biweekly', label: 'Every 2 weeks', days: 14 },
+  { key: 'monthly',  label: 'Every month',   days: 30 },
+];
+export function reviewCadenceDays(c: ReviewCadence | undefined): number {
+  return REVIEW_CADENCES.find((x) => x.key === c)?.days ?? 7;
+}
+
 // Where a business is allowed to sell. Neighbours is parent-gated (dual-parent
 // unlock) and external/marketplace is Phase 3 — both defined for forward
 // compatibility; `PHASE1_CHANNELS` gates the current set.
@@ -129,6 +199,14 @@ export interface Business {
   ownerId: string;
   ownerIds?: string[];          // Phase 2 (co-ops) — hook only
   type: BusinessType;
+  /** Business 2.0 — how the kid charges. Absent on legacy businesses; always
+   *  read through resolvePricingModel(). */
+  pricingModel?: PricingModel;
+  /** Business 2.0 — the per-business stock switch (R2). Absent = the model's
+   *  default; always read through keepsStock(). */
+  stockTaking?: boolean;
+  /** Business 2.0 — Business Review rhythm (R18). Absent = weekly. */
+  reviewCadence?: ReviewCadence;
   status: BusinessStatus;
   name: string;
   mission?: string;
@@ -176,7 +254,18 @@ export interface Business {
 
 export type ItemKind =
   | 'asset'   // keeps working for you: trees, hens, tools, infrastructure
-  | 'stock';  // ready (or ripening) to sell: fruits, eggs, finished crafts
+  | 'stock'   // ready (or ripening) to sell: fruits, eggs, finished crafts
+  // Business 2.0 — a MENU entry on a no-stock business (juice by the glass,
+  // an hour of homework help): name + picture + price + cost recipe. Never
+  // counted, never stock-taken, worth 0 (you don't own uncooked juice).
+  | 'menu';
+
+/** Business 2.0 · one line of a product's cost recipe — "what goes into ONE
+ *  glass" (R7). The lines sum to the item's `unitCostCents` cost basis. */
+export interface CostRecipeLine {
+  name: string;        // "3 oranges", "Sugar", "Cup + straw"
+  costCents: number;   // family minor units
+}
 
 export interface BusinessItem {
   id: string;
@@ -203,6 +292,13 @@ export interface BusinessItem {
   stage?: string;
   unitCostCents?: number;       // cost basis per unit (what you spent)
   unitMarketCents?: number;     // current market value per unit
+  /** Business 2.0 — the Pricing Studio's "what goes into ONE" lines (R7/R11).
+   *  Sums to unitCostCents so the coach + Price Lab reason in real margins. */
+  costRecipe?: CostRecipeLine[];
+  /** Business 2.0 — set when the business switched stock-taking OFF (R17):
+   *  the item is kept read-only as history, worth 0, hidden from counts.
+   *  Switching stock back ON clears it. Never deleted. */
+  archived?: boolean;
   producing?: boolean;          // assets: is it generating output right now
   /** Counts toward worth. Defaults true; set false for not-yet-sellable stock
    *  (e.g. flowering) so worth isn't inflated by stock that may not arrive. */
@@ -379,10 +475,49 @@ export interface BusinessConfig {
   displayRounding: DisplayRounding;
   /** Asset Type Library starter set (keys from ASSET_LIBRARY). Parent-managed. */
   assetLibrary?: string[];
+  /** Business 2.0 — how the Pricing Studio rounds a cost+profit price to a
+   *  friendly number (R9/D3). 'auto' (default) picks the bucket from the
+   *  price's own magnitude; parents can force a bucket or turn it off. */
+  priceRounding?: PriceRounding;
 }
 
 /** Worth-display rounding: exact (with cents) · whole unit · nearest 10 · 100. */
 export type DisplayRounding = 'exact' | 'whole' | 'ten' | 'hundred';
+
+/** Business 2.0 · Pricing Studio rounding mode: auto by magnitude, off
+ *  (exact), or a fixed bucket (whole unit / nearest 10 / nearest 100). */
+export type PriceRounding = 'auto' | 'off' | 'whole' | 'ten' | 'hundred';
+
+export const PRICE_ROUNDING_OPTIONS: Array<{ key: PriceRounding; label: string }> = [
+  { key: 'auto',    label: 'Auto (by currency size)' },
+  { key: 'off',     label: 'Exact — no rounding' },
+  { key: 'whole',   label: 'Whole unit' },
+  { key: 'ten',     label: 'Nearest 10' },
+  { key: 'hundred', label: 'Nearest 100' },
+];
+
+/** Auto rounding step (minor units) — roughly one order of magnitude below
+ *  the price, floored at 25 minor units so small prices still land on
+ *  quarter-steps. 1,250 TZS → 100-step → 1,300; $12.50 → $1-step → $13;
+ *  $3.47 → 25¢-step → $3.50. Pure — safe to unit test. */
+export function priceRoundingStepCents(cents: number): number {
+  const n = Math.max(0, Math.round(cents));
+  if (n < 25) return 1;
+  const mag = Math.floor(Math.log10(n));
+  return Math.max(25, Math.pow(10, mag - 1));
+}
+
+/** Round a price to a friendly number per the family's mode (R9). Never
+ *  rounds to zero — the step itself is the floor. */
+export function roundPriceCents(cents: number, mode: PriceRounding = 'auto'): number {
+  const n = Math.max(0, Math.round(cents));
+  if (mode === 'off' || n === 0) return n;
+  const step = mode === 'auto' ? priceRoundingStepCents(n)
+    : mode === 'whole' ? 100
+    : mode === 'ten' ? 1000
+    : 10000; // 'hundred'
+  return Math.max(step, Math.round(n / step) * step);
+}
 
 export const DEFAULT_HIVE_SPLIT: HiveSplit = { spend: 40, save: 25, goal: 20, invest: 15 };
 
@@ -401,6 +536,7 @@ export const DEFAULT_BUSINESS_CONFIG: BusinessConfig = {
   hpAward: { mode: 'parent_review', cadence: 'instant', perDayHp: 1, weeklyCapHp: 40, weeklyMinPct: 80 },
   displayRounding: 'whole',
   assetLibrary: ['passion_fruit', 'eggs', 'chickens', 'vegetables', 'service_generic'],
+  priceRounding: 'auto',
 };
 
 // ── Catalogs (declarative — engines that act on them land in later PRs) ──
@@ -418,8 +554,10 @@ export const BUSINESS_TYPES: BusinessTypeMeta[] = [
   { key: 'goods',    label: 'Goods',            emoji: '🌱', shape: ['inventory', 'sales', 'costs', 'profit'], phase: 1 },
   { key: 'service',  label: 'Service',          emoji: '🛠️', shape: ['sales', 'costs', 'profit'],              phase: 1 },
   { key: 'adhoc',    label: 'Ad-hoc',           emoji: '⚡', shape: ['sales', 'costs', 'profit'],              phase: 1 },
-  { key: 'advice',   label: 'Advice / Tutoring', emoji: '📚', shape: ['sales', 'profit'],                      phase: 2 },
-  { key: 'sport',    label: 'Sport / Coaching', emoji: '⚽', shape: ['sales', 'costs', 'profit'],              phase: 2 },
+  // Business 2.0 (D6): advice + sport switched ON — the hour/session pricing
+  // models map onto them (this is what the reserved types were reserved for).
+  { key: 'advice',   label: 'Advice / Tutoring', emoji: '📚', shape: ['sales', 'costs', 'profit'],             phase: 1 },
+  { key: 'sport',    label: 'Sport / Coaching', emoji: '⚽', shape: ['sales', 'costs', 'profit'],              phase: 1 },
   { key: 'learning', label: 'Learning-for-pay', emoji: '🎯', shape: ['milestones', 'reward'],                  phase: 2 },
   { key: 'coop',     label: 'Co-op',            emoji: '🤝', shape: ['sharedBooks', 'profitSplit'],            phase: 2 },
 ];
@@ -431,8 +569,9 @@ export const UNIT_SUGGESTIONS: string[] = [
   'wash', 'session', 'hour', 'job',
 ];
 
-/** Currently creatable types + channels. Phase 2 widens these. */
-export const PHASE1_BUSINESS_TYPES: BusinessType[] = ['goods', 'service', 'adhoc'];
+/** Currently creatable types + channels. Business 2.0 (D6) turned on advice +
+ *  sport (the hour/session models create them). Phase 2 widens further. */
+export const PHASE1_BUSINESS_TYPES: BusinessType[] = ['goods', 'service', 'adhoc', 'advice', 'sport'];
 export const PHASE1_CHANNELS: CustomerChannel[] = ['family', 'relatives'];
 
 export interface ChannelMeta {
@@ -504,8 +643,11 @@ export const BUSINESS_MILESTONES: MilestoneDef[] = [
 // ── Pure helpers (no I/O — safe to unit test) ─────────────────────
 
 /** Worth a single inventory item contributes. Loss + not-counted items add 0;
- *  market value wins over cost basis; cost basis is the fallback. */
-export function itemWorthCents(item: Pick<BusinessItem, 'qty' | 'unitMarketCents' | 'unitCostCents' | 'countedInWorth' | 'loss'>): number {
+ *  menu entries + archived items add 0 (Business 2.0 — you don't own unmade
+ *  juice, and archived stock is history); market value wins over cost basis;
+ *  cost basis is the fallback. */
+export function itemWorthCents(item: Pick<BusinessItem, 'qty' | 'unitMarketCents' | 'unitCostCents' | 'countedInWorth' | 'loss'> & Partial<Pick<BusinessItem, 'kind' | 'archived'>>): number {
+  if (item.kind === 'menu' || item.archived) return 0;
   if (item.loss || !item.countedInWorth) return 0;
   const unit = item.unitMarketCents ?? item.unitCostCents ?? 0;
   return Math.max(0, Math.round(unit * (item.qty || 0)));
@@ -718,10 +860,21 @@ export interface ProductDraft {
   priceCents: number;
   /** Already-uploaded (https) product picture, optional. */
   photoUrl?: string;
+  /** Business 2.0 — optional cost basis per unit + recipe lines, when the
+   *  kid priced the product in the Studio during creation. */
+  costCents?: number;
+  costRecipe?: CostRecipeLine[];
 }
 
 export interface NewBusinessInput {
   type: BusinessType;
+  /** Business 2.0 — the kid's "how does your business work?" pick. Callers
+   *  should also derive `type` from pricingModelMeta(model).type. */
+  pricingModel?: PricingModel;
+  /** Business 2.0 — the stock switch (defaults from the model when absent). */
+  stockTaking?: boolean;
+  /** Business 2.0 — Business Review rhythm (default weekly). */
+  reviewCadence?: ReviewCadence;
   name: string;
   emoji: string;
   mission?: string;
@@ -807,6 +960,11 @@ export async function createBusiness(
   if (typeof headPrice === 'number') data.unitPriceCents = headPrice;
   if (typeof input.reinvestPct === 'number') data.reinvestPct = input.reinvestPct;
   if (typeof input.autoCloseAfterDays === 'number') data.autoCloseAfterDays = input.autoCloseAfterDays;
+  // Business 2.0 — stamp the model + stock switch so keepsStock() reads the
+  // kid's choice directly (legacy docs stay absent and derive from type).
+  if (input.pricingModel) data.pricingModel = input.pricingModel;
+  if (typeof input.stockTaking === 'boolean') data.stockTaking = input.stockTaking;
+  if (input.reviewCadence) data.reviewCadence = input.reviewCadence;
 
   let businessId: string;
   if (presetId) {
@@ -817,25 +975,36 @@ export async function createBusiness(
     businessId = ref.id;
   }
 
-  // Seed inventory for inventory-keeping types (goods): one stock item per
-  // product at qty 0. Worth stays 0 (so stats need no recompute) until the
-  // first stock-take. Each item carries its own unit + per-unit market price
-  // and an optional AI/uploaded picture.
-  const keepsInventory = !!BUSINESS_TYPES.find((t) => t.key === input.type)?.shape.includes('inventory');
-  if (keepsInventory && products.length) {
+  // Seed the product list (Business 2.0). Stock-keeping businesses get one
+  // STOCK item per product at qty 0 — worth fills in at the first stock-take
+  // (unchanged from v2). No-stock businesses get MENU entries instead: name +
+  // price + optional cost recipe, never counted, worth 0 (R4/F6). The Pricing
+  // Studio manages menu prices + recipes after creation.
+  const stocked = keepsStock({
+    pricingModel: input.pricingModel,
+    type: input.type,
+    stockTaking: input.stockTaking,
+  });
+  if (products.length) {
     for (const p of products) {
       const item: Record<string, unknown> = {
         businessId,
-        kind: 'stock',
+        kind: stocked ? 'stock' : 'menu',
         name: p.name.trim(),
         qty: 0,
-        countedInWorth: true,
+        countedInWorth: stocked, // menu entries never count toward worth
         createdBy: actor.uid,
         createdAt: now,
         updatedAt: now,
       };
       if (p.unit?.trim()) item.unitLabel = p.unit.trim();
       if (typeof p.priceCents === 'number' && p.priceCents > 0) item.unitMarketCents = p.priceCents;
+      if (typeof p.costCents === 'number' && p.costCents > 0) item.unitCostCents = p.costCents;
+      if (Array.isArray(p.costRecipe) && p.costRecipe.length) {
+        item.costRecipe = p.costRecipe
+          .filter((l) => l.name?.trim() && l.costCents >= 0)
+          .map((l) => ({ name: l.name.trim().slice(0, 60), costCents: Math.max(0, Math.round(l.costCents)) }));
+      }
       if (p.photoUrl) item.photoUrl = p.photoUrl;
       await addDoc(itemsCol(familyId, businessId), item);
     }
@@ -908,10 +1077,107 @@ export async function setBusinessStockTakeSchedule(
 export async function updateBusiness(
   familyId: string,
   businessId: string,
-  patch: Partial<Pick<Business, 'name' | 'mission' | 'emoji' | 'logoUrl' | 'unitLabel' | 'unitPriceCents' | 'customerChannels' | 'hiveSplit' | 'reinvestPct'>>,
+  patch: Partial<Pick<Business, 'name' | 'mission' | 'emoji' | 'logoUrl' | 'unitLabel' | 'unitPriceCents' | 'customerChannels' | 'hiveSplit' | 'reinvestPct' | 'reviewCadence'>>,
 ): Promise<void> {
   if (isGuestActive()) return;
   await updateDoc(businessDoc(familyId, businessId), patch as Record<string, unknown>);
+}
+
+// ── Business 2.0 · nature change (R16/R17) ────────────────────────
+
+export interface NatureChange {
+  pricingModel: PricingModel;
+  stockTaking: boolean;
+}
+
+/** Apply a nature change directly (parent-initiated, or the approved result
+ *  of a kid's request). Updates the model + stock switch + the derived coarse
+ *  type, then reconciles inventory:
+ *  - stock switched OFF → every stock item is ARCHIVED (kept read-only as
+ *    history, worth 0) — never deleted (R17).
+ *  - stock switched ON  → archived stock items are un-archived.
+ *  Ledger, milestones and streaks are untouched — history always survives. */
+export async function changeBusinessNature(
+  familyId: string,
+  businessId: string,
+  change: NatureChange,
+): Promise<void> {
+  if (isGuestActive()) return;
+  const meta = pricingModelMeta(change.pricingModel);
+  await updateDoc(businessDoc(familyId, businessId), {
+    pricingModel: change.pricingModel,
+    stockTaking: change.stockTaking,
+    type: meta.type,
+  });
+  // Reconcile stock items with the new stock switch.
+  const snap = await getDocs(itemsCol(familyId, businessId));
+  let touched = false;
+  for (const d of snap.docs) {
+    const it = d.data() as BusinessItem;
+    if (it.kind === 'menu') continue;
+    if (!change.stockTaking && !it.archived) {
+      await updateDoc(doc(itemsCol(familyId, businessId), d.id), { archived: true, updatedAt: serverTimestamp() });
+      touched = true;
+    } else if (change.stockTaking && it.archived) {
+      await updateDoc(doc(itemsCol(familyId, businessId), d.id), { archived: false, updatedAt: serverTimestamp() });
+      touched = true;
+    }
+  }
+  if (touched) await recomputeInventoryStats(familyId, businessId);
+}
+
+/** A kid asks to change how their business works (D1: kid-initiated nature
+ *  changes need one parent OK; parents apply instantly via
+ *  {@link changeBusinessNature}). Rides the unified queue. */
+export async function requestBusinessNatureChange(
+  familyId: string,
+  business: Pick<Business, 'id' | 'ownerId' | 'name' | 'emoji'>,
+  change: NatureChange,
+  createdByUid: string,
+): Promise<string> {
+  if (isGuestActive()) return 'guest-request';
+  const meta = pricingModelMeta(change.pricingModel);
+  const ref = await addDoc(approvalRequestsCol(familyId), {
+    kidId: business.ownerId,
+    type: 'business_nature_change',
+    module: 'business',
+    businessId: business.id,
+    targetPricingModel: change.pricingModel,
+    targetStockTaking: change.stockTaking,
+    description: `Change "${business.name}" ${business.emoji} to “${meta.label}” ${meta.emoji}${change.stockTaking ? ' (keeps stock counts)' : ' (no stock counting)'}.`,
+    status: 'pending',
+    createdBy: createdByUid,
+    createdAt: serverTimestamp(),
+  });
+  return ref.id;
+}
+
+/** Business 2.0 (R13) · ask a parent to apply a price outside the parent's
+ *  price band. On approve, {@link resolveBusinessRequest} writes the new
+ *  price onto the product (or the headline price when no item is given). */
+export async function requestPriceChange(
+  familyId: string,
+  business: Pick<Business, 'id' | 'ownerId' | 'name' | 'emoji'>,
+  item: Pick<BusinessItem, 'id' | 'name'> | null,
+  newPriceCents: number,
+  createdByUid: string,
+): Promise<string> {
+  if (isGuestActive()) return 'guest-request';
+  const price = Math.max(0, Math.round(newPriceCents));
+  if (price <= 0) throw new Error('Pick a positive price.');
+  const ref = await addDoc(approvalRequestsCol(familyId), {
+    kidId: business.ownerId,
+    type: 'business_price_change',
+    module: 'business',
+    businessId: business.id,
+    ...(item ? { itemId: item.id, productName: item.name } : {}),
+    newPriceCents: price,
+    description: `New price for ${item?.name || business.name}: outside the agreed band — needs a parent OK.`,
+    status: 'pending',
+    createdBy: createdByUid,
+    createdAt: serverTimestamp(),
+  });
+  return ref.id;
 }
 
 /** A kid asks a parent to take a pilot live. Writes a `business_launch` item
@@ -1056,6 +1322,12 @@ export async function resolveBusinessRequest(
   let saleQtyN = 0;
   let salePriceCents = 0;
   let reinvestBusinessId: string | null = null;
+  // Business 2.0 — nature + price changes apply post-txn (multi-doc work).
+  let natureBusinessId: string | null = null;
+  let natureChange: NatureChange | null = null;
+  let priceBusinessId: string | null = null;
+  let priceItemId = '';
+  let priceCents = 0;
   await runTransaction(db, async (tx) => {
     const reqRef = doc(approvalRequestsCol(familyId), requestId);
     const reqSnap = await tx.get(reqRef);
@@ -1063,7 +1335,8 @@ export async function resolveBusinessRequest(
     const req = reqSnap.data() as Pick<ApprovalRequest,
       'type' | 'status' | 'businessId' | 'kidId' | 'instrumentSymbol' | 'shares' | 'amountCents' | 'points'
       | 'itemId' | 'productName' | 'saleQty' | 'saleUnitPriceCents' | 'awardDate'
-      | 'costType' | 'description' | 'createdBy'>;
+      | 'costType' | 'description' | 'createdBy'
+      | 'targetPricingModel' | 'targetStockTaking' | 'newPriceCents'>;
     if (req.status !== 'pending') throw new Error('Request already resolved.');
 
     // Stock-take key (for writing the parent's comment back onto the day) —
@@ -1113,6 +1386,18 @@ export async function resolveBusinessRequest(
       saleKidId = req.kidId; saleBusinessId = req.businessId;
       saleItemId = req.itemId || ''; saleProductName = req.productName || '';
       saleQtyN = req.saleQty ?? 0; salePriceCents = req.saleUnitPriceCents ?? 0;
+    } else if (req.type === 'business_nature_change' && req.businessId && req.targetPricingModel) {
+      // Business 2.0 (R16) — applied after the txn (archives items, multi-doc).
+      natureBusinessId = req.businessId;
+      natureChange = {
+        pricingModel: req.targetPricingModel as PricingModel,
+        stockTaking: !!req.targetStockTaking,
+      };
+    } else if (req.type === 'business_price_change' && req.businessId && (req.newPriceCents ?? 0) > 0) {
+      // Business 2.0 (R13) — the new price lands post-txn (item roll-up write).
+      priceBusinessId = req.businessId;
+      priceItemId = req.itemId || '';
+      priceCents = req.newPriceCents ?? 0;
     } else if (req.type === 'business_reinvest') {
       // Fast lane: one parent OK moves the kid's own Pot money straight into the
       // business as a cost. All atomic — Pot debit + Hive ledger row + business
@@ -1190,6 +1475,17 @@ export async function resolveBusinessRequest(
   if (reinvestBusinessId) {
     try { await recomputeLedgerStats(familyId, reinvestBusinessId); } catch { /* best-effort */ }
   }
+  // Business 2.0 — apply an approved nature change (archives/un-archives items).
+  if (natureBusinessId && natureChange) {
+    try { await changeBusinessNature(familyId, natureBusinessId, natureChange); } catch { /* best-effort — request already approved */ }
+  }
+  // Business 2.0 — apply an approved out-of-band price change.
+  if (priceBusinessId && priceCents > 0) {
+    try {
+      if (priceItemId) await updateBusinessItem(familyId, priceBusinessId, priceItemId, { unitMarketCents: priceCents });
+      else await updateBusiness(familyId, priceBusinessId, { unitPriceCents: priceCents });
+    } catch { /* best-effort — request already approved */ }
+  }
 }
 
 /** Junior Investor · a kid asks a parent to OK a (virtual-money) buy. Shares are
@@ -1264,7 +1560,7 @@ export interface NewItemInput {
 }
 
 export type ItemPatch = Partial<Pick<BusinessItem,
-  'name' | 'qty' | 'unitLabel' | 'instantStock' | 'soldDaily' | 'stage' | 'groupId' | 'unitCostCents' | 'unitMarketCents' | 'producing' | 'countedInWorth' | 'notes'>>;
+  'name' | 'qty' | 'unitLabel' | 'instantStock' | 'soldDaily' | 'stage' | 'groupId' | 'unitCostCents' | 'unitMarketCents' | 'producing' | 'countedInWorth' | 'notes' | 'costRecipe' | 'archived'>>;
 
 /** Append one immutable stock-movement entry. Best-effort: a failure here
  *  (e.g. rules not yet deployed) never blocks the underlying inventory write —
@@ -1500,6 +1796,9 @@ const startOfMonthMs = (): number => {
 
 export interface SaleInput {
   qty: number;
+  /** Business 2.0 (R6) — hour-priced businesses log in 0.5 steps (1.5 hours
+   *  of homework help). Whole units stay the default for everything else. */
+  halfSteps?: boolean;
   unitPriceCents: number;
   /** The inventory product sold — links the sale to an item, decrements its
    *  stock, and powers the "% vs last price" coaching. */
@@ -1568,7 +1867,10 @@ export async function logSale(
   actor: LedgerActor,
 ): Promise<void> {
   if (isGuestActive()) return;
-  const qty = Math.max(1, Math.round(input.qty || 1));
+  // R6 — hour-priced sales snap to 0.5 steps; everything else stays whole.
+  const qty = input.halfSteps
+    ? Math.max(0.5, Math.round((input.qty || 0.5) * 2) / 2)
+    : Math.max(1, Math.round(input.qty || 1));
   const amountCents = Math.max(0, Math.round(qty * input.unitPriceCents));
   if (amountCents <= 0) throw new Error('Sale amount must be positive.');
   const paymentStatus: PaymentStatus = input.paymentMethod === 'iou' ? 'unpaid' : 'paid';
@@ -1603,10 +1905,11 @@ export async function logSale(
   }
   // Reduce the sold product's stock (floor 0). Instant-stock items can hit 0
   // and still sell tomorrow (they regrow); this just keeps the count honest.
+  // Menu entries (Business 2.0) skip this — nothing was on a shelf to reduce.
   if (input.itemId) {
     try {
       const itemSnap = await getDoc(doc(itemsCol(familyId, businessId), input.itemId));
-      if (itemSnap.exists()) {
+      if (itemSnap.exists() && (itemSnap.data() as BusinessItem).kind !== 'menu') {
         const item = itemSnap.data() as BusinessItem;
         const cur = Number(item.qty || 0);
         const nextQty = Math.max(0, cur - qty);
@@ -1746,6 +2049,10 @@ export interface StockTake {
   /** Parent's comment left when reviewing this day's points (shown to the kid +
    *  in the stock-take history). Built so it can also post into messaging. */
   parentNote?: string;
+  /** Business 2.0 (R14) — this record is a Daily Check-in (a no-stock
+   *  business's daily touchpoint), not a stock count. Same collection, same
+   *  streak, same HP rail — only the wording differs. */
+  isCheckin?: boolean;
 }
 
 export interface StockTakeInput {
@@ -1756,6 +2063,7 @@ export interface StockTakeInput {
   photoUrl?: string;
   media?: StockMedia[];
   counts?: StockCount[];
+  isCheckin?: boolean;
 }
 
 const stockTakesCol = (familyId: string, businessId: string) =>
@@ -1784,6 +2092,7 @@ export async function saveStockTake(
     at: serverTimestamp(),
   };
   if (input.note?.trim()) data.note = input.note.trim();
+  if (input.isCheckin) data.isCheckin = true;
   const media = (input.media || []).filter((m) => m.url);
   if (media.length) {
     data.media = media;
@@ -1838,8 +2147,10 @@ export async function getStockTake(
   return snap.exists() ? ({ id: snap.id, ...snap.data() } as StockTake) : null;
 }
 
-/** Recent stock-takes (newest first) for the streak + weekly view. Single-
- *  field order — no composite index. */
+/** Recent stock-takes / check-ins (newest first) for the streak + weekly
+ *  view. Single-field order — no composite index. Business REVIEW docs share
+ *  this collection (Business 2.0 rides the deployed stockTakes rules) and are
+ *  filtered out client-side so streaks + history never see them. */
 export function subscribeToStockTakes(
   familyId: string,
   businessId: string,
@@ -1848,7 +2159,146 @@ export function subscribeToStockTakes(
 ): () => void {
   if (isGuestActive()) { cb([]); return () => {}; }
   const q = query(stockTakesCol(familyId, businessId), orderBy('date', 'desc'), limit(max));
-  return onSnapshot(q, (s) => cb(s.docs.map((d) => ({ id: d.id, ...d.data() } as StockTake))));
+  return onSnapshot(q, (s) => cb(
+    s.docs
+      .map((d) => ({ id: d.id, ...d.data() } as StockTake))
+      .filter((t) => !(t as StockTake & { isReview?: boolean }).isReview),
+  ));
+}
+
+// ── Business 2.0 · Business Review (R18–R21) ──────────────────────
+// The kid's cadence-based self-evaluation. Numbers arrive PRE-FILLED from the
+// ledger (the kid confirms rather than re-counts — F7); two reflection
+// questions; the AI coach closes with one specific piece of advice.
+//
+// Storage: review docs live in the SAME businesses/{id}/stockTakes collection
+// (doc id `review-YYYY-MM-DD`, flag `isReview: true`) so the already-deployed
+// parent-or-owner-kid rules cover them with ZERO rules deploys. Every
+// stock-take reader filters `isReview` out; review readers filter it in.
+
+export interface BusinessReview {
+  id: string;              // `review-${date}`
+  businessId: string;
+  ownerId: string;
+  date: string;            // completion date (YYYY-MM-DD, local)
+  isReview: true;
+  periodDays: number;      // the window the numbers cover (7 / 14 / 30)
+  cadence: ReviewCadence;
+  unitsSold: number;       // qty summed over paid sales (hours for hour model)
+  customersServed: number; // distinct customers in the window
+  salesCount: number;
+  revenueCents: number;
+  profitCents: number;
+  wentWell?: string;       // reflection 1
+  tryNext?: string;        // reflection 2
+  aiAdvice?: string;       // the coach's one specific tip, snapshotted
+  byUid: string;
+  at: Timestamp;
+  hpRequested?: boolean;
+  hpGranted?: boolean;
+  parentNote?: string;     // parent's comment from the HP approval (mirrored)
+}
+
+export interface BusinessReviewInput {
+  date: string;
+  ownerId: string;
+  periodDays: number;
+  cadence: ReviewCadence;
+  unitsSold: number;
+  customersServed: number;
+  salesCount: number;
+  revenueCents: number;
+  profitCents: number;
+  wentWell?: string;
+  tryNext?: string;
+  aiAdvice?: string;
+}
+
+/** Save (or overwrite) a Business Review. One per calendar day per business. */
+export async function saveBusinessReview(
+  familyId: string,
+  businessId: string,
+  input: BusinessReviewInput,
+  uid: string,
+): Promise<string> {
+  if (isGuestActive()) return 'guest-review';
+  const id = `review-${input.date}`;
+  const data: Record<string, unknown> = {
+    businessId,
+    ownerId: input.ownerId,
+    date: input.date,
+    isReview: true,
+    periodDays: Math.max(1, Math.round(input.periodDays)),
+    cadence: input.cadence,
+    unitsSold: Math.max(0, input.unitsSold),
+    customersServed: Math.max(0, Math.round(input.customersServed)),
+    salesCount: Math.max(0, Math.round(input.salesCount)),
+    revenueCents: Math.max(0, Math.round(input.revenueCents)),
+    profitCents: Math.round(input.profitCents),
+    byUid: uid,
+    at: serverTimestamp(),
+  };
+  if (input.wentWell?.trim()) data.wentWell = input.wentWell.trim().slice(0, 500);
+  if (input.tryNext?.trim()) data.tryNext = input.tryNext.trim().slice(0, 500);
+  if (input.aiAdvice?.trim()) data.aiAdvice = input.aiAdvice.trim().slice(0, 1000);
+  await setDoc(doc(stockTakesCol(familyId, businessId), id), data, { merge: true });
+  await updateDoc(businessDoc(familyId, businessId), { 'stats.lastActivityAt': serverTimestamp() });
+  return id;
+}
+
+/** Recent Business Reviews, newest first. Reads the shared collection and
+ *  keeps only review docs (client filter — no composite index). */
+export function subscribeToBusinessReviews(
+  familyId: string,
+  businessId: string,
+  cb: (reviews: BusinessReview[]) => void,
+  max = 12,
+): () => void {
+  if (isGuestActive()) { cb([]); return () => {}; }
+  const q = query(stockTakesCol(familyId, businessId), orderBy('date', 'desc'), limit(max + 40));
+  return onSnapshot(q, (s) => cb(
+    s.docs
+      .map((d) => ({ id: d.id, ...d.data() } as unknown as BusinessReview))
+      .filter((r) => r.isReview)
+      .slice(0, max),
+  ));
+}
+
+/** Pure: is the next review due? True when no review yet, or the last one is
+ *  at least the cadence window old. */
+export function reviewDue(lastReviewDate: string | null, cadence: ReviewCadence | undefined, today: string = todayKey()): boolean {
+  if (!lastReviewDate) return true;
+  const days = reviewCadenceDays(cadence);
+  const last = new Date(`${lastReviewDate}T12:00:00`).getTime();
+  const now = new Date(`${today}T12:00:00`).getTime();
+  return now - last >= days * 86_400_000;
+}
+
+/** R21 · completing a review earns HP under the same parent-review rail as
+ *  stock-takes. awardDate = the review DOC ID so the parent's approval note
+ *  mirrors back onto the review itself. */
+export async function requestReviewHp(
+  familyId: string,
+  business: Pick<Business, 'id' | 'ownerId' | 'name' | 'emoji'>,
+  points: number,
+  reviewId: string,
+  createdByUid: string,
+): Promise<string> {
+  if (isGuestActive()) return 'guest-request';
+  const pts = Math.max(0, Math.round(points));
+  const ref = await addDoc(approvalRequestsCol(familyId), {
+    kidId: business.ownerId,
+    type: 'business_hp',
+    module: 'business',
+    businessId: business.id,
+    points: pts,
+    awardDate: reviewId,
+    description: `${pts} House Point${pts === 1 ? '' : 's'} for completing the Business Review of "${business.name}" ${business.emoji}.`,
+    status: 'pending',
+    createdBy: createdByUid,
+    createdAt: serverTimestamp(),
+  });
+  return ref.id;
 }
 
 /** Consecutive-day streak ending today (or yesterday, so a not-yet-done today
@@ -1882,8 +2332,9 @@ export async function getKidWeeklyEffort(
   for (const b of bizSnap.docs) {
     const stSnap = await getDocs(stockTakesCol(familyId, b.id));
     stSnap.docs.forEach((s) => {
-      const date = (s.data() as StockTake).date;
-      if (weekDates.has(date)) days.add(date);
+      const t = s.data() as StockTake & { isReview?: boolean };
+      if (t.isReview) return; // Business Reviews share this collection — not daily effort
+      if (weekDates.has(t.date)) days.add(t.date);
     });
   }
   return { stockTakeDays: days.size, businessCount: bizSnap.size };
