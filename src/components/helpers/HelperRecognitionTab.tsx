@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { computeHelperDials, fetchKidWords, DIAL_META, dialColor, type HelperDials, type KidWord } from '@/lib/helperRecognition';
 import { shareScorecardPng } from '@/lib/helperScorecardPng';
+import DialPentagon from './DialPentagon';
 import type { HelperLink } from '@/lib/firestore';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -77,6 +78,21 @@ export default function HelperRecognitionTab({ helper, familyId }: {
   // picking a share language never disturbs the Asante composer above.
   const [shareLang, setShareLang] = useState<CardLang>(defaultLang);
   const [sharing, setSharing] = useState(false);
+  // ▤ Bars vs ⬟ Pentagon (2026-08-25, Elia) — bars answer "how high is
+  // each dial", the pentagon answers "what SHAPE is this person": a
+  // lopsided pentagon shows an imbalance at a glance. Remembered per
+  // browser so a parent who prefers one keeps it across helpers.
+  const [dialView, setDialViewState] = useState<'bars' | 'pentagon'>('bars');
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem('kayaHelperDialView');
+      if (v === 'pentagon' || v === 'bars') setDialViewState(v);
+    } catch { /* private mode — keep the default */ }
+  }, []);
+  const setDialView = (v: 'bars' | 'pentagon') => {
+    setDialViewState(v);
+    try { localStorage.setItem('kayaHelperDialView', v); } catch { /* ignore */ }
+  };
   const [creating, setCreating] = useState(false);
   const [composerMsg, setComposerMsg] = useState('');
   const [cards, setCards] = useState<ShineCard[]>([]);
@@ -297,6 +313,7 @@ export default function HelperRecognitionTab({ helper, familyId }: {
                   [{ name: helper.displayName, dials }],
                   shareLang,
                   `Kaya-${firstName}-scorecard`,
+                  dialView,
                 );
               } finally { setSharing(false); }
             }}
@@ -320,23 +337,65 @@ export default function HelperRecognitionTab({ helper, familyId }: {
         </div>
       </div>
 
-      {/* The five dials */}
-      <div className="bg-white border border-hive-line rounded-hive p-3 space-y-1.5">
-        {DIAL_META.map((m) => {
-          const v = dials[m.key];
-          return (
-            <div key={m.key} className="flex items-center gap-2.5">
-              <span className="w-40 shrink-0 text-[12px] font-nunito font-extrabold">{m.emoji} {m.label}</span>
-              <div className="flex-1 h-2 rounded-full bg-hive-cream overflow-hidden">
-                <div className="h-full rounded-full transition-all" style={{ width: `${v ?? 0}%`, background: dialColor(v) }} />
-              </div>
-              <span className="w-9 text-right text-[12px] font-nunito font-black" style={{ color: dialColor(v) }}>
-                {v === null ? '—' : v}
-              </span>
-              <span className="w-8 text-[9px] text-hive-muted font-bold text-right">×{m.weight}</span>
+      {/* The five dials — ▤ Bars or ⬟ Pentagon, parent's choice */}
+      <div className="bg-white border border-hive-line rounded-hive p-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <p className="flex-1 text-[10px] uppercase tracking-[1.5px] font-nunito font-black text-hive-muted">
+            The five dials
+          </p>
+          <div className="flex rounded-full border border-hive-line overflow-hidden">
+            {([['bars', '▤ Bars'], ['pentagon', '⬟ Pentagon']] as const).map(([v, label]) => (
+              <button key={v} type="button" onClick={() => setDialView(v)}
+                aria-pressed={dialView === v}
+                className={`px-2.5 py-1 text-[11px] font-nunito font-black ${dialView === v ? 'bg-hive-ink text-white' : 'bg-white text-hive-muted'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {dialView === 'pentagon' ? (
+          <div className="sm:flex sm:items-center sm:gap-4">
+            <DialPentagon
+              size={250}
+              showValues
+              series={[{ key: helper.uid, color: dialColor(dials.score), dials }]}
+            />
+            {/* The weights still matter — keep them legible beside the shape. */}
+            <div className="flex-1 space-y-1 mt-2 sm:mt-0">
+              {DIAL_META.map((m) => {
+                const v = dials[m.key];
+                return (
+                  <div key={m.key} className="flex items-center gap-2 text-[11.5px]">
+                    <span className="flex-1 font-nunito font-extrabold">{m.emoji} {m.label}</span>
+                    <span className="font-nunito font-black" style={{ color: dialColor(v) }}>
+                      {v === null ? '—' : v}
+                    </span>
+                    <span className="w-8 text-[9px] text-hive-muted font-bold text-right">×{m.weight}</span>
+                  </div>
+                );
+              })}
             </div>
-          );
-        })}
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {DIAL_META.map((m) => {
+              const v = dials[m.key];
+              return (
+                <div key={m.key} className="flex items-center gap-2.5">
+                  <span className="w-40 shrink-0 text-[12px] font-nunito font-extrabold">{m.emoji} {m.label}</span>
+                  <div className="flex-1 h-2 rounded-full bg-hive-cream overflow-hidden">
+                    <div className="h-full rounded-full transition-all" style={{ width: `${v ?? 0}%`, background: dialColor(v) }} />
+                  </div>
+                  <span className="w-9 text-right text-[12px] font-nunito font-black" style={{ color: dialColor(v) }}>
+                    {v === null ? '—' : v}
+                  </span>
+                  <span className="w-8 text-[9px] text-hive-muted font-bold text-right">×{m.weight}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Facts — the WHY behind the two new dials */}
