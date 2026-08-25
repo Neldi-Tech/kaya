@@ -33,7 +33,15 @@ interface DraftBody {
   coachName?: string;
 }
 
-const ALLOWED_TYPES = ['goods', 'service', 'adhoc'] as const;
+const ALLOWED_TYPES = ['goods', 'service', 'adhoc', 'advice', 'sport'] as const;
+
+// Business 2.0 — the drafter now proposes a kid-facing pricing model; the
+// coarse type derives from it (mirrors PRICING_MODELS in business.ts without
+// importing the client lib into a server route).
+const ALLOWED_MODELS = ['unit_made', 'unit_stocked', 'hour', 'session', 'job'] as const;
+const MODEL_TO_TYPE: Record<(typeof ALLOWED_MODELS)[number], string> = {
+  unit_made: 'goods', unit_stocked: 'goods', hour: 'advice', session: 'sport', job: 'service',
+};
 
 const PRODUCT_SCHEMA = {
   type: 'object',
@@ -49,14 +57,14 @@ const PRODUCT_SCHEMA = {
 const DRAFT_SCHEMA = {
   type: 'object',
   properties: {
-    type: { type: 'string', enum: ALLOWED_TYPES },
+    pricingModel: { type: 'string', enum: ALLOWED_MODELS },
     name: { type: 'string' },
     mission: { type: 'string' },
     emoji: { type: 'string' },
     message: { type: 'string' },
     products: { type: 'array', items: PRODUCT_SCHEMA },
   },
-  required: ['type', 'name', 'mission', 'emoji', 'message', 'products'],
+  required: ['pricingModel', 'name', 'mission', 'emoji', 'message', 'products'],
   additionalProperties: false,
 } as const;
 
@@ -70,9 +78,14 @@ const SUGGEST_SCHEMA = {
 const SYSTEM = `You help a CHILD start a tiny real micro-business inside the Kaya family app. From a one-line idea, you draft something they can run and tweak — you make the blank page easy.
 
 How to draft:
-- Pick the best TYPE: "goods" = sells physical things you keep stock of (produce, eggs, crafts, baked goods); "service" = does a job for people (car wash, dog walking, tutoring); "adhoc" = a one-off gig.
+- Pick the best PRICING MODEL — how the child charges:
+  • "unit_made" = makes each one FRESH to order (juice by the glass, salads, snacks, bracelets to order) — no stock is kept.
+  • "unit_stocked" = sells things kept in stock (produce, eggs, crafts made ahead, baked goods) — stock is counted daily.
+  • "hour" = charges by the hour (homework help, reading buddy, tech help).
+  • "session" = charges per session/lesson (football drills, dance lessons, drawing classes).
+  • "job" = charges a flat price per completed job (car wash, garden tidy, errand runs).
 - Give a short, clear NAME (Title Case), a one-line MISSION, and ONE friendly emoji.
-- List starter PRODUCTS: 3 for goods; 1-2 offerings for service/adhoc.
+- List starter PRODUCTS: 3 for unit_made/unit_stocked; 1-2 offerings for hour/session/job (unit = hour/session/job).
   • name: a STANDARDIZED, commonly-understood product name a kid would recognize — "Tomatoes", "Spinach", "Carrots", "Car wash" — not cute or vague ("my red ones").
   • unit: how it's sold — one short common unit like kg, g, bunch, dozen, pcs, litre, pack, box, plate, cup, wash, session, hour, job.
   • price: a SENSIBLE STARTER price per unit in the family's currency (a round, plausible number — the child WILL edit it).
@@ -136,9 +149,11 @@ Draft a tiny business for this child's idea:
       const text = response.content.find((b) => b.type === 'text');
       if (!text || text.type !== 'text') return NextResponse.json({ error: 'No draft returned' }, { status: 502 });
       const p = JSON.parse(text.text) as Record<string, unknown>;
-      const type = ALLOWED_TYPES.includes(p.type as typeof ALLOWED_TYPES[number]) ? (p.type as string) : 'goods';
+      const pricingModel = ALLOWED_MODELS.includes(p.pricingModel as typeof ALLOWED_MODELS[number])
+        ? (p.pricingModel as typeof ALLOWED_MODELS[number]) : 'unit_stocked';
       return NextResponse.json({
-        type,
+        pricingModel,
+        type: MODEL_TO_TYPE[pricingModel], // back-compat for older clients
         name: (typeof p.name === 'string' ? p.name : '').trim().slice(0, 50),
         mission: (typeof p.mission === 'string' ? p.mission : '').trim().slice(0, 140),
         emoji: (typeof p.emoji === 'string' ? p.emoji : '').trim().slice(0, 4),
