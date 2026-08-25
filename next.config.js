@@ -20,6 +20,16 @@ const nextConfig = {
       },
     ];
   },
+  async rewrites() {
+    return [
+      // Digital Asset Links for the Kaya Android app (Trusted Web Activity).
+      // Next.js will not route a directory whose name starts with a dot, so
+      // the canonical /.well-known/ path is mapped onto an API handler.
+      // Without this, Chrome cannot verify the app and the TWA renders with a
+      // URL bar across the top. See src/app/api/assetlinks/route.ts.
+      { source: '/.well-known/assetlinks.json', destination: '/api/assetlinks' },
+    ];
+  },
   async redirects() {
     return [
       // /dashboard → /home. Old route renamed when Discover took the
