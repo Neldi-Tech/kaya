@@ -31,6 +31,8 @@ export interface TimelineDay {
   locked?: boolean;      // diary: the day's pages are locked for this viewer
   starred?: boolean;     // a parent starred / rated the day
   count?: number;        // entries that day (>1 shows ×n)
+  /** 💌 latest Send-to-Someone reply pinned to this day. */
+  reply?: { by: string; emoji?: string; text?: string };
 }
 
 export type TimelineView = 'list' | 'browse' | 'hitmap' | 'calendar';
@@ -130,6 +132,11 @@ function DayCard({ d, onOpen, onShare, sw }: {
           {preview && (
             <span className={`block text-[12.5px] mt-0.5 truncate ${d.locked && !d.preview ? 'text-[#5A6488]' : 'text-[#0F1F44]'}`}>
               {d.locked && !d.preview ? preview : `“${preview}”`}
+            </span>
+          )}
+          {d.reply && (
+            <span className="block text-[11px] mt-0.5 truncate font-bold text-[#8A6100]">
+              💌 {d.reply.by}: {d.reply.emoji ?? '💛'}{d.reply.text ? ` “${d.reply.text}”` : ''}
             </span>
           )}
         </span>

@@ -94,12 +94,14 @@ export default function MyDiaryPage() {
       const ordered = list.slice().reverse();
       const textBlock = ordered.flatMap((e) => e.blocks ?? []).find((b) => b.kind === 'text' && b.text?.trim());
       const drawn = ordered.some((e) => (e.blocks ?? []).some((b) => b.kind === 'ink' || b.kind === 'scan'));
+      const replies = ordered.flatMap((e) => e.note_replies ?? []);
       return {
         date,
         emoji: ordered.find((e) => e.feeling)?.feeling,
         preview: previewLine(textBlock?.text) || (drawn ? (sw ? '🖊 Ukurasa uliochorwa' : '🖊 Drawn page') : ''),
         locked: list.some((e) => e.locked),
         count: list.length,
+        reply: replies.length ? replies[replies.length - 1] : undefined,
       };
     });
   }, [entries, sw]);
@@ -368,6 +370,7 @@ export default function MyDiaryPage() {
                 monthLabel={noteFor ? timelineMonthLabel(noteFor, sw) : ''}
                 kidTags={[]}
                 canShareOutside
+                sendMeta={{ kidId: uid, surface: 'diary' }}
                 sw={sw}
               />
 

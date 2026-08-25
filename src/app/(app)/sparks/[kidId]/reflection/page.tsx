@@ -139,6 +139,7 @@ export default function ReflectionPage() {
     preview: previewLine(r.text) || (r.scanUrl ? (sw ? '📷 Ukurasa ulioskaniwa' : '📷 Scanned page') : ''),
     score: entryScore(r),
     starred: !!r.parent_rating,
+    reply: r.note_replies?.length ? r.note_replies[r.note_replies.length - 1] : undefined,
   })), [recent, sw]);
 
   // 🖼 Note Studio (design v2 §3) — share the day's NOTE, beautifully.
@@ -1026,6 +1027,7 @@ export default function ReflectionPage() {
         monthLabel={noteFor ? timelineMonthLabel(noteFor, sw) : ''}
         kidTags={[kidId]}
         canShareOutside={isParent}
+        sendMeta={{ kidId, surface: 'reflection' }}
         ask={!isParent && noteFor ? {
           state: noteAsks.some((r) => r.noteDate === noteFor && r.status === 'approved') ? 'approved'
             : noteAsks.some((r) => r.noteDate === noteFor && r.status === 'pending') ? 'pending' : 'none',

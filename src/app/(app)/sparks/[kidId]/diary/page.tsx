@@ -183,6 +183,7 @@ export default function DiaryPage() {
       const ordered = list.slice().reverse(); // subscribe is newest-first → read oldest-first
       const textBlock = ordered.flatMap((e) => e.blocks ?? []).find((b) => b.kind === 'text' && b.text?.trim());
       const drawn = ordered.some((e) => (e.blocks ?? []).some((b) => b.kind === 'ink' || b.kind === 'scan'));
+      const replies = ordered.flatMap((e) => e.note_replies ?? []);
       return {
         date,
         emoji: ordered.find((e) => e.feeling)?.feeling,
@@ -190,6 +191,7 @@ export default function DiaryPage() {
         locked: list.some((e) => e.locked && !e.knock_open),
         starred: list.some((e) => e.parent_stars && Object.keys(e.parent_stars).length > 0),
         count: list.length,
+        reply: replies.length ? replies[replies.length - 1] : undefined,
       };
     });
   }, [entries, sw]);
@@ -751,6 +753,7 @@ export default function DiaryPage() {
         monthLabel={noteFor ? timelineMonthLabel(noteFor, sw) : ''}
         kidTags={[kidId]}
         canShareOutside={isParent}
+        sendMeta={{ kidId, surface: 'diary' }}
         ask={!isParent && noteFor ? {
           state: noteAsks.some((r) => r.noteDate === noteFor && r.status === 'approved') ? 'approved'
             : noteAsks.some((r) => r.noteDate === noteFor && r.status === 'pending') ? 'pending' : 'none',

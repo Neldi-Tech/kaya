@@ -15,20 +15,29 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useFamily } from '@/contexts/FamilyContext';
 import {
   type NoteCardData, type NoteTheme, NOTE_THEMES,
   noteCardSvgDataUrl, noteCardPngBlob, noteFilename, downloadNoteCard,
   shareNoteCard, waNoteText, rememberedNoteTheme, rememberNoteTheme,
   stashNotesForPrint,
 } from '@/lib/noteCards';
+import { sendNoteToSomeone } from '@/lib/noteSend';
+import type { FamilyContact } from '@/lib/reminders';
 
 export interface NoteStudioAsk {
   state: 'none' | 'pending' | 'approved';
   onAsk: () => Promise<void>;
 }
 
+/** 💌 Send-to-Someone — who owns the journal being shared. */
+export interface NoteStudioSendMeta {
+  kidId: string;
+  surface: 'reflection' | 'diary';
+}
+
 export default function NoteStudio({
-  open, onClose, base, monthNotes, monthLabel, kidTags, canShareOutside, ask, sw,
+  open, onClose, base, monthNotes, monthLabel, kidTags, canShareOutside, ask, sw, sendMeta,
 }: {
   open: boolean;
   onClose: () => void;
@@ -44,8 +53,18 @@ export default function NoteStudio({
   /** Kid flow — the parent-approval rail for outside shares. */
   ask?: NoteStudioAsk | null;
   sw: boolean;
+  /** When set, 💌 Send-to-Someone offers the People-Book contacts. */
+  sendMeta?: NoteStudioSendMeta | null;
 }) {
   const { profile } = useAuth();
+  const { family } = useFamily();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [sentTo, setSentTo] = useState<string | null>(null);
+  const contacts = useMemo<FamilyContact[]>(
+    () => ((family?.contacts as FamilyContact[] | undefined) ?? [])
+      .filter((c) => !c.optOut && (!!c.email || (c.emails ?? []).length > 0)),
+    [family?.contacts],
+  );
   const [theme, setTheme] = useState<NoteTheme>('classic');
   const [cardText, setCardText] = useState('');
   const [editing, setEditing] = useState(false);
@@ -183,6 +202,12 @@ export default function NoteStudio({
                     📚 {sw ? `Kitabu cha ${monthLabel}` : `${monthLabel} book`}
                   </button>
                 )}
+                {sendMeta && contacts.length > 0 && (
+                  <button type="button" onClick={() => setPickerOpen((v) => !v)} disabled={!!busy}
+                    className={`${btn} !border-[#C05299]`}>
+                    💌 {sw ? 'Tuma kwa mtu' : 'Send to someone'}
+                  </button>
+                )}
               </>
             ) : ask ? (
               ask.state === 'pending' ? (
@@ -196,6 +221,44 @@ export default function NoteStudio({
               )
             ) : null}
           </div>
+
+          {/* 💌 People-Book picker — parent-added contacts only, opt-outs
+              hidden. The server re-reads the note + re-checks the pass. */}
+          {pickerOpen && sendMeta && base && (
+            <div className="rounded-2xl border-[1.5px] border-[#EDE6DA] bg-white p-2.5">
+              <div className="text-[10.5px] text-[#5A6488] mb-1.5 px-0.5">
+                {sw ? '📇 Kitabu cha Watu — barua pepe' : '📇 People Book — sends the note by email'}
+              </div>
+              <div className="space-y-1.5">
+                {contacts.map((c) => (
+                  <button key={c.id} type="button" disabled={!!busy}
+                    onClick={() => act(`send-${c.id}`, async () => {
+                      await sendNoteToSomeone({
+                        kidId: sendMeta.kidId, surface: sendMeta.surface,
+                        date: base.dateKey, contactId: c.id,
+                        kidName: base.kidName, surfaceLabel: base.surfaceLabel,
+                        dateLabel: base.dateLabel, theme,
+                      });
+                      setSentTo(c.name); setPickerOpen(false);
+                    }, sw ? `✓ Imetumwa kwa ${c.name}` : `✓ Sent to ${c.name}`)}
+                    className="w-full flex items-center justify-between rounded-xl border-[1.5px] border-[#EDE6DA] bg-[#FFFBF5] px-3 py-2 text-left disabled:opacity-50">
+                    <span>
+                      <span className="block font-nunito font-extrabold text-[12.5px] text-[#0F1F44]">{c.name}</span>
+                      <span className="block text-[10.5px] text-[#5A6488]">{c.relation || c.relationship}{c.email ? ` · ${c.email}` : ''}</span>
+                    </span>
+                    <span className="text-[14px]">{busy === `send-${c.id}` ? '…' : '💌'}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {sentTo && (
+            <p className="text-[11.5px] text-[#5A6488] m-0">
+              💌 {sw
+                ? `${sentTo} atapata barua pepe yenye kadi + kitufe cha kujibu 💛 — jibu litabandikwa kwenye siku hii.`
+                : `${sentTo} gets the card by email with a one-tap 💛 reply — it pins right back onto this day.`}
+            </p>
+          )}
 
           {!canShareOutside && ask && (
             <p className="text-[10.5px] text-[#5A6488] leading-relaxed m-0">

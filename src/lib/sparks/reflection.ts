@@ -127,6 +127,9 @@ export interface ReflectionEntry {
   /** Slice 8j · 📷 earlier scans kept when the page is retaken — the
    *  honesty trail (a retake can never hide a page a parent saw). */
   retakes?: Array<{ scanUrl: string; at: number }>;
+  /** 💌 Timeline 2.0 — replies from Send-to-Someone recipients, pinned
+   *  to this day by the public /n/[token] page (server-written). */
+  note_replies?: Array<{ by: string; emoji?: string; text?: string; at: number }>;
   /** 🗄 Treasures 2.0 (D35) · absent = daily; 'book' = written about a
    *  Cupboard book (counts for the streak like any reflection). */
   origin?: ReflectionOrigin;
