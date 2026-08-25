@@ -163,7 +163,7 @@ export default function DailyCheckinPage() {
       if (hp.cadence === 'instant' && hp.perDayHp > 0 && !(prior?.hpGranted || prior?.hpRequested)) {
         const bizRef = { id: businessId, ownerId: business.ownerId, name: business.name, emoji: business.emoji };
         const askParent = async () => {
-          await requestStockTakeHp(familyId, bizRef, hp.perDayHp, today, profile!.uid);
+          await requestStockTakeHp(familyId, bizRef, hp.perDayHp, today, profile!.uid, 'checkin');
           await flagStockTakeHp(familyId, businessId, today, { hpRequested: true });
         };
         try {
