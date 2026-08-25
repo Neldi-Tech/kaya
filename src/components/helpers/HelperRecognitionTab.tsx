@@ -5,25 +5,136 @@
 // the workplan page. The dials feed reward & recognition planning; the
 // monthly helper round + Asante card land in HR PR-2/3.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { computeHelperDials, DIAL_META, dialColor, type HelperDials } from '@/lib/helperRecognition';
 import type { HelperLink } from '@/lib/firestore';
+import { useFamily } from '@/contexts/FamilyContext';
+import { asLocale, localeForCountry } from '@/lib/i18n';
+import {
+  createShineCard, listShineCards, setShineCardLang, deleteShineCard,
+  shineCardSvg, type ShineCard, type CardLang,
+} from '@/lib/shineCards';
+import { CardShareRow } from '@/components/rewards/ShineCards';
+
+// Same avatar vocabulary as the workplan rail.
+const HELPER_EMOJI: Record<HelperLink['preset'], string> = {
+  nanny: '🤱', tutor: '📚', driver: '🚗', grandparent: '👵', gardener: '🌿',
+  security: '🛡️', cleaner: '🧽', cook: '🍳', handyman: '🛠️', custom: '🤝',
+};
+
+/** One thank-you line per dial, in both languages — the top dial seeds
+ *  the composer so the card says WHY, not just "thanks". */
+const SUGGESTIONS: Record<string, { en: (n: string) => string; sw: (n: string) => string }> = {
+  strictness:  { en: (n) => `Asante ${n} — your honest ratings help our kids grow.`, sw: (n) => `Asante ${n} — ukadiriaji wako wa kweli unawasaidia watoto wetu kukua.` },
+  consistency: { en: (n) => `Thank you ${n} for showing up every single day.`, sw: (n) => `Asante ${n} kwa kuwepo kila siku bila kukosa.` },
+  workplan:    { en: (n) => `Thank you ${n} — the work gets done, and done well.`, sw: (n) => `Asante ${n} — kazi inafanyika, tena vizuri.` },
+  corrections: { en: (n) => `Your corrections teach our kids — thank you ${n}.`, sw: (n) => `Masahihisho yako yanawafundisha watoto wetu — asante ${n}.` },
+  kidsVoice:   { en: (n) => `The kids' words say it best — thank you ${n}!`, sw: (n) => `Maneno ya watoto yanasema yote — asante ${n}!` },
+};
 
 export default function HelperRecognitionTab({ helper, familyId }: {
   helper: HelperLink;
   familyId: string;
 }) {
+  const { family } = useFamily();
   const [dials, setDials] = useState<HelperDials | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
+
+  // 🧡 Asante composer — the parent-set default for THIS helper, else
+  // their country's language (same chain useLocale uses for helpers).
+  const defaultLang: CardLang =
+    asLocale(family?.memberLanguageDefaults?.[helper.uid])
+    ?? localeForCountry(family?.location?.country);
+  const [lang, setLang] = useState<CardLang>(defaultLang);
+  const [quote, setQuote] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [composerMsg, setComposerMsg] = useState('');
+  const [cards, setCards] = useState<ShineCard[]>([]);
+
+  const refreshCards = () =>
+    listShineCards(familyId, `helper:${helper.uid}`).then(setCards).catch(() => {});
 
   useEffect(() => {
     let alive = true;
     setState('loading');
+    setQuote(''); setComposerMsg(''); setLang(defaultLang);
     computeHelperDials(familyId, helper.uid)
       .then((d) => { if (alive) { setDials(d); setState('ready'); } })
       .catch(() => { if (alive) setState('error'); });
+    listShineCards(familyId, `helper:${helper.uid}`)
+      .then((c) => { if (alive) setCards(c); })
+      .catch(() => {});
     return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [familyId, helper.uid]);
+
+  const firstName = helper.displayName.split(' ')[0];
+
+  // The dial-seeded suggestion lines: top dial first, then the rest.
+  const suggestions = useMemo(() => {
+    if (!dials) return [] as string[];
+    const ranked = DIAL_META
+      .map((m) => ({ key: m.key as string, v: dials[m.key] }))
+      .filter((d) => d.v !== null)
+      .sort((a, b) => (b.v ?? 0) - (a.v ?? 0))
+      .slice(0, 3);
+    const keys = ranked.length ? ranked.map((r) => r.key) : ['consistency', 'workplan'];
+    return keys.map((k) => SUGGESTIONS[k]?.[lang](firstName)).filter(Boolean) as string[];
+  }, [dials, lang, firstName]);
+
+  // Live preview of the card being written.
+  const draftSvg = useMemo(() => {
+    if (!quote.trim()) return null;
+    const draft: ShineCard = {
+      id: 'draft', n: (cards[0]?.n || 0) + 1,
+      kidId: `helper:${helper.uid}`, kidName: helper.displayName,
+      kidEmoji: HELPER_EMOJI[helper.preset] || '🤝',
+      theme: 'asante', quote: quote.trim(), by: '', byName: lang === 'sw' ? 'familia' : 'the family',
+      at: Date.now(), kindLabel: '🤝 Helper recognition',
+      pointsLabel: lang === 'sw' ? '🧡 ASANTE SANA' : '🧡 THANK YOU',
+      category: lang === 'sw' ? 'msaidizi wetu' : 'our helper',
+      subject: 'helper', helperUid: helper.uid, lang,
+    };
+    return shineCardSvg(draft);
+  }, [quote, lang, helper, cards]);
+
+  const createCard = async () => {
+    if (!quote.trim() || creating) return;
+    setCreating(true); setComposerMsg('');
+    try {
+      await createShineCard({
+        familyId,
+        kidId: `helper:${helper.uid}`,
+        kidName: helper.displayName,
+        kidEmoji: HELPER_EMOJI[helper.preset] || '🤝',
+        subject: 'helper',
+        helperUid: helper.uid,
+        theme: 'asante',
+        quote: quote.trim(),
+        lang,
+        kindLabel: '🤝 Helper recognition',
+        pointsLabel: lang === 'sw' ? '🧡 ASANTE SANA' : '🧡 THANK YOU',
+        category: lang === 'sw' ? 'msaidizi wetu' : 'our helper',
+      });
+      setQuote('');
+      setComposerMsg(`🧡 Asante card created — ${firstName} got the bell. Share it below!`);
+      await refreshCards();
+    } catch (e) {
+      setComposerMsg(e instanceof Error ? e.message : 'Could not create the card.');
+    }
+    setCreating(false);
+  };
+
+  const switchCardLang = async (card: ShineCard, next: CardLang) => {
+    setCards((p) => p.map((c) => (c.id === card.id ? { ...c, lang: next } : c)));
+    await setShineCardLang(familyId, card.id, next).catch(() => refreshCards());
+  };
+
+  const removeCard = async (card: ShineCard) => {
+    if (!window.confirm(`Delete Asante card №${card.n}? The record disappears for good.`)) return;
+    await deleteShineCard(familyId, card.id).catch(() => {});
+    await refreshCards();
+  };
 
   if (state === 'loading') {
     return <p className="text-[12.5px] text-hive-muted py-4">Reading {helper.displayName.split(' ')[0]}&apos;s last 4 weeks…</p>;
@@ -82,8 +193,81 @@ export default function HelperRecognitionTab({ helper, familyId }: {
         <p className="text-hive-muted">📅 Consistency, 🧹 Workplan and 💬 Kids&apos; voice come from the weekly performance snapshots ({dials.facts.weeks} week{dials.facts.weeks === 1 ? '' : 's'} read).</p>
       </div>
 
+      {/* 🧡 Asante card composer (HR PR-2) — one card, two languages */}
+      <div className="bg-white border border-hive-line rounded-hive p-3 space-y-2.5">
+        <div className="flex items-center gap-2">
+          <p className="font-nunito font-black text-[14px] flex-1">🧡 Asante card</p>
+          <div className="flex rounded-full border border-hive-line overflow-hidden">
+            {(['en', 'sw'] as CardLang[]).map((l) => (
+              <button key={l} type="button" onClick={() => setLang(l)}
+                className={`px-3 py-1 text-[11px] font-nunito font-black ${lang === l ? 'bg-hive-ink text-white' : 'bg-white text-hive-muted'}`}>
+                {l === 'en' ? 'English' : 'Kiswahili'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {suggestions.map((s) => (
+            <button key={s} type="button" onClick={() => setQuote(s)}
+              className="px-2.5 py-1 rounded-full bg-hive-cream text-[10.5px] font-bold text-hive-ink hover:bg-hive-honey/40 text-left">
+              {s}
+            </button>
+          ))}
+        </div>
+        <textarea
+          value={quote}
+          onChange={(e) => setQuote(e.target.value.slice(0, 400))}
+          rows={2}
+          placeholder={lang === 'sw' ? `Andika asante yako kwa ${firstName}…` : `Write your thank-you to ${firstName}…`}
+          className="w-full border border-hive-line rounded-hive px-3 py-2 text-[13px] resize-none focus:outline-none focus:border-hive-honey-dk"
+        />
+        {draftSvg && (
+          <img
+            src={`data:image/svg+xml;utf8,${encodeURIComponent(draftSvg)}`}
+            alt="Asante card preview"
+            className="w-full max-w-[280px] mx-auto rounded-hive border border-hive-line"
+          />
+        )}
+        <button type="button" onClick={() => void createCard()} disabled={!quote.trim() || creating}
+          className="w-full py-2.5 rounded-hive bg-hive-honey hover:bg-hive-honey-dk border-2 border-hive-honey-dk text-hive-ink font-nunito font-black text-[13px] disabled:opacity-50">
+          {creating ? 'Creating…' : lang === 'sw' ? '🧡 Tengeneza kadi ya Asante' : '🧡 Create the Asante card'}
+        </button>
+        {composerMsg && <p className="text-[11.5px] font-bold text-center">{composerMsg}</p>}
+      </div>
+
+      {/* The helper's Asante wall — every card, shareable, EN↔SW switch */}
+      {cards.length > 0 && (
+        <div className="bg-white border border-hive-line rounded-hive p-3 space-y-3">
+          <p className="font-nunito font-black text-[13px]">🗂 {firstName}&apos;s Asante wall · {cards.length}</p>
+          {cards.map((card) => (
+            <div key={card.id} className="border border-hive-line rounded-hive p-2.5">
+              <img
+                src={`data:image/svg+xml;utf8,${encodeURIComponent(shineCardSvg(card))}`}
+                alt={`Asante card №${card.n}`}
+                className="w-full max-w-[280px] mx-auto rounded-hive"
+              />
+              <div className="flex items-center justify-center gap-2 mt-2">
+                <div className="flex rounded-full border border-hive-line overflow-hidden">
+                  {(['en', 'sw'] as CardLang[]).map((l) => (
+                    <button key={l} type="button" onClick={() => void switchCardLang(card, l)}
+                      className={`px-2.5 py-0.5 text-[10px] font-nunito font-black ${(card.lang ?? 'en') === l ? 'bg-hive-ink text-white' : 'bg-white text-hive-muted'}`}>
+                      {l.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+                <button type="button" onClick={() => void removeCard(card)}
+                  className="px-2 py-0.5 rounded-full text-[10px] font-nunito font-black text-hive-muted border border-hive-line hover:text-rose-500">
+                  🗑
+                </button>
+              </div>
+              <CardShareRow familyId={familyId} card={card} compact />
+            </div>
+          ))}
+        </div>
+      )}
+
       <p className="text-[10.5px] text-hive-muted">
-        🌟 The monthly helper round (first Monday) proposes recognition from these dials — Asante card, gift advisor and Payroll-sealed bonuses ride the next update.
+        🌟 The monthly helper round (first Monday) proposes recognition from these dials — the gift advisor and Payroll-sealed bonuses ride the next update.
       </p>
     </div>
   );

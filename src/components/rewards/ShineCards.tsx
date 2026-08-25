@@ -46,10 +46,14 @@ export async function postShineCardToMoments(
     authorUid: profile.uid,
     authorName: profile.displayName,
     authorAvatar: profile.avatarPhoto,
-    caption: `🌟 Shine Card №${card.n} — ${card.kidName}. ${card.quote}`,
+    caption: card.subject === 'helper'
+      ? `🧡 Asante Card №${card.n} — ${card.kidName}. ${card.quote}`
+      : `🌟 Shine Card №${card.n} — ${card.kidName}. ${card.quote}`,
     photos: [photo],
-    kidTags: [card.kidId],
-    mentionedUids: [],
+    // 🧡 helper cards carry no kid tag ('helper:uid' is not a childId);
+    // the helper is mentioned instead so it lands on their radar.
+    kidTags: card.subject === 'helper' ? [] : [card.kidId],
+    mentionedUids: card.subject === 'helper' && card.helperUid ? [card.helperUid] : [],
     visibility: 'family',
   };
   await finalizePost(familyId, postId, postData);
@@ -88,10 +92,14 @@ export function CardShareRow({ familyId, card, compact = false }: {
   const dropIntoChat = () => act('chat', async () => {
     if (!profile) throw new Error('Not signed in.');
     const members = await getFamilyMembers(familyId);
-    const kidLogin = members.find((m: UserProfile) => m.childId === card.kidId);
-    if (!kidLogin) throw new Error(`${card.kidName} has no Kaya login yet — post to Moments instead.`);
+    // 🧡 HR PR-2 — Asante cards go to the HELPER's direct chat.
+    const isHelperCard = card.subject === 'helper';
+    const target = isHelperCard
+      ? members.find((m: UserProfile) => m.uid === card.helperUid)
+      : members.find((m: UserProfile) => m.childId === card.kidId);
+    if (!target) throw new Error(`${card.kidName} has no Kaya login yet — post to Moments instead.`);
     const me: ThreadMember = { uid: profile.uid, name: profile.displayName, role: profile.role, avatar: profile.avatarPhoto };
-    const them: ThreadMember = { uid: kidLogin.uid, name: kidLogin.displayName, role: 'kid', avatar: kidLogin.avatarPhoto };
+    const them: ThreadMember = { uid: target.uid, name: target.displayName, role: isHelperCard ? 'helper' : 'kid', avatar: target.avatarPhoto };
     const threadId = await ensureDirectThread(familyId, me, them);
     const blob = await shineCardPngBlob(card);
     const path = `families/${familyId}/messages/${threadId}/shine-${card.n}-${Date.now().toString(36)}.png`;
@@ -99,7 +107,9 @@ export function CardShareRow({ familyId, card, compact = false }: {
     await safeUploadBytes(r, blob, { contentType: 'image/png' });
     const url = await getDownloadURL(r);
     await sendMessage(familyId, threadId, {
-      text: `🌟 Shine Card №${card.n} — for you, ${card.kidName.split(' ')[0]}!`,
+      text: isHelperCard
+        ? (card.lang === 'sw' ? `🧡 Kadi ya Asante №${card.n} — kwa ajili yako, ${card.kidName.split(' ')[0]}!` : `🧡 Asante Card №${card.n} — thank you, ${card.kidName.split(' ')[0]}!`)
+        : `🌟 Shine Card №${card.n} — for you, ${card.kidName.split(' ')[0]}!`,
       attachments: [{ kind: 'photo', url, mime: 'image/png' }],
     }, me);
   }, `💬 Dropped into ${card.kidName.split(' ')[0]}'s chat!`);
