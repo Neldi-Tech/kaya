@@ -41,6 +41,7 @@ import {
 } from '@/components/sparks/TimelineViews';
 import TimelineHitMap from '@/components/sparks/TimelineHitMap';
 import NoteStudio from '@/components/sparks/NoteStudio';
+import MonthStory from '@/components/sparks/MonthStory';
 import { requestNoteShare, subscribeToKidRequests, type ApprovalRequest } from '@/lib/hive';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 import DiaryInkCanvas, { type DiaryInkHandle } from '@/components/sparks/DiaryInkCanvas';
@@ -184,6 +185,7 @@ export default function DiaryPage() {
       const textBlock = ordered.flatMap((e) => e.blocks ?? []).find((b) => b.kind === 'text' && b.text?.trim());
       const drawn = ordered.some((e) => (e.blocks ?? []).some((b) => b.kind === 'ink' || b.kind === 'scan'));
       const replies = ordered.flatMap((e) => e.note_replies ?? []);
+      const allBlocks = ordered.flatMap((e) => e.blocks ?? []);
       return {
         date,
         emoji: ordered.find((e) => e.feeling)?.feeling,
@@ -192,6 +194,8 @@ export default function DiaryPage() {
         starred: list.some((e) => e.parent_stars && Object.keys(e.parent_stars).length > 0),
         count: list.length,
         reply: replies.length ? replies[replies.length - 1] : undefined,
+        photoUrl: allBlocks.find((b) => (b.kind === 'scan' || b.kind === 'ink') && b.url)?.url,
+        searchText: allBlocks.filter((b) => b.kind === 'text' && b.text?.trim()).map((b) => b.text as string).join('\n') || undefined,
       };
     });
   }, [entries, sw]);
@@ -451,7 +455,10 @@ export default function DiaryPage() {
             <TimelineList days={tlDays} onOpenDay={(d) => setDayOpen(d)} onShareDay={(d) => setNoteFor(d)} sw={sw} />
           )}
           {tlView === 'browse' && (
-            <TimelineBrowse days={tlDays} onOpenDay={(d) => setDayOpen(d)} onShareDay={(d) => setNoteFor(d)} sw={sw} />
+            <TimelineBrowse days={tlDays} onOpenDay={(d) => setDayOpen(d)} onShareDay={(d) => setNoteFor(d)} sw={sw}
+              monthExtra={(mk) => (
+                <MonthStory kidId={kidId} surface="diary" monthKey={mk} isParent={isParent} sw={sw} />
+              )} />
           )}
           {/* Hit-map 2.0 · no scores in the diary — feelings + presence
               layers only, and no "missed" concept (no expected days). */}

@@ -214,7 +214,9 @@ const PRINT_KEY = 'kaya.notePrint.v1';
 export interface NotePrintPayload {
   title: string;            // cover title for multi-note books
   theme: NoteTheme;
-  notes: Array<Omit<NoteCardData, 'theme'>>;
+  /** 📖 Kaya Writes month story — printed on the book's cover page. */
+  intro?: string;
+  notes: Array<Omit<NoteCardData, 'theme'> & { photoUrl?: string }>;
 }
 
 export function stashNotesForPrint(payload: NotePrintPayload): void {

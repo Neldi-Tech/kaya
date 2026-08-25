@@ -33,6 +33,7 @@ import {
 } from '@/components/sparks/TimelineViews';
 import TimelineHitMap from '@/components/sparks/TimelineHitMap';
 import NoteStudio from '@/components/sparks/NoteStudio';
+import MonthStory from '@/components/sparks/MonthStory';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 import DiaryInkCanvas, { type DiaryInkHandle } from '@/components/sparks/DiaryInkCanvas';
 
@@ -95,6 +96,7 @@ export default function MyDiaryPage() {
       const textBlock = ordered.flatMap((e) => e.blocks ?? []).find((b) => b.kind === 'text' && b.text?.trim());
       const drawn = ordered.some((e) => (e.blocks ?? []).some((b) => b.kind === 'ink' || b.kind === 'scan'));
       const replies = ordered.flatMap((e) => e.note_replies ?? []);
+      const allBlocks = ordered.flatMap((e) => e.blocks ?? []);
       return {
         date,
         emoji: ordered.find((e) => e.feeling)?.feeling,
@@ -102,6 +104,8 @@ export default function MyDiaryPage() {
         locked: list.some((e) => e.locked),
         count: list.length,
         reply: replies.length ? replies[replies.length - 1] : undefined,
+        photoUrl: allBlocks.find((b) => (b.kind === 'scan' || b.kind === 'ink') && b.url)?.url,
+        searchText: allBlocks.filter((b) => b.kind === 'text' && b.text?.trim()).map((b) => b.text as string).join('\n') || undefined,
       };
     });
   }, [entries, sw]);
@@ -350,7 +354,10 @@ export default function MyDiaryPage() {
                     <TimelineList days={tlDays} onOpenDay={(d) => setDayOpen(d)} onShareDay={setNoteFor} sw={sw} />
                   )}
                   {tlView === 'browse' && (
-                    <TimelineBrowse days={tlDays} onOpenDay={(d) => setDayOpen(d)} onShareDay={setNoteFor} sw={sw} />
+                    <TimelineBrowse days={tlDays} onOpenDay={(d) => setDayOpen(d)} onShareDay={setNoteFor} sw={sw}
+                      monthExtra={(mk) => (
+                        <MonthStory kidId={uid} surface="diary" monthKey={mk} isParent sw={sw} />
+                      )} />
                   )}
                   {tlView === 'hitmap' && (
                     <TimelineHitMap days={tlDays} onOpenDay={(d) => setDayOpen(d)} sw={sw} layers={['feelings', 'presence']} />

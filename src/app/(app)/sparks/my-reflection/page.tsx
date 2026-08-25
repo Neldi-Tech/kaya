@@ -29,6 +29,7 @@ import {
 } from '@/components/sparks/TimelineViews';
 import TimelineHitMap from '@/components/sparks/TimelineHitMap';
 import NoteStudio from '@/components/sparks/NoteStudio';
+import MonthStory from '@/components/sparks/MonthStory';
 
 const NAVY = '#1B1547';
 
@@ -74,6 +75,8 @@ export default function MyReflectionPage() {
     emoji: r.ai_read?.mood_emoji,
     preview: previewLine(r.text),
     reply: r.note_replies?.length ? r.note_replies[r.note_replies.length - 1] : undefined,
+    photoUrl: r.scanUrl || undefined,
+    searchText: r.text || undefined,
   })), [recent]);
   const openEntry = useMemo(
     () => (dayOpen ? recent.find((r) => r.date === dayOpen) ?? null : null),
@@ -249,7 +252,12 @@ export default function MyReflectionPage() {
                   <MemoryLane days={tlDays} onOpenDay={setDayOpen} sw={sw} />
                   <ViewSwitcher view={tlView} views={['list', 'browse', 'hitmap']} onChange={setTlView} sw={sw} />
                   {tlView === 'list' && <TimelineList days={tlDays} onOpenDay={setDayOpen} onShareDay={setNoteFor} sw={sw} />}
-                  {tlView === 'browse' && <TimelineBrowse days={tlDays} onOpenDay={setDayOpen} onShareDay={setNoteFor} sw={sw} />}
+                  {tlView === 'browse' && (
+                    <TimelineBrowse days={tlDays} onOpenDay={setDayOpen} onShareDay={setNoteFor} sw={sw}
+                      monthExtra={(mk) => (
+                        <MonthStory kidId={uid} surface="reflection" monthKey={mk} isParent sw={sw} />
+                      )} />
+                  )}
                   {/* Hit-map 2.0 · adult journal is unrated — feelings + presence. */}
                   {tlView === 'hitmap' && (
                     <TimelineHitMap days={tlDays} onOpenDay={setDayOpen} sw={sw} layers={['feelings', 'presence']} />

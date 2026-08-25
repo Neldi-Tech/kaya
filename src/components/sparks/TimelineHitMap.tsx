@@ -303,6 +303,8 @@ export default function TimelineHitMap({
                     background: bg,
                     color: dark ? '#fff' : '#0F1F44',
                     ...(future ? { border: '1.5px dashed #E5DECF' } : {}),
+                    // ⭐ bookmarked days get a gold ring (design v2 #4)
+                    ...(d?.starred ? { boxShadow: 'inset 0 0 0 2px #D4A847' } : {}),
                   }}>
                   {layer === 'feelings' && d?.emoji
                     ? <span className="text-[13px]">{d.emoji}</span>

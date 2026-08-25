@@ -70,6 +70,11 @@ export default function NotePrintPage() {
             <div className="font-nunito font-extrabold text-[15px] mt-1" style={{ color: p.date }}>
               {payload.title} · {payload.notes.length} days
             </div>
+            {payload.intro && (
+              <p className="text-[12.5px] italic leading-relaxed mt-5 m-0" style={{ color: p.text, fontFamily: 'Lato, Georgia, serif' }}>
+                {payload.intro}
+              </p>
+            )}
             <div className="mt-8 font-nunito font-extrabold text-[12px]" style={{ color: p.footer }}>
               Made with <span style={{ color: p.brand, fontWeight: 900 }}>Kaya</span> 💛 · ourkaya.com
             </div>
@@ -93,6 +98,12 @@ export default function NotePrintPage() {
               style={{ color: p.text, fontFamily: 'Lato, Georgia, serif' }}>
               “{n.text}”
             </div>
+            {n.photoUrl && (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img src={n.photoUrl} alt=""
+                className="mt-3 max-h-[150px] w-auto self-start rounded-xl border-4 border-white shadow"
+                style={{ transform: 'rotate(-1.2deg)' }} />
+            )}
             <div className="mt-5 pt-3 flex justify-between font-nunito font-extrabold text-[10.5px]"
               style={{ color: p.footer, borderTop: `1.5px solid ${p.edge}` }}>
               <span>Made with <span style={{ color: p.brand, fontWeight: 900 }}>Kaya</span> 💛</span>
