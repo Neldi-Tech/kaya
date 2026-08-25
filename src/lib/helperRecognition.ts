@@ -140,3 +140,38 @@ export async function computeHelperDials(
 
 export const dialColor = (v: number | null): string =>
   v === null ? '#C9C0AE' : v >= 85 ? '#2E9E5B' : v >= 65 ? '#D4A017' : '#E06A7B';
+
+// ── 💬 Kids' words (HR PR-4) ──────────────────────────────────────
+// The kids' own review lines about a helper — free-text notes first,
+// then the "liked" chips — for stamping on the Asante card.
+
+export interface KidWord { text: string; kidName: string }
+
+export async function fetchKidWords(familyId: string, helperUid: string, weeks = 8): Promise<KidWord[]> {
+  const u = auth.currentUser;
+  if (!u) return [];
+  const token = await u.getIdToken();
+  const res = await fetch(
+    `/api/helpers/kid-review?familyId=${encodeURIComponent(familyId)}&helperUid=${encodeURIComponent(helperUid)}&weeks=${weeks}`,
+    { headers: { authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) return [];
+  const data = await res.json().catch(() => ({}));
+  const out: KidWord[] = [];
+  const seen = new Set<string>();
+  const push = (text: string, kidName: string) => {
+    const t = text.trim();
+    const key = `${t.toLowerCase()}|${kidName}`;
+    if (!t || seen.has(key)) return;
+    seen.add(key);
+    out.push({ text: t.slice(0, 100), kidName });
+  };
+  for (const w of (data.weeks || []) as Array<{ reviews?: Array<{ kidName?: string; note?: string; liked?: string[] }> }>) {
+    for (const r of w.reviews || []) {
+      const name = (r.kidName || 'Kid').split(' ')[0];
+      if (r.note) push(r.note, name);
+      for (const l of r.liked || []) push(l, name);
+    }
+  }
+  return out.slice(0, 8);
+}

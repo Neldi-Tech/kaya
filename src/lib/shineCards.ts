@@ -63,6 +63,9 @@ export interface ShineCard {
   subject?: 'kid' | 'helper';
   helperUid?: string;
   lang?: CardLang;
+  /** 💬 HR PR-4 — a kid's own words stamped on the card (picked by the
+   *  parent from the Fri–Sun reviews), e.g. “Always kind to us” — Amani. */
+  kidsLine?: string;
 }
 
 export const SHINE_THEMES: Array<{ id: ShineTheme; label: string; emoji: string }> = [
@@ -318,8 +321,15 @@ export function shineCardSvg(card: ShineCard, langOverride?: CardLang): string {
   ${lines.map((l, i) =>
     `<text x="${W / 2}" y="${quoteY + i * lineH}" text-anchor="middle" font-family="Georgia, serif" font-size="27" fill="${p.quote}">${esc(l)}</text>`).join('\n  ')}
   <text x="${W / 2}" y="${quoteY + lines.length * lineH + 34}" text-anchor="middle" font-family="Georgia, serif" font-style="italic" font-size="23" fill="${p.sig}">${S.withLove} ${esc(card.byName)}</text>
-  ${card.doubleShine ? `<text x="${W / 2}" y="${quoteY + lines.length * lineH + 72}" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold" fill="${p.brand}">${S.double}</text>` : ''}
-  ${card.gift ? `<text x="${W / 2}" y="${quoteY + lines.length * lineH + (card.doubleShine ? 104 : 72)}" text-anchor="middle" font-family="Arial" font-size="17" font-weight="bold" fill="${p.brand}">🎁 ${esc(card.gift)}</text>` : ''}
+  ${(() => {
+    // Stacked extras below the signature: Double Shine · gift · kids' words.
+    let y = quoteY + lines.length * lineH + 72;
+    const out: string[] = [];
+    if (card.doubleShine) { out.push(`<text x="${W / 2}" y="${y}" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold" fill="${p.brand}">${S.double}</text>`); y += 32; }
+    if (card.gift) { out.push(`<text x="${W / 2}" y="${y}" text-anchor="middle" font-family="Arial" font-size="17" font-weight="bold" fill="${p.brand}">🎁 ${esc(card.gift)}</text>`); y += 32; }
+    if (card.kidsLine) { out.push(`<text x="${W / 2}" y="${y}" text-anchor="middle" font-family="Georgia, serif" font-style="italic" font-size="17" fill="${p.sig}">💬 ${esc(card.kidsLine)}</text>`); }
+    return out.join('\n  ');
+  })()}
   <rect x="18" y="${H - 76}" width="${W - 36}" height="58" rx="14" fill="url(#band)"/>
   <text x="46" y="${H - 40}" font-family="Arial" font-size="16" font-weight="bold" fill="${p.bandText}">${dateStr}</text>
   <text x="${W / 2}" y="${H - 40}" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold" fill="${p.bandText}">${esc(card.pointsLabel)}</text>
