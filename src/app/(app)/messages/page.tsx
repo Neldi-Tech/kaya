@@ -73,7 +73,7 @@ export default function MessagesPage() {
   useEffect(() => {
     if (!familyId || !uid) return;
     let alive = true;
-    messageableMembers(familyId, children).then((mem) => {
+    messageableMembers(familyId, children, uid).then((mem) => {
       if (!alive) return;
       setMembers(mem);
       if (mem.length > 0) ensureGroupThread(familyId, mem).catch(() => {});

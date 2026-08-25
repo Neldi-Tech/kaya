@@ -13,10 +13,12 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   Business, HiveSplit, BusinessStatus, LedgerEntry, BusinessMilestone, BUSINESS_MILESTONES, StockTake,
-  StockMovement, StockMovementKind,
+  StockMovement, StockMovementKind, BusinessItem,
   subscribeToBusiness, subscribeToBusinessRequests, subscribeToLedger, subscribeToBusinessMilestones, subscribeToStockTakes,
-  subscribeToStockMovements,
+  subscribeToStockMovements, subscribeToBusinessItems,
   setBusinessStatus, requestBusinessLaunch, updateBusiness, readBusinessConfig,
+  keepsStock, resolvePricingModel, pricingModelMeta,
+  BusinessReview, subscribeToBusinessReviews, reviewDue,
 } from '@/lib/business';
 import { uploadBusinessPhotoFromDataUrl } from '@/lib/businessPhoto';
 import { ApprovalRequest } from '@/lib/hive';
@@ -24,6 +26,7 @@ import { formatCash } from '@/components/hive/format';
 import { formatWorth } from '@/components/business/money';
 import { typeMeta, STATUS_META } from '@/components/business/meta';
 import DailySalesCard from '@/components/business/DailySalesCard';
+import OrdersCard from '@/components/business/OrdersCard';
 import AICoachCard from '@/components/business/AICoachCard';
 import AIImageButton from '@/components/business/AIImageButton';
 import StockTakeHistory from '@/components/business/StockTakeHistory';
@@ -64,6 +67,8 @@ export default function BusinessDashboardPage() {
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [takes, setTakes] = useState<StockTake[]>([]);
   const [moves, setMoves] = useState<StockMovement[]>([]);
+  const [reviews, setReviews] = useState<BusinessReview[]>([]);
+  const [items, setItems] = useState<BusinessItem[]>([]);
   const [milestones, setMilestones] = useState<BusinessMilestone[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -77,7 +82,9 @@ export default function BusinessDashboardPage() {
     const u3 = subscribeToLedger(familyId, businessId, setLedger, 50);
     const u4 = subscribeToStockTakes(familyId, businessId, setTakes, 30);
     const u5 = subscribeToStockMovements(familyId, businessId, setMoves, 8);
-    return () => { u1(); u2(); u3(); u4(); u5(); };
+    const u6 = subscribeToBusinessReviews(familyId, businessId, setReviews, 3);
+    const u7 = subscribeToBusinessItems(familyId, businessId, setItems);
+    return () => { u1(); u2(); u3(); u4(); u5(); u6(); u7(); };
   }, [familyId, businessId]);
 
   // Milestones live under the owner kid — subscribe once we know the owner.
@@ -137,6 +144,9 @@ export default function BusinessDashboardPage() {
   const stats = business.stats;
   const split = business.hiveSplit;
   const statCard = 'bg-hive-paper border border-hive-line rounded-hive p-3.5';
+  // Business 2.0 — stock-take vs Daily Check-in surfaces (R14/R15).
+  const stocked = keepsStock(business);
+  const modelMeta = pricingModelMeta(resolvePricingModel(business));
 
   // Web-Fit (2026-08-23): content tier, detail archetype. Desktop: the
   // books/activity cards (recent activity · snapshot · stock-take history ·
@@ -231,10 +241,12 @@ export default function BusinessDashboardPage() {
             ) : (
               <ul className="space-y-1.5 text-[12.5px]">
                 <li className="flex items-center justify-between gap-2">
-                  <span>📋 Stock-take</span>
+                  <span>{stocked ? '📋 Stock-take' : '☀️ Check-in'}</span>
                   <span className="font-nunito font-extrabold">
                     {snap.take
-                      ? <>✓ done · {snap.take.itemsTouched} item{snap.take.itemsTouched === 1 ? '' : 's'} touched</>
+                      ? stocked
+                        ? <>✓ done · {snap.take.itemsTouched} item{snap.take.itemsTouched === 1 ? '' : 's'} touched</>
+                        : <>✓ done</>
                       : <span className="text-hive-muted">○ not done</span>}
                   </span>
                 </li>
@@ -295,10 +307,20 @@ export default function BusinessDashboardPage() {
               : {}),
           }}
         />
-        <Link href={`/business/${businessId}/weekly`}
-          className="w-full flex items-center justify-center gap-2 h-11 rounded-hive bg-hive-paper border border-hive-line text-hive-navy font-nunito font-extrabold text-[13px] hover:bg-hive-cream active:scale-[0.99] transition no-underline">
-          🗓️ Weekly review →
-        </Link>
+        {/* Business 2.0 (R18/R19) — the cadence-based Business Review. */}
+        {(() => {
+          const isDue = reviewDue(reviews[0]?.date ?? null, business.reviewCadence);
+          return (
+            <Link href={`/business/${businessId}/review`}
+              className={`w-full flex items-center justify-center gap-2 h-11 rounded-hive font-nunito font-extrabold text-[13px] active:scale-[0.99] transition no-underline ${
+                isDue
+                  ? 'bg-hive-honey text-hive-navy hover:brightness-105'
+                  : 'bg-hive-paper border border-hive-line text-hive-navy hover:bg-hive-cream'
+              }`}>
+              📝 Business Review {isDue ? '· due! →' : '→'}
+            </Link>
+          );
+        })()}
       </div>
 
       {/* Coming next — what's still ahead. */}
@@ -325,7 +347,7 @@ export default function BusinessDashboardPage() {
         <div className="flex-1 min-w-0">
           <div className="font-nunito font-black text-[16px] truncate">{business.name}</div>
           <div className="text-[11px] text-hive-honey-soft/80">
-            {t.label} · since {fmtDate(business.startedAt) || fmtDate(business.createdAt)}
+            {modelMeta.shortLabel} · since {fmtDate(business.startedAt) || fmtDate(business.createdAt)}
             {business.createdByName ? ` · ${business.createdByRole === 'parent' ? 'set up by' : 'started by'} ${business.createdByName}` : ''}
           </div>
         </div>
@@ -365,6 +387,20 @@ export default function BusinessDashboardPage() {
       {/* Daily auto-sale drafts (products flagged "sold daily") */}
       {isOwner && familyId && profile?.uid && business.status !== 'closed' && (
         <DailySalesCard familyId={familyId} business={business} requests={requests} currency={config.currency} uid={profile.uid} />
+      )}
+
+      {/* 🛎️ Family Orders Board (Business 2.0) — the family's demand loop.
+          Owner + parents see the queue; everyone else can order. */}
+      {familyId && profile?.uid && business.status !== 'closed' && (
+        <OrdersCard
+          familyId={familyId}
+          business={business}
+          items={items}
+          uid={profile.uid}
+          isParent={isParent}
+          isOwner={isOwner}
+          currency={config.currency}
+        />
       )}
 
       {/* Headline numbers (desktop: 4-up) */}
@@ -468,11 +504,12 @@ export default function BusinessDashboardPage() {
 
       {error && <p className="text-hive-rose text-[12px] font-bold mb-3">{error}</p>}
 
-      {/* Daily stock-take — the everyday habit (counts + a photo). */}
+      {/* The everyday habit: stock-take (counts + photo) for stocked
+          businesses, the Daily Check-in for everyone else (R14). */}
       {canAct && business.status !== 'closed' && (
-        <Link href={`/business/${businessId}/stocktake`}
+        <Link href={`/business/${businessId}/${stocked ? 'stocktake' : 'checkin'}`}
           className="w-full flex items-center justify-center gap-2 h-12 mb-3 rounded-hive bg-hive-honey text-hive-navy font-nunito font-black text-[14px] hover:brightness-105 active:scale-[0.99] transition no-underline">
-          📋 Daily stock-take
+          {stocked ? '📋 Daily stock-take' : '☀️ Daily check-in'}
         </Link>
       )}
 
@@ -490,7 +527,18 @@ export default function BusinessDashboardPage() {
         </div>
       )}
 
-      {/* Inventory — the books that drive worth. */}
+      {/* 💰 Pricing Studio (Business 2.0) — build each price from cost + profit. */}
+      {canAct && business.status !== 'closed' && (
+        <Link href={`/business/${businessId}/pricing`}
+          className="w-full flex items-center justify-between gap-2 h-12 px-4 mb-3 rounded-hive bg-hive-paper border-2 border-hive-honey/70 text-hive-navy font-nunito font-black text-[14px] hover:bg-hive-cream active:scale-[0.99] transition no-underline">
+          <span>💰 Pricing Studio</span>
+          <span className="text-[11.5px] text-hive-honey-dk font-extrabold">cost + profit → your price →</span>
+        </Link>
+      )}
+
+      {/* Inventory — the books that drive worth. No-stock businesses have no
+          shelf to count: their menu lives in the Pricing Studio (R15). */}
+      {stocked && (
       <Link
         href={`/business/${businessId}/inventory`}
         className="w-full flex items-center justify-between gap-2 h-12 px-4 mb-3 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[14px] hover:brightness-110 active:scale-[0.99] transition no-underline"
@@ -498,11 +546,12 @@ export default function BusinessDashboardPage() {
         <span>📦 Inventory &amp; worth</span>
         <span className="text-hive-honey-soft">{formatWorth(stats.worthCents, config.currency, bizConfig.displayRounding)} →</span>
       </Link>
+      )}
 
       {/* Recent stock changes peek — surfaces "what moved" right under
           the Inventory tile so the parent doesn't have to drill into
           the inventory detail to see activity. Full log lives there. */}
-      {moves.length > 0 && (
+      {stocked && moves.length > 0 && (
         <div className="bg-hive-paper border border-hive-line rounded-hive p-3 mb-3">
           <div className="flex items-baseline justify-between mb-1">
             <h3 className="font-nunito font-extrabold text-[13px]">📊 Recent stock changes</h3>

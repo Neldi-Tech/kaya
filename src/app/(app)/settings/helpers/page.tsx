@@ -15,6 +15,7 @@ import {
   resetHelperPassword,
   generateShortCode,
   generatePassword,
+  syncHelperVisibility,
   DEFAULT_HELPER_SESSION_DAYS,
   type CreateHelperResult,
 } from '@/lib/helpers';
@@ -125,6 +126,16 @@ export default function HelpersSettingsPage() {
   }, [family]);
 
   useEffect(() => { reloadHelpers(); }, [reloadHelpers]);
+
+  // 🤝 Backfill on visit (2026-08-25). Families created before the
+  // visibility mirror have no `helperListed` on their helper user docs,
+  // which reads as "listed" (fail-open). One fire-and-forget family
+  // sync per parent visit brings them current without a migration —
+  // idempotent server-side, so repeat visits write nothing.
+  useEffect(() => {
+    if (!family) return;
+    void syncHelperVisibility({ all: true });
+  }, [family]);
 
   const copy = async (value: string, fieldId: string) => {
     try {
@@ -266,6 +277,19 @@ export default function HelpersSettingsPage() {
       <p className="text-sm text-kaya-sand mt-1 max-w-xl">
         Helpers (nannies, tutors, grandparents, drivers) can log routines and feedback for the kids you give them access to.
       </p>
+
+      {/* Cross-link — parents kept coming HERE looking for the "tracked"
+          switch, which lives on the performance policy page (Elia,
+          2026-08-25). One muted line closes the loop. */}
+      <button
+        onClick={() => router.push('/settings/performance')}
+        className="mt-3 inline-flex items-center gap-2 px-3 py-2 rounded-kaya-sm bg-kaya-warm/60 text-left hover:bg-kaya-warm transition-colors"
+      >
+        <span className="text-[11px] text-kaya-sand">
+          ⚖️ Scoring a helper&apos;s performance? Choose who&apos;s tracked in <strong className="text-kaya-chocolate">Performance</strong>
+        </span>
+        <span className="text-[11px] font-bold text-kaya-gold shrink-0">Open →</span>
+      </button>
 
       {/* Helpers list */}
       <PageSplit rail={rail} railMobile="first" railWidth={360} sticky={false}>

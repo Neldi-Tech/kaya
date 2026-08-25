@@ -29,6 +29,7 @@ import {
 import EventTagPicker from '@/components/moments/EventTagPicker';
 import { Page, PageHeader } from '@/components/layout/Page';
 import { getFamilyMembers, UserProfile } from '@/lib/firestore';
+import { filterListedMembers } from '@/lib/helperVisibility';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
 
@@ -99,7 +100,7 @@ export default function ComposeMomentPage() {
     if (!profile?.familyId) return;
     let cancelled = false;
     getFamilyMembers(profile.familyId)
-      .then((list) => { if (!cancelled) setMembers(list.filter((m) => m.uid !== profile.uid)); })
+      .then((list) => { if (!cancelled) setMembers(filterListedMembers(list).filter((m) => m.uid !== profile.uid)); })
       .catch(() => { /* silent — mentions just won't autocomplete */ });
     return () => { cancelled = true; };
   }, [profile?.familyId, profile?.uid]);

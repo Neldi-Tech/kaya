@@ -81,6 +81,9 @@ export interface DiaryEntry {
   sealed_until?: string;
   /** Slice 8f · 💌 Dear Kaya reply (written server-side, opt-in). */
   kaya_reply?: string;
+  /** 💌 Timeline 2.0 — replies from Send-to-Someone recipients, pinned
+   *  to this page by the public /n/[token] route (server-written). */
+  note_replies?: Array<{ by: string; emoji?: string; text?: string; at: number }>;
   /** Slice 8h · ✨ AI-polished markdown-lite version of the page's text.
    *  Displays instead of the raw text with a ↺ view-original flip. The
    *  original text always survives in `blocks`. */

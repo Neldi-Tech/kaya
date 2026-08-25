@@ -78,6 +78,8 @@ export interface PricingModelMeta {
   key: PricingModel;
   /** Kid-facing card label — plain language, locked copy (R5). */
   label: string;
+  /** Compact form for identity lines / chips ("Made fresh", "By the hour"). */
+  shortLabel: string;
   emoji: string;
   /** Kid-facing example line under the label. */
   blurb: string;
@@ -92,11 +94,11 @@ export interface PricingModelMeta {
 }
 
 export const PRICING_MODELS: PricingModelMeta[] = [
-  { key: 'unit_made',    label: 'I make each one fresh', emoji: '🧃', blurb: 'Juice by the glass, salads, snacks — made when someone orders.', unitLabel: 'pcs',     stockTaking: false, type: 'goods' },
-  { key: 'unit_stocked', label: 'I sell things I keep',  emoji: '📦', blurb: 'Eggs, veggies, crafts made ahead — you count your stock.',       unitLabel: 'pcs',     stockTaking: true,  type: 'goods' },
-  { key: 'hour',         label: 'I charge by the hour',  emoji: '⏰', blurb: 'Homework help, reading buddy, tech help.',                       unitLabel: 'hour',    stockTaking: false, type: 'advice', halfSteps: true },
-  { key: 'session',      label: 'I charge per session',  emoji: '🎯', blurb: 'Football drills, dance lessons, drawing classes.',               unitLabel: 'session', stockTaking: false, type: 'sport' },
-  { key: 'job',          label: 'I charge per job',      emoji: '🛠️', blurb: 'Car wash, garden tidy, errand runs.',                            unitLabel: 'job',     stockTaking: false, type: 'service' },
+  { key: 'unit_made',    label: 'I make each one fresh', shortLabel: 'Made fresh',    emoji: '🧃', blurb: 'Juice by the glass, salads, snacks — made when someone orders.', unitLabel: 'pcs',     stockTaking: false, type: 'goods' },
+  { key: 'unit_stocked', label: 'I sell things I keep',  shortLabel: 'Stocked goods', emoji: '📦', blurb: 'Eggs, veggies, crafts made ahead — you count your stock.',       unitLabel: 'pcs',     stockTaking: true,  type: 'goods' },
+  { key: 'hour',         label: 'I charge by the hour',  shortLabel: 'By the hour',   emoji: '⏰', blurb: 'Homework help, reading buddy, tech help.',                       unitLabel: 'hour',    stockTaking: false, type: 'advice', halfSteps: true },
+  { key: 'session',      label: 'I charge per session',  shortLabel: 'Per session',   emoji: '🎯', blurb: 'Football drills, dance lessons, drawing classes.',               unitLabel: 'session', stockTaking: false, type: 'sport' },
+  { key: 'job',          label: 'I charge per job',      shortLabel: 'Per job',       emoji: '🛠️', blurb: 'Car wash, garden tidy, errand runs.',                            unitLabel: 'job',     stockTaking: false, type: 'service' },
 ];
 
 export function pricingModelMeta(key: PricingModel | undefined): PricingModelMeta {
@@ -1212,9 +1214,11 @@ export async function requestStockTakeHp(
   points: number,
   date: string,
   createdByUid: string,
+  habit: 'stocktake' | 'checkin' = 'stocktake',
 ): Promise<string> {
   if (isGuestActive()) return 'guest-request';
   const pts = Math.max(0, Math.round(points));
+  const word = habit === 'checkin' ? 'check-in' : 'stock-take';
   const ref = await addDoc(approvalRequestsCol(familyId), {
     kidId: business.ownerId,
     type: 'business_hp',
@@ -1222,7 +1226,8 @@ export async function requestStockTakeHp(
     businessId: business.id,
     points: pts,
     awardDate: date,
-    description: `${pts} House Point${pts === 1 ? '' : 's'} for today's stock-take of "${business.name}" ${business.emoji}.`,
+    ...(habit === 'checkin' ? { isCheckin: true } : {}),
+    description: `${pts} House Point${pts === 1 ? '' : 's'} for today's ${word} of "${business.name}" ${business.emoji}.`,
     status: 'pending',
     createdBy: createdByUid,
     createdAt: serverTimestamp(),
@@ -1315,6 +1320,7 @@ export async function resolveBusinessRequest(
   let hpPoints = 0;
   let hpBusinessId: string | null = null;
   let hpAwardDate = '';
+  let hpIsCheckin = false;
   let saleKidId: string | null = null;
   let saleBusinessId: string | null = null;
   let saleItemId = '';
@@ -1336,12 +1342,12 @@ export async function resolveBusinessRequest(
       'type' | 'status' | 'businessId' | 'kidId' | 'instrumentSymbol' | 'shares' | 'amountCents' | 'points'
       | 'itemId' | 'productName' | 'saleQty' | 'saleUnitPriceCents' | 'awardDate'
       | 'costType' | 'description' | 'createdBy'
-      | 'targetPricingModel' | 'targetStockTaking' | 'newPriceCents'>;
+      | 'targetPricingModel' | 'targetStockTaking' | 'newPriceCents' | 'isCheckin'>;
     if (req.status !== 'pending') throw new Error('Request already resolved.');
 
     // Stock-take key (for writing the parent's comment back onto the day) —
     // captured before the reject early-return so a declined review keeps the note too.
-    if (req.type === 'business_hp') { hpBusinessId = req.businessId || null; hpAwardDate = req.awardDate || ''; }
+    if (req.type === 'business_hp') { hpBusinessId = req.businessId || null; hpAwardDate = req.awardDate || ''; hpIsCheckin = !!req.isCheckin; }
 
     const now = serverTimestamp();
     if (decision === 'rejected') {
@@ -1446,12 +1452,17 @@ export async function resolveBusinessRequest(
   if (investedKidId) {
     try { await unlockInvestingMilestones(familyId, investedKidId); } catch { /* best-effort */ }
   }
-  // Grant stock-take House Points after the transaction commits.
+  // Grant the habit's House Points after the transaction commits. The reason
+  // follows what was actually done (R15): stock-take / check-in / review.
   if (hpKidId && hpPoints > 0) {
     try {
+      const reason = hpAwardDate.startsWith('review-')
+        ? 'Kaya Business — Business Review done'
+        : hpIsCheckin ? 'Kaya Business — daily check-in done'
+        : 'Kaya Business — stock-take done';
       await giveAward(familyId, {
         childId: hpKidId, kind: 'regular', points: hpPoints,
-        reason: 'Kaya Business — stock-take done', category: 'business',
+        reason, category: 'business',
         awardedBy: approverUid, awardedByName: 'Parent', senderRole: 'parent',
       });
     } catch { /* best-effort — request already marked approved */ }
@@ -1641,17 +1652,20 @@ export async function addBusinessItem(
   if (input.notes?.trim()) data.notes = input.notes.trim();
   const ref = await addDoc(itemsCol(familyId, businessId), data);
   await recomputeInventoryStats(familyId, businessId);
-  const addedQty = Math.max(0, Math.round(input.qty || 0));
-  await recordStockMovement(familyId, businessId, {
-    itemId: ref.id,
-    itemName: input.name.trim(),
-    itemKind: input.kind,
-    unitLabel: input.unitLabel?.trim() || undefined,
-    kind: 'add',
-    qtyDelta: addedQty,
-    resultingQty: addedQty,
-    by: uid,
-  });
+  // Menu entries (Business 2.0) aren't stock — no movement row for them.
+  if (input.kind !== 'menu') {
+    const addedQty = Math.max(0, Math.round(input.qty || 0));
+    await recordStockMovement(familyId, businessId, {
+      itemId: ref.id,
+      itemName: input.name.trim(),
+      itemKind: input.kind,
+      unitLabel: input.unitLabel?.trim() || undefined,
+      kind: 'add',
+      qtyDelta: addedQty,
+      resultingQty: addedQty,
+      by: uid,
+    });
+  }
   return ref.id;
 }
 

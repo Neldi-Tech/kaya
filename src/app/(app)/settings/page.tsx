@@ -18,6 +18,7 @@ import {
   getFamilyMembers, removeUserFromFamily, UserProfile,
   updateChild,
 } from '@/lib/firestore';
+import { filterListedMembers, hiddenHelperCount } from '@/lib/helperVisibility';
 import { AvatarEmojiPickerModal } from '@/components/ui/AvatarEmojiPicker';
 import { defaultAvatarEmoji } from '@/lib/avatarEmojis';
 import {
@@ -607,6 +608,14 @@ export default function SettingsPage() {
     return () => { cancelled = true; };
   }, [profile?.familyId, isGuest]);
 
+  // 🤝 2026-08-25 — outside helpers (no kid assigned in Settings →
+  // Helpers, or paused/removed) don't populate this roster either. They
+  // are NOT invisible: the muted line below counts them and links to the
+  // helper manager, which is never filtered. `members` keeps the full
+  // list so the count stays truthful.
+  const listedMembers = members === null ? null : filterListedMembers(members, profile?.uid);
+  const hiddenHelpers = members === null ? 0 : hiddenHelperCount(members, profile?.uid);
+
   const handleRemoveMember = async (m: UserProfile) => {
     if (!profile || removingMember) return;
     if (m.uid === profile.uid) return; // can't remove yourself
@@ -1129,6 +1138,12 @@ export default function SettingsPage() {
             { id: 'greetings', icon: '✉️', label: 'Cards', keywords: 'greeting cards people book contacts signature whatsapp honoree kaya writes' },
             { id: 'kids', icon: '👀', label: 'Kids', keywords: 'modules visibility what kids see household' },
             { id: 'security', icon: '🔐', label: 'Security', keywords: 'password login reset code privacy sign out' },
+            // Sub-pages (href) — these live on their own route, so the chip
+            // navigates rather than unfolding a card. Before this, typing
+            // "performance" or "meetings" returned "Nothing matches".
+            { id: 'helpers-page', icon: '🤝', label: 'Helpers', keywords: 'helper nanny tutor driver gardener login codes kids they can act on', href: '/settings/helpers' },
+            { id: 'performance-page', icon: '⚖️', label: 'Performance', keywords: 'performance policy tracked track helper score scoring weights metrics work days kids review who is tracked', href: '/settings/performance' },
+            { id: 'meetings-page', icon: '🗓️', label: 'Meetings', keywords: 'meeting sunday family meeting steps agenda reflection', href: '/settings/meetings' },
           ] : [
             { id: 'privacy', icon: '🔐', label: 'My privacy', keywords: 'password login code email' },
           ]),
@@ -2269,6 +2284,27 @@ export default function SettingsPage() {
             </button>
           )}
 
+          {/* Performance policy — who's tracked + how the helper score is
+              built. Lived only under Stats → ⚖️ in the sidebar, so parents
+              looking for it in Settings found nothing (Elia, 2026-08-25). */}
+          {isParent && (
+            <button
+              onClick={() => router.push('/settings/performance')}
+              className="w-full bg-white border border-kaya-warm-dark rounded-kaya p-4 text-left hover:border-kaya-chocolate transition-colors"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-1">Helper performance</p>
+                  <p className="font-bold text-sm">Choose who&apos;s tracked + tune the score</p>
+                  <p className="text-[11px] text-kaya-sand mt-0.5 leading-relaxed">
+                    Switch performance tracking on per helper, set their work days, allow kids to review them, and weight the five dials behind the score.
+                  </p>
+                </div>
+                <span className="text-kaya-sand text-xl flex-shrink-0">→</span>
+              </div>
+            </button>
+          )}
+
           {/* Celebrations — per-kid reward style (animation vs inspiring
               words), age-aware. Own page to keep this file lean. */}
           {isParent && (
@@ -2304,20 +2340,20 @@ export default function SettingsPage() {
           {isParent && (
             <CollapsibleSection
               title="Family members"
-              summary={members === null ? '…' : `${members.length} ${members.length === 1 ? 'person' : 'people'}`}
+              summary={listedMembers === null ? '…' : `${listedMembers.length} ${listedMembers.length === 1 ? 'person' : 'people'}`}
             >
               <p className="text-[11px] text-kaya-sand mb-3 leading-relaxed">
                 Everyone with access to your family right now. Remove anyone you didn&apos;t intend to add — they keep their account but lose access until you invite them again.
               </p>
 
-              {members === null ? (
+              {listedMembers === null ? (
                 <p className="text-[11px] text-kaya-sand-light italic">Loading…</p>
-              ) : members.length === 0 ? (
+              ) : listedMembers.length === 0 ? (
                 <p className="text-[11px] text-kaya-sand-light italic">No members yet.</p>
               ) : (
                 <div className="space-y-2">
                   {/* Sort: parents first, then helpers, kids, guests; self at top of role bucket */}
-                  {[...members]
+                  {[...listedMembers]
                     .sort((a, b) => {
                       const order: Record<string, number> = { parent: 0, helper: 1, kid: 2, guest: 3 };
                       const ra = order[a.role] ?? 9;
@@ -2376,6 +2412,18 @@ export default function SettingsPage() {
                       );
                     })}
                 </div>
+              )}
+
+              {hiddenHelpers > 0 && (
+                <button
+                  onClick={() => router.push('/settings/helpers')}
+                  className="w-full mt-3 flex items-center justify-between gap-2 px-3 py-2 rounded-kaya-sm bg-kaya-warm/60 text-left"
+                >
+                  <span className="text-[11px] text-kaya-sand">
+                    🤝 {hiddenHelpers} {hiddenHelpers === 1 ? 'helper' : 'helpers'} without kid access
+                  </span>
+                  <span className="text-[11px] font-bold text-kaya-gold shrink-0">Manage →</span>
+                </button>
               )}
 
               <p className="text-[10px] text-kaya-sand-light mt-3 leading-relaxed">

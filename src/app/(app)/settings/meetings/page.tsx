@@ -112,6 +112,8 @@ export default function MeetingSetupPage() {
   // SM3.1 (#7): 🎁 Sunday Surprise — master step toggle + per-type overrides
   // (absent = registry defaults) + the parent-stocked Golden Ticket list.
   const [sundaySurpriseEnabled, setSundaySurpriseEnabled] = useState<boolean>(true);
+  // 🌟 Note of the Week (Timeline 2.0) — own flag, default ON.
+  const [noteOfWeekEnabled, setNoteOfWeekEnabled] = useState<boolean>(true);
   const [surpriseToggles, setSurpriseToggles] = useState<Record<string, boolean>>({});
   const [goldenTickets, setGoldenTickets] = useState<string[]>([]);
   const [ticketDraft, setTicketDraft] = useState('');
@@ -176,6 +178,7 @@ export default function MeetingSetupPage() {
     if (typeof s?.openingWordRequired === 'boolean') setOpeningWordRequired(s.openingWordRequired);
     if (typeof s?.openingWordShowLibrary === 'boolean') setOpeningWordShowLibrary(s.openingWordShowLibrary);
     if (typeof s?.sundaySurpriseEnabled === 'boolean') setSundaySurpriseEnabled(s.sundaySurpriseEnabled);
+    setNoteOfWeekEnabled(s?.noteOfWeekEnabled !== false);
     if (s?.surprises) setSurpriseToggles(s.surprises);
     if (Array.isArray(s?.goldenTickets)) setGoldenTickets(s.goldenTickets);
     if (s?.prayers && s.prayers.length > 0) setPrayers(s.prayers);
@@ -305,6 +308,7 @@ export default function MeetingSetupPage() {
         openingWordRequired,
         openingWordShowLibrary,
         sundaySurpriseEnabled,
+        noteOfWeekEnabled,
         surprises: surpriseToggles,
         goldenTickets,
       },
@@ -617,6 +621,30 @@ export default function MeetingSetupPage() {
             </div>
           </label>
         </div>
+      </section>
+
+      {/* ── 🌟 Note of the Week (Timeline 2.0) ───────────────────── */}
+      <section className="mb-8 bg-white border border-kaya-warm-dark rounded-kaya-lg p-5 lg:p-7">
+        <div className="flex items-baseline justify-between mb-1">
+          <h2 className="font-display text-lg lg:text-xl font-black">🌟 Note of the Week</h2>
+          <span className="text-[10px] uppercase tracking-wider font-bold text-kaya-sand">
+            {noteOfWeekEnabled ? 'On' : 'Off'}
+          </span>
+        </div>
+        <p className="text-[12.5px] lg:text-sm text-kaya-sand leading-snug mb-4">
+          Kaya nominates the week&apos;s best Reflection &amp; Diary notes (locked pages never
+          qualify), the family reads them aloud and crowns one — the winner becomes a
+          🌟-sealed Note Card in Moments and lands on the meeting record.
+        </p>
+        <label className="flex items-start gap-3 cursor-pointer rounded-kaya border border-kaya-warm-dark/70 bg-kaya-cream/50 p-4">
+          <input type="checkbox" checked={noteOfWeekEnabled}
+            onChange={(e) => setNoteOfWeekEnabled(e.target.checked)}
+            className="mt-1 w-5 h-5 accent-kaya-gold cursor-pointer" />
+          <div className="flex-1 min-w-0">
+            <p className="font-display font-extrabold text-sm text-kaya-chocolate">Include the Note of the Week step</p>
+            <p className="text-[12.5px] text-kaya-chocolate/70 leading-snug mt-0.5">Sits just before the Closing Reflection. Default: on.</p>
+          </div>
+        </label>
       </section>
 
       {/* ── 🎁 Sunday Surprise (SM3.1 · #7) ──────────────────────── */}

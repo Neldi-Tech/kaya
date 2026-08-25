@@ -15,13 +15,14 @@ import { FieldValue } from 'firebase-admin/firestore';
 import type {
   ReminderEvent, ReminderType, ReminderVisibility, RepeatRule,
   ReminderRecipient, ReminderChannels, ReminderStatus, MonthDay, GreetTo,
+  CareInfo, CareSlot, CareDuration, CareDurationMode, DoseEntry, DoseStatus,
 } from '@/lib/reminders';
-import { normalizeWhatsapp } from '@/lib/reminders';
+import { normalizeWhatsapp, isCareType, slotIcon, addDaysKey } from '@/lib/reminders';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const TYPES: ReminderType[] = ['birthday', 'anniversary', 'appointment', 'event', 'reminder'];
+const TYPES: ReminderType[] = ['birthday', 'anniversary', 'appointment', 'event', 'reminder', 'medicine', 'routine'];
 const FREQS = ['none', 'daily', 'weekly', 'monthly', 'yearly', 'custom'];
 
 function clampStr(v: unknown, max: number): string {
@@ -128,6 +129,83 @@ function sanitizeGreetTo(raw: unknown, type: ReminderType): GreetTo | undefined 
   return out;
 }
 
+// ── 💊 v5 Care — sanitizer + dose-time helpers ─────────────────────────────
+
+/** Care block for medicine/routine. Built with NO undefined keys. */
+function sanitizeCare(raw: unknown, type: ReminderType): CareInfo | undefined {
+  if (!isCareType(type)) return undefined;
+  const c = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const slots: CareSlot[] = [];
+  for (const s of (Array.isArray(c.slots) ? c.slots : []).slice(0, 6)) {
+    const o = (s && typeof s === 'object' ? s : {}) as Record<string, unknown>;
+    const t = clampStr(o.time, 5);
+    if (/^\d{2}:\d{2}$/.test(t)) slots.push({ time: t, icon: slotIcon(t) });
+  }
+  if (!slots.length) slots.push({ time: '07:00', icon: slotIcon('07:00') });
+  slots.sort((a, b) => (a.time < b.time ? -1 : 1));
+
+  const d = (c.duration && typeof c.duration === 'object' ? c.duration : {}) as Record<string, unknown>;
+  const mode: CareDurationMode = d.mode === 'until' || d.mode === 'ongoing' ? d.mode : 'days';
+  let duration: CareDuration;
+  if (mode === 'ongoing') duration = { mode: 'ongoing' };
+  else if (mode === 'until' && /^\d{4}-\d{2}-\d{2}$/.test(String(d.until))) duration = { mode: 'until', until: String(d.until) };
+  else duration = { mode: 'days', days: Math.max(1, Math.min(365, Math.round(Number(d.days)) || 7)) };
+
+  const forKind = c.forKind === 'self' ? 'self' as const : 'kid' as const;
+  const out: CareInfo = {
+    dose: clampStr(c.dose, 80).trim() || (type === 'medicine' ? '1 dose' : 'once'),
+    slots, duration, forKind,
+    giverUids: Array.isArray(c.giverUids)
+      ? Array.from(new Set((c.giverUids as unknown[]).filter((u): u is string => typeof u === 'string' && !!u))).slice(0, 6)
+      : [],
+    watchInApp: c.watchInApp !== false,
+    watchSummaryEmail: c.watchSummaryEmail !== false,
+    watchMissedEmail: c.watchMissedEmail !== false,
+  };
+  const childId = clampStr(c.forChildId, 128);
+  if (forKind === 'kid' && childId) out.forChildId = childId;
+  const forName = clampStr(c.forName, 80).trim();
+  if (forName) out.forName = forName;
+  if (c.withFood === true) out.withFood = true;
+  const photo = clampStr(c.photoUrl, 1024);
+  if (/^https:\/\//.test(photo)) out.photoUrl = photo;
+  const label = clampStr(c.labelName, 120).trim();
+  if (label) out.labelName = label;
+  const pack = Math.round(Number(c.packCount));
+  if (Number.isFinite(pack) && pack >= 1 && pack <= 999) out.packCount = pack;
+  return out;
+}
+
+/** Care schedules drive the existing recurrence engine: daily, ending with
+ *  the course (so day-8 of a 7-day course simply never occurs). */
+function careRepeat(date: string, care: CareInfo): RepeatRule {
+  const d = care.duration;
+  if (d.mode === 'ongoing') return { freq: 'daily', end: { mode: 'never' } };
+  const last = d.mode === 'until' && d.until ? d.until : addDaysKey(date, Math.max(1, d.days || 1) - 1);
+  return { freq: 'daily', end: { mode: 'on', onDate: last } };
+}
+
+/** Kaya's reference TZ (matches the reminders cron) — dose lateness is
+ *  measured in local family time, never UTC. */
+const CARE_TZ = 'Africa/Dar_es_Salaam';
+function nowInTZ(tz: string): { dayKey: string; minutes: number } {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(new Date());
+  const get = (t: string) => parts.find((p) => p.type === t)?.value || '00';
+  const hour = parseInt(get('hour'), 10) % 24; // 'en-CA' may emit "24" at midnight
+  return { dayKey: `${get('year')}-${get('month')}-${get('day')}`, minutes: hour * 60 + parseInt(get('minute'), 10) };
+}
+const slotMinutes = (t: string): number => {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(t);
+  return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : 0;
+};
+/** Grace window after a slot before a tick counts as "late". */
+const LATE_AFTER_MIN = 60;
+/** Rolling cap on the dose trail (~90 days × 3 slots). */
+const DOSE_LOG_CAP = 270;
+
 function sanitizeLeadDays(raw: unknown): number[] {
   if (!Array.isArray(raw)) return [0];
   const days = Array.from(new Set(
@@ -170,7 +248,7 @@ export async function POST(req: NextRequest) {
   const action = body.action || 'save';
 
   const userSnap = await db.collection('users').doc(uid).get();
-  const user = userSnap.data() as { familyId?: string; role?: string; displayName?: string } | undefined;
+  const user = userSnap.data() as { familyId?: string; role?: string; displayName?: string; childId?: string } | undefined;
   const familyId = user?.familyId;
   if (!familyId) return NextResponse.json({ error: 'no-family' }, { status: 403 });
   const role = (user?.role || 'parent') as 'parent' | 'helper' | 'kid';
@@ -211,6 +289,71 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  // ── 💊 dose — tick a care slot (v5) ───────────────────────────────────
+  // Giver/parent records given|skipped (server stamps late honestly, local
+  // family time); a kid may only add a 💪 brave tap — never the record.
+  if (action === 'dose') {
+    const b = body as unknown as { id?: string; dateKey?: string; slotIndex?: unknown; status?: string; brave?: unknown };
+    const id = clampStr(b.id, 200);
+    const dateKey = clampStr(b.dateKey, 10);
+    const slotIndex = Math.max(0, Math.min(9, Math.round(Number(b.slotIndex)) || 0));
+    if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return NextResponse.json({ error: 'bad-dose' }, { status: 400 });
+    const ref = col.doc(id);
+    const cur = (await ref.get()).data() as ReminderEvent | undefined;
+    if (!cur || !cur.care || !isCareType(cur.type)) return NextResponse.json({ error: 'not-care' }, { status: 404 });
+    if (slotIndex >= cur.care.slots.length) return NextResponse.json({ error: 'bad-slot' }, { status: 400 });
+
+    const key = `${dateKey}:${slotIndex}`;
+    const log: DoseEntry[] = (cur.doseLog || []).slice();
+    const idx = log.findIndex((d) => d.key === key);
+
+    if (b.brave === true) {
+      if (role !== 'kid' || !user?.childId || cur.care.forChildId !== user.childId) {
+        return NextResponse.json({ error: 'brave-is-for-the-kid' }, { status: 403 });
+      }
+      const entry: DoseEntry = idx >= 0 ? { ...log[idx] } : { key };
+      entry.braveUids = Array.from(new Set([...(entry.braveUids || []), uid]));
+      if (idx >= 0) log[idx] = entry; else log.push(entry);
+      await ref.update({ doseLog: log.slice(-DOSE_LOG_CAP), updatedAt: Date.now() });
+      return NextResponse.json({ ok: true, entry });
+    }
+
+    const isGiver = role === 'parent' || (cur.care.giverUids || []).includes(uid);
+    if (!isGiver) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    const raw: DoseStatus = b.status === 'skipped' ? 'skipped' : 'given';
+    const now = nowInTZ(CARE_TZ);
+    const late = raw === 'given'
+      && (dateKey < now.dayKey || (dateKey === now.dayKey && now.minutes > slotMinutes(cur.care.slots[slotIndex].time) + LATE_AFTER_MIN));
+    const entry: DoseEntry = {
+      ...(idx >= 0 ? log[idx] : {}),
+      key,
+      status: raw === 'given' ? (late ? 'late' : 'given') : 'skipped',
+      byUid: uid,
+      byName: user?.displayName || '',
+      at: Date.now(),
+    };
+    if (idx >= 0) log[idx] = entry; else log.push(entry);
+    await ref.update({ doseLog: log.slice(-DOSE_LOG_CAP), updatedAt: Date.now() });
+
+    // 👀 Watch rail — real-time in-app tick to the (other) parents.
+    if (cur.care.watchInApp !== false && cur.care.forKind === 'kid') {
+      const slot = cur.care.slots[slotIndex];
+      const who = cur.care.forName || cur.title;
+      const line = entry.status === 'skipped'
+        ? `⏭ ${slot.icon || ''} dose skipped — ${who}`
+        : `✓ ${slot.icon || ''} dose ${entry.status === 'late' ? 'given late' : 'given'} — ${who}`;
+      for (const pid of await parentUids(db, familyId)) {
+        if (pid === uid) continue;
+        await notify(db, familyId, pid, {
+          type: 'reminder', title: line,
+          message: `${cur.care.dose} · by ${user?.displayName || 'a caregiver'}`,
+          link: '/reminders',
+        });
+      }
+    }
+    return NextResponse.json({ ok: true, entry });
+  }
+
   // ── save (create or update) ──────────────────────────────────────────
   const ev = (body.event && typeof body.event === 'object' ? body.event : {}) as Record<string, unknown>;
   const title = clampStr(ev.title, 120).trim();
@@ -219,11 +362,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'title + valid date required' }, { status: 400 });
   }
   const type = TYPES.includes(ev.type as ReminderType) ? (ev.type as ReminderType) : 'reminder';
-  const visibility: ReminderVisibility = ev.visibility === 'private' ? 'private' : 'shared';
-  const repeat = sanitizeRepeat(ev.repeat);
-  const channels = sanitizeChannels(ev.channels);
+
+  // 💊 v5 — care types are parent-authored, carry a care block, and DERIVE
+  // their repeat (daily, course-bounded) + visibility (self → private by
+  // default; kid → shared-with-caregivers) + channels (dose engine owns
+  // notifications, not the classic email rail).
+  const care = sanitizeCare(ev.care, type);
+  if (isCareType(type)) {
+    if (role !== 'parent') return NextResponse.json({ error: 'care-is-parents-only' }, { status: 403 });
+    if (care!.forKind === 'kid' && !care!.forChildId) {
+      return NextResponse.json({ error: 'care-for-child-required' }, { status: 400 });
+    }
+  }
+
+  const visibility: ReminderVisibility = isCareType(type)
+    ? (care!.forKind === 'self' ? (ev.visibility === 'shared' ? 'shared' : 'private') : 'shared')
+    : (ev.visibility === 'private' ? 'private' : 'shared');
+  const repeat = isCareType(type) ? careRepeat(date, care!) : sanitizeRepeat(ev.repeat);
+  const channels = isCareType(type) ? { inApp: true, email: false, whatsapp: false } : sanitizeChannels(ev.channels);
   const emailRecipients = channels.email ? sanitizeRecipients(ev.emailRecipients) : [];
-  const leadDays = sanitizeLeadDays(ev.leadDays);
+  const leadDays = isCareType(type) ? [0] : sanitizeLeadDays(ev.leadDays);
   const timeRaw = clampStr(ev.time, 5);
   const time = /^\d{2}:\d{2}$/.test(timeRaw) ? timeRaw : undefined;
   // v4 — optional origin date (DOB / wedding day) powering "Nth Birthday".
@@ -246,6 +404,8 @@ export async function POST(req: NextRequest) {
     ...(originDate ? { originDate } : {}),
     // ✉️ 2.0 honoree — same create-vs-edit contract.
     ...(greetTo ? { greetTo } : {}),
+    // 💊 v5 care block — same create-vs-edit contract.
+    ...(care ? { care } : {}),
     withWho: clampStr(ev.withWho, 120),
     location: clampStr(ev.location, 160),
     note: clampStr(ev.note, 500),
@@ -272,7 +432,7 @@ export async function POST(req: NextRequest) {
     // Clear a previously-set time when the editor removed it (legal on a
     // merge:true set, unlike create).
     await ref.set(
-      pruneUndefined({ ...base, ...(time ? {} : { time: FieldValue.delete() }), ...(originDate ? {} : { originDate: FieldValue.delete() }), ...(greetTo ? {} : { greetTo: FieldValue.delete() }), status: nextStatus, firedKeys: cur.firedKeys || [] }),
+      pruneUndefined({ ...base, ...(time ? {} : { time: FieldValue.delete() }), ...(originDate ? {} : { originDate: FieldValue.delete() }), ...(greetTo ? {} : { greetTo: FieldValue.delete() }), ...(care || !cur.care ? {} : { care: FieldValue.delete(), doseLog: FieldValue.delete() }), status: nextStatus, firedKeys: cur.firedKeys || [] }),
       { merge: true },
     );
     if (nextStatus === 'pending_parent') {

@@ -15,7 +15,8 @@ import { useHive } from '@/contexts/HiveContext';
 import {
   Business, DisplayRounding, subscribeToFamilyBusinesses, subscribeToBusinessRequests, resolveBusinessRequest,
   readBusinessConfig, setBusinessConfig, getKidWeeklyEffort, suggestedWeeklyHp,
-  getStockTake, StockTake,
+  getStockTake, StockTake, BusinessReview,
+  PriceRounding, PRICE_ROUNDING_OPTIONS, roundPriceCents,
 } from '@/lib/business';
 import { ApprovalRequest } from '@/lib/hive';
 import { giveAward, Child } from '@/lib/firestore';
@@ -73,6 +74,9 @@ export default function ParentBusinessConsolePage() {
 
       {/* How worth/value numbers are shown — readability vs precision. */}
       <DisplayRoundingSettings familyId={familyId!} value={bizConfig.displayRounding} currency={config.currency} />
+
+      {/* Business 2.0 (D3) — how the Pricing Studio rounds cost+profit prices. */}
+      <PriceRoundingSettings familyId={familyId!} value={bizConfig.priceRounding ?? 'auto'} currency={config.currency} />
     </>
   );
 
@@ -214,20 +218,50 @@ function ApprovalRow({ req, kidName, familyId, approverUid }: { req: ApprovalReq
   };
 
   const media = take?.media?.length ? take.media : (take?.photoUrl ? [{ url: take.photoUrl, kind: 'photo' as const }] : []);
+  // Business 2.0 — review-HP requests carry awardDate `review-…`; the fetched
+  // doc is then the BusinessReview itself (same collection).
+  const isReviewHp = req.type === 'business_hp' && !!req.awardDate?.startsWith('review-');
+  const review = isReviewHp ? (take as unknown as BusinessReview | null) : null;
+  const ICONS: Record<string, string> = {
+    investment_buy: '📈', business_hp: '🏅', business_sale: '🛒',
+    business_reinvest: '↻', business_nature_change: '🧭', business_price_change: '🏷️',
+  };
+  const LABELS: Record<string, string> = {
+    investment_buy: 'Investment buy', business_sale: 'Daily sale',
+    business_reinvest: 'Reinvest from Honey Pot', business_nature_change: 'Change how it works',
+    business_price_change: 'Price change', business_launch: 'Launch request',
+  };
 
   return (
     <div className="bg-hive-paper border-2 border-hive-honey/50 rounded-hive-lg p-4">
       <div className="flex items-start gap-3">
-        <div className="w-10 h-10 rounded-[12px] bg-hive-honey-soft text-hive-honey-dk flex items-center justify-center text-xl shrink-0">{req.type === 'investment_buy' ? '📈' : req.type === 'business_hp' ? '🏅' : req.type === 'business_sale' ? '🛒' : '🚀'}</div>
+        <div className="w-10 h-10 rounded-[12px] bg-hive-honey-soft text-hive-honey-dk flex items-center justify-center text-xl shrink-0">{isReviewHp ? '📝' : ICONS[req.type] || '🚀'}</div>
         <div className="flex-1 min-w-0">
-          <p className="font-nunito font-extrabold text-[13px]">{req.type === 'investment_buy' ? 'Investment buy' : req.type === 'business_hp' ? 'Stock-take points' : req.type === 'business_sale' ? 'Daily sale' : 'Launch request'}</p>
+          <p className="font-nunito font-extrabold text-[13px]">{req.type === 'business_hp' ? (isReviewHp ? 'Business Review points' : req.isCheckin ? 'Check-in points' : 'Stock-take points') : LABELS[req.type] || 'Launch request'}</p>
           <p className="text-[12.5px] text-hive-navy mt-0.5 leading-snug">{req.description}</p>
           <p className="text-[11px] text-hive-muted mt-1">For <strong className="text-hive-navy">{kidName || 'unknown kid'}</strong></p>
           {req.aiContext && <p className="text-[11px] text-hive-muted mt-1 italic">AI: {req.aiContext}</p>}
         </div>
       </div>
 
-      {req.type === 'business_hp' && (
+      {/* Review-points card: show the review the parent is rewarding. */}
+      {isReviewHp && (
+        <div className="mt-3 bg-hive-cream/60 rounded-hive p-3">
+          {!takeLoaded ? (
+            <p className="text-[11px] text-hive-muted">Loading the review…</p>
+          ) : review ? (
+            <div className="text-[12px] text-hive-navy space-y-1">
+              <p>📊 Last {review.periodDays} days: <b>{review.unitsSold}</b> sold · <b>{review.customersServed}</b> customers · profit <b>{review.profitCents >= 0 ? '+' : ''}{(review.profitCents / 100).toLocaleString()}</b></p>
+              {review.wentWell && <p>🌟 &ldquo;{review.wentWell}&rdquo;</p>}
+              {review.tryNext && <p>🌱 Wants to try: &ldquo;{review.tryNext}&rdquo;</p>}
+            </div>
+          ) : (
+            <p className="text-[11px] text-hive-muted">The review record could not be loaded.</p>
+          )}
+        </div>
+      )}
+
+      {req.type === 'business_hp' && !isReviewHp && (
         <div className="mt-3 bg-hive-cream/60 rounded-hive p-3">
           {!takeLoaded ? (
             <p className="text-[11px] text-hive-muted">Loading today&apos;s photos…</p>
@@ -470,6 +504,45 @@ function DisplayRoundingSettings({ familyId, value, currency }: { familyId: stri
       <button onClick={save} disabled={saving || mode === value}
         className="w-full mt-3 h-10 rounded-hive-pill bg-hive-navy text-hive-honey font-nunito font-black text-[12.5px] disabled:opacity-40">
         {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save number style'}
+      </button>
+    </div>
+  );
+}
+
+// ── Business 2.0 (D3) · Price rounding — how the Pricing Studio lands on a
+// friendly number. 'Auto' picks the bucket from the price's own magnitude
+// (1,250 → 1,300; $3.47 → $3.50); parents can force a bucket or turn it off.
+function PriceRoundingSettings({ familyId, value, currency }: { familyId: string; value: PriceRounding; currency: string }) {
+  const [mode, setMode] = useState<PriceRounding>(value);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const SAMPLE = 125000; // 1,250.00 in minor units — the approved juice example
+  const save = async () => {
+    setSaving(true); setSaved(false);
+    try { await setBusinessConfig(familyId, { priceRounding: mode }); setSaved(true); }
+    finally { setSaving(false); }
+  };
+  return (
+    <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-6">
+      <div className="flex items-baseline justify-between mb-2">
+        <h2 className="font-nunito font-extrabold text-[14px]">💰 Price rounding</h2>
+        <span className="text-[11px] text-hive-muted">the Pricing Studio&apos;s friendly prices</span>
+      </div>
+      <div className="grid grid-cols-2 gap-2 mb-2">
+        {PRICE_ROUNDING_OPTIONS.map((o) => (
+          <button key={o.key} onClick={() => { setMode(o.key); setSaved(false); }}
+            className={`h-9 rounded-hive-pill text-[11.5px] font-nunito font-extrabold border transition ${mode === o.key ? 'bg-hive-navy text-hive-honey border-transparent' : 'bg-hive-paper text-hive-muted border-hive-line'}`}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-[12px] text-hive-muted">
+        Preview: cost + profit of <span className="font-nunito font-extrabold text-hive-navy">{formatCash(SAMPLE, currency)}</span>
+        {' '}→ <span className="font-nunito font-extrabold text-hive-navy">{formatCash(roundPriceCents(SAMPLE, mode), currency)}</span>
+      </p>
+      <button onClick={save} disabled={saving || mode === value}
+        className="w-full mt-3 h-10 rounded-hive-pill bg-hive-navy text-hive-honey font-nunito font-black text-[12.5px] disabled:opacity-40">
+        {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save price rounding'}
       </button>
     </div>
   );

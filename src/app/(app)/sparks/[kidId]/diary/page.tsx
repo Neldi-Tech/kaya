@@ -34,7 +34,15 @@ import AreaScreen from '@/components/sparks/AreaScreen';
 import { EntryCard, DiaryTimeline, PinCreateModal } from '@/components/sparks/DiaryShared';
 import { PolishControl } from '@/components/sparks/PolishedText';
 import { YearInPixelsCard, OnThisDayCard } from '@/components/sparks/DiaryFeatures';
-import FilledDaysBrowser from '@/components/sparks/FilledDaysBrowser';
+import {
+  type TimelineDay, TimelineList, TimelineBrowse,
+  ViewSwitcher, useRememberedView, previewLine,
+  timelineDayLabel, timelineMonthLabel,
+} from '@/components/sparks/TimelineViews';
+import TimelineHitMap from '@/components/sparks/TimelineHitMap';
+import NoteStudio from '@/components/sparks/NoteStudio';
+import MonthStory from '@/components/sparks/MonthStory';
+import { requestNoteShare, subscribeToKidRequests, type ApprovalRequest } from '@/lib/hive';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 import DiaryInkCanvas, { type DiaryInkHandle } from '@/components/sparks/DiaryInkCanvas';
 import { uploadSparksPhotos } from '@/lib/sparks/uploadPhoto';
@@ -77,10 +85,9 @@ export default function DiaryPage() {
   const inkRef = useRef<DiaryInkHandle>(null);
   const [scanOpen, setScanOpen] = useState(false);
   const [scanFiles, setScanFiles] = useState<File[]>([]);
-  // Slice 8c · timeline visibility + tapped-day sheet.
+  // Timeline 2.0 · the views are ALWAYS visible now; this flag only
+  // reveals the big 🎨 Year-in-Pixels poster (collapsed by default).
   const [timelineOpen, setTimelineOpen] = useState(false);
-  // PAST-1 · parents land with the past open — no hidden toggle.
-  useEffect(() => { if (isParent) setTimelineOpen(true); }, [isParent]);
   const [dayOpen, setDayOpen] = useState<string | null>(null);
   // Slice 8d · privacy: kid PIN gate + parent quiet-open flow.
   const [hasPin, setHasPin] = useState<boolean | null>(null);
@@ -113,7 +120,7 @@ export default function DiaryPage() {
       // subscribeToDiary maps API failures to [] — probe once for the
       // sibling-403 case so we can show the honest private state.
       setEntries(rows);
-    });
+    }, 1830); // All-years hit-map zoom reads up to 5 years
   }, [familyId, kidId, knownOtherKid, router]);
 
   // Distinguish "empty diary" from "access denied" with one probe.
@@ -165,18 +172,69 @@ export default function DiaryPage() {
     return Array.from(byDay.entries()).slice(0, 7);
   }, [entries, today]);
 
-  // PAST-1 · 📚 filled days for the drill-down browser (one chip per day).
-  const filledDays = useMemo(() => {
-    const m = new Map<string, { date: string; emoji?: string; starred: boolean; locked: boolean; count: number }>();
-    for (const e of entries ?? []) {
-      const cur = m.get(e.date) ?? { date: e.date, emoji: e.feeling, starred: false, locked: false, count: 0 };
-      cur.count += 1;
-      if (e.parent_stars && Object.keys(e.parent_stars).length > 0) cur.starred = true;
-      if (e.locked && !e.knock_open) cur.locked = true;
-      m.set(e.date, cur);
-    }
-    return Array.from(m.values());
-  }, [entries]);
+  // Timeline 2.0 (design v2) · one TimelineDay per calendar day. Preview
+  // comes from the first text block the viewer can see (redacted pages
+  // arrive with blocks=[] so a parent never previews a locked page).
+  const [tlView, setTlView] = useRememberedView('diary-kid', ['list', 'browse', 'hitmap', 'calendar'], 'list');
+  const tlDays = useMemo<TimelineDay[]>(() => {
+    const byDay = new Map<string, DiaryEntry[]>();
+    for (const e of entries ?? []) byDay.set(e.date, [...(byDay.get(e.date) ?? []), e]);
+    return Array.from(byDay.entries()).map(([date, list]) => {
+      const ordered = list.slice().reverse(); // subscribe is newest-first → read oldest-first
+      const textBlock = ordered.flatMap((e) => e.blocks ?? []).find((b) => b.kind === 'text' && b.text?.trim());
+      const drawn = ordered.some((e) => (e.blocks ?? []).some((b) => b.kind === 'ink' || b.kind === 'scan'));
+      const replies = ordered.flatMap((e) => e.note_replies ?? []);
+      const allBlocks = ordered.flatMap((e) => e.blocks ?? []);
+      return {
+        date,
+        emoji: ordered.find((e) => e.feeling)?.feeling,
+        preview: previewLine(textBlock?.text) || (drawn ? (sw ? '🖊 Ukurasa uliochorwa' : '🖊 Drawn page') : ''),
+        locked: list.some((e) => e.locked && !e.knock_open),
+        starred: list.some((e) => e.parent_stars && Object.keys(e.parent_stars).length > 0),
+        count: list.length,
+        reply: replies.length ? replies[replies.length - 1] : undefined,
+        photoUrl: allBlocks.find((b) => (b.kind === 'scan' || b.kind === 'ink') && b.url)?.url,
+        searchText: allBlocks.filter((b) => b.kind === 'text' && b.text?.trim()).map((b) => b.text as string).join('\n') || undefined,
+      };
+    });
+  }, [entries, sw]);
+
+  // 🖼 Note Studio (design v2 §3) — locked pages NEVER reach a share,
+  // even knock-open ones: reading permission is not sharing permission.
+  const [noteFor, setNoteFor] = useState<string | null>(null);
+  const [noteAsks, setNoteAsks] = useState<ApprovalRequest[]>([]);
+  useEffect(() => {
+    if (!familyId || isParent) return;
+    return subscribeToKidRequests(familyId, kidId, (rows) =>
+      setNoteAsks(rows.filter((r) => r.type === 'note_share' && r.noteSurface === 'diary')));
+  }, [familyId, kidId, isParent]);
+  const diaryLabel = sw ? 'Shajara' : 'My Diary';
+  const shareableDay = (date: string) => {
+    const list = (entries ?? [])
+      .filter((e) => e.date === date && !e.locked && !e.redacted)
+      .slice().reverse();
+    const texts = list.flatMap((e) =>
+      (e.blocks ?? []).filter((b) => b.kind === 'text' && b.text?.trim()).map((b) => (b.text as string).trim()));
+    if (texts.length === 0) return null;
+    return {
+      kidName: kidName.split(' ')[0],
+      surfaceLabel: diaryLabel,
+      dateLabel: timelineDayLabel(date, sw),
+      dateKey: date,
+      feeling: list.find((e) => e.feeling)?.feeling,
+      text: texts.join('\n\n'),
+    };
+  };
+  const noteBase = useMemo(() => (noteFor ? shareableDay(noteFor) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [noteFor, entries, kidName, sw]);
+  const noteMonth = useMemo(() => {
+    if (!noteFor) return [];
+    const pfx = noteFor.slice(0, 7);
+    const dates = Array.from(new Set((entries ?? []).filter((e) => e.date.slice(0, 7) === pfx).map((e) => e.date))).sort();
+    return dates.map((d) => shareableDay(d)).filter(Boolean) as NonNullable<ReturnType<typeof shareableDay>>[];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noteFor, entries, kidName, sw]);
 
   // Slice 8g · feeling optional — Kaya infers when skipped (✨ badge).
   const canSave = !saving
@@ -368,34 +426,56 @@ export default function DiaryPage() {
 
       {/* Composer — owner kid only (parents never write here). */}
       {isOwnerKid && !writing && (
-        <div className="flex gap-2">
-          <button type="button" onClick={() => setWriting(true)}
-            className="flex-1 rounded-2xl py-3 text-white font-nunito font-black text-[14px]"
-            style={{ background: `linear-gradient(135deg, ${PLUM}, #C05299)` }}>
-            ＋ {sw ? 'Andika kwenye shajara yangu' : 'Write in my diary'}
-          </button>
-          <button type="button" onClick={() => setTimelineOpen((v) => !v)}
-            className="rounded-2xl py-3 px-4 font-nunito font-black text-[14px] bg-[#F9E4F1] text-[#7A2E5C]">
-            📖 {sw ? 'Ratiba' : 'My timeline'}
-          </button>
-        </div>
-      )}
-      {!isOwnerKid && (
-        <button type="button" onClick={() => setTimelineOpen((v) => !v)}
-          className="w-full rounded-2xl py-3 font-nunito font-black text-[14px] bg-[#F9E4F1] text-[#7A2E5C]">
-          📖 {sw ? 'Ratiba ya shajara' : 'Diary timeline'}
+        <button type="button" onClick={() => setWriting(true)}
+          className="w-full rounded-2xl py-3 text-white font-nunito font-black text-[14px]"
+          style={{ background: `linear-gradient(135deg, ${PLUM}, #C05299)` }}>
+          ＋ {sw ? 'Andika kwenye shajara yangu' : 'Write in my diary'}
         </button>
       )}
 
-      {/* Slice 8c · emoji timeline — Year → Month → Day. */}
+      {/* Timeline 2.0 (design v2) · 📋 List (default) · 🗂 Browse ·
+          🗓 Calendar (the Slice-8c emoji month — nothing taken away).
+          ALWAYS visible for kid AND parent, exactly like Reflection —
+          no toggle to find (Elia, 2026-08-25: "do the same for Diary");
+          the old 📖 toggle now reveals only the 🎨 Year-in-Pixels poster. */}
+      {(entries ?? []).length > 0 && (
+        <>
+          <ViewSwitcher view={tlView} views={['list', 'browse', 'hitmap', 'calendar']} onChange={setTlView} sw={sw} />
+          {tlView === 'list' && (
+            <TimelineList days={tlDays} onOpenDay={(d) => setDayOpen(d)} onShareDay={(d) => setNoteFor(d)} sw={sw} />
+          )}
+          {tlView === 'browse' && (
+            <TimelineBrowse days={tlDays} onOpenDay={(d) => setDayOpen(d)} onShareDay={(d) => setNoteFor(d)} sw={sw}
+              monthExtra={(mk) => (
+                <MonthStory kidId={kidId} surface="diary" monthKey={mk} isParent={isParent} sw={sw} />
+              )} />
+          )}
+          {/* Hit-map 2.0 · no scores in the diary — feelings + presence
+              layers only, and no "missed" concept (no expected days). */}
+          {tlView === 'hitmap' && (
+            <TimelineHitMap
+              days={tlDays}
+              onOpenDay={(d) => setDayOpen(d)}
+              sw={sw}
+              layers={['feelings', 'presence']}
+            />
+          )}
+          {tlView === 'calendar' && (
+            <DiaryTimeline
+              entries={entries ?? []}
+              sw={sw}
+              onOpenDay={(d) => setDayOpen(d)}
+            />
+          )}
+          {/* 🎨 Year in Pixels — the big poster, behind its own reveal. */}
+          <button type="button" onClick={() => setTimelineOpen((v) => !v)}
+            className="w-full rounded-2xl py-2.5 mt-1 font-nunito font-black text-[13px] bg-[#F9E4F1] text-[#7A2E5C]">
+            🎨 {timelineOpen ? (sw ? 'Ficha mwaka kwa rangi' : 'Hide year in pixels') : (sw ? 'Mwaka kwa rangi' : 'Year in pixels')}
+          </button>
+        </>
+      )}
       {timelineOpen && (
         <>
-          <DiaryTimeline
-            entries={entries ?? []}
-            sw={sw}
-            onOpenDay={(d) => setDayOpen(d)}
-          />
-          <FilledDaysBrowser days={filledDays} sw={sw} onOpenDay={(d) => setDayOpen(d)} />
           <YearInPixelsCard
             entries={entries ?? []}
             year={new Date().getFullYear()}
@@ -670,13 +750,43 @@ export default function DiaryPage() {
         </div>
       )}
 
+      {/* 🖼 Note Studio — themed keepsake card for one day's pages. */}
+      <NoteStudio
+        open={!!noteBase}
+        onClose={() => setNoteFor(null)}
+        base={noteBase}
+        monthNotes={noteMonth}
+        monthLabel={noteFor ? timelineMonthLabel(noteFor, sw) : ''}
+        kidTags={[kidId]}
+        canShareOutside={isParent}
+        sendMeta={{ kidId, surface: 'diary' }}
+        ask={!isParent && noteFor ? {
+          state: noteAsks.some((r) => r.noteDate === noteFor && r.status === 'approved') ? 'approved'
+            : noteAsks.some((r) => r.noteDate === noteFor && r.status === 'pending') ? 'pending' : 'none',
+          onAsk: async () => {
+            if (!familyId || !authProfile?.uid || !noteFor || !noteBase) return;
+            await requestNoteShare(familyId, kidId,
+              { date: noteFor, surface: 'diary', preview: noteBase.text.slice(0, 60) },
+              authProfile.uid);
+          },
+        } : null}
+        sw={sw}
+      />
+
       {/* Slice 8c · tapped-day sheet — that day's entries, same cards. */}
       {dayOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
           <button type="button" aria-label="Close" onClick={() => setDayOpen(null)} className="absolute inset-0 bg-black/40" />
           <div className="relative w-full sm:max-w-md max-h-[85vh] overflow-y-auto bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl">
-            <div className="px-5 pt-4 pb-3 text-white sticky top-0" style={{ background: `linear-gradient(135deg, ${PLUM}, #C05299)` }}>
+            <div className="px-5 pt-4 pb-3 text-white sticky top-0 flex items-center justify-between gap-2" style={{ background: `linear-gradient(135deg, ${PLUM}, #C05299)` }}>
               <div className="font-display font-extrabold text-[16px]">📔 {toDisplayDate(dayOpen)}</div>
+              {shareableDay(dayOpen) && (
+                <button type="button"
+                  onClick={() => { const d = dayOpen; setDayOpen(null); setNoteFor(d); }}
+                  className="shrink-0 rounded-full bg-white/15 hover:bg-white/25 px-3.5 py-1.5 text-[12px] font-nunito font-extrabold text-white">
+                  ↗ {sw ? 'Shiriki' : 'Share'}
+                </button>
+              )}
             </div>
             <div className="p-4 space-y-2.5">
               {(entries ?? []).filter((e) => e.date === dayOpen).slice().reverse().map((e) => (

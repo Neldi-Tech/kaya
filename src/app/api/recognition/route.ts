@@ -23,8 +23,9 @@ export const maxDuration = 30;
 
 type Action =
   | 'card-create' | 'card-list' | 'card-theme' | 'card-note' | 'card-echo'
-  | 'card-set-post' | 'card-email' | 'card-delete' | 'card-gift' | 'round-get' | 'round-list'
-  | 'round-dismiss' | 'round-undismiss' | 'dismissals-list';
+  | 'card-set-post' | 'card-email' | 'card-delete' | 'card-gift' | 'card-lang'
+  | 'round-get' | 'round-list'
+  | 'round-dismiss' | 'round-undismiss' | 'dismissals-list' | 'helper-round-get';
 
 const CARD_LIMIT = 120;
 
@@ -79,19 +80,27 @@ export async function POST(req: NextRequest) {
         const { kidId, kidName, kidEmoji, awardId, theme, quote, kindLabel, pointsLabel, category, roundDate, gift, giftMeta } = body;
         if (!kidId || !quote) return NextResponse.json({ error: 'bad-request' }, { status: 400 });
 
+        // 🧡 HR PR-2 — Asante cards celebrate a HELPER. Parents only,
+        // own № series (asanteCount), no Double-Shine / kid milestones.
+        const isHelperCard = body.subject === 'helper';
+        if (isHelperCard && (!isParent || !body.helperUid)) {
+          return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+        }
+        const counterField = isHelperCard ? 'recognitionStats.asanteCount' : 'recognitionStats.cardCount';
+
         // № via transactional counter on the family doc.
         const n = await db.runTransaction(async (tx) => {
           const famSnap = await tx.get(famRef);
-          const next = (((famSnap.data() as { recognitionStats?: { cardCount?: number } })?.recognitionStats?.cardCount) || 0) + 1;
-          tx.update(famRef, { 'recognitionStats.cardCount': next });
+          const stats = (famSnap.data() as { recognitionStats?: { cardCount?: number; asanteCount?: number } })?.recognitionStats;
+          const next = ((isHelperCard ? stats?.asanteCount : stats?.cardCount) || 0) + 1;
+          tx.update(famRef, { [counterField]: next });
           return next;
         });
 
         // 🤝 Double Shine — another adult celebrated this kid today.
         // Equality-only query (auto index); the day filter runs in code.
         const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
-        const kidCardsSnap = await cardsCol.where('kidId', '==', kidId).get();
-        const partner = kidCardsSnap.docs.find((d) => {
+        const partner = isHelperCard ? undefined : (await cardsCol.where('kidId', '==', kidId).get()).docs.find((d) => {
           const c = d.data() as { by?: string; at?: number };
           return c.by !== uid && (c.at || 0) >= dayStart.getTime();
         });
@@ -128,24 +137,35 @@ export async function POST(req: NextRequest) {
           } : {}),
           doubleShine,
           notes: [] as unknown[],
+          ...(isHelperCard ? { subject: 'helper', helperUid: String(body.helperUid) } : {}),
+          ...(body.lang === 'sw' || body.lang === 'en' ? { lang: body.lang } : {}),
+          // 💬 HR PR-4 — a kid's own words on the card.
+          ...(typeof body.kidsLine === 'string' && body.kidsLine.trim() ? { kidsLine: String(body.kidsLine).trim().slice(0, 140) } : {}),
         };
         const ref = await cardsCol.add(card);
         if (doubleShine && partner) {
           await partner.ref.update({ doubleShine: true }).catch(() => {});
         }
 
-        const kidUid = await kidLoginUid(kidId);
-        if (kidUid) {
-          await bell(kidUid, doubleShine
-            ? { type: 'reward', title: '🎊 Double Shine!', message: 'Mum AND Dad noticed — a golden Shine Card is on your wall!', link: '/profiles' }
-            : { type: 'reward', title: `🌟 Shine Card №${n} for you!`, message: card.quote.slice(0, 90), link: '/profiles' });
+        if (isHelperCard) {
+          // The helper's bell — bilingual to match the card.
+          await bell(String(body.helperUid), body.lang === 'sw'
+            ? { type: 'reward', title: `🧡 Kadi ya Asante №${n} kwa ajili yako!`, message: card.quote.slice(0, 90), link: '/pantry/workplan' }
+            : { type: 'reward', title: `🧡 Asante Card №${n} for you!`, message: card.quote.slice(0, 90), link: '/pantry/workplan' });
+        } else {
+          const kidUid = await kidLoginUid(kidId);
+          if (kidUid) {
+            await bell(kidUid, doubleShine
+              ? { type: 'reward', title: '🎊 Double Shine!', message: 'Mum AND Dad noticed — a golden Shine Card is on your wall!', link: '/profiles' }
+              : { type: 'reward', title: `🌟 Shine Card №${n} for you!`, message: card.quote.slice(0, 90), link: '/profiles' });
+          }
         }
 
         // 🏆 RR PR-4 — Shine milestones: the family's 25th/50th/100th/…
         // card is worth celebrating itself. Golden moment: everyone's
         // bells + an automatic Moments post from Kaya.
         const MILESTONES = new Set([10, 25, 50, 100, 150, 200, 300, 400, 500]);
-        if (MILESTONES.has(n)) {
+        if (!isHelperCard && MILESTONES.has(n)) {
           try {
             const membersSnap = await db.collection('users').where('familyId', '==', familyId).get();
             await Promise.all(membersSnap.docs.map((m) => bell(m.id, {
@@ -213,6 +233,15 @@ export async function POST(req: NextRequest) {
             ...(Number.isInteger(gm.amountCents) && (gm.amountCents as number) > 0 ? { amountCents: gm.amountCents } : {}),
           },
         });
+        return NextResponse.json({ ok: true });
+      }
+
+      case 'card-lang': {
+        // 🧡 HR PR-2 — persist the card's EN↔SW chrome choice.
+        if (!isAdult) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+        const { cardId, lang } = body;
+        if (!cardId || !['en', 'sw'].includes(String(lang))) return NextResponse.json({ error: 'bad-request' }, { status: 400 });
+        await cardsCol.doc(String(cardId)).update({ lang: String(lang) });
         return NextResponse.json({ ok: true });
       }
 
@@ -289,9 +318,10 @@ export async function POST(req: NextRequest) {
         const cardSnap = await cardsCol.doc(String(cardId)).get();
         const cardDoc = cardSnap.data() as {
           kidId?: string; kidName?: string; n?: number; quote?: string;
-          byName?: string; gift?: string;
+          byName?: string; gift?: string; subject?: string; helperUid?: string; lang?: string;
         } | undefined;
         if (!cardDoc) return NextResponse.json({ error: 'not-found' }, { status: 404 });
+        const isHelperCard = cardDoc.subject === 'helper';
 
         const famSnap = await famRef.get();
         const famData = famSnap.data() as {
@@ -299,6 +329,20 @@ export async function POST(req: NextRequest) {
         } | undefined;
 
         const to = new Set<string>();
+        if (isHelperCard) {
+          // 🧡 Asante card — the helper themselves + the parents. Kids'
+          // pipeline and external contacts stay out of helper mail.
+          if (cardDoc.helperUid) {
+            const hSnap = await db.collection('users').doc(cardDoc.helperUid).get();
+            const hEmail = (hSnap.data() as { email?: string } | undefined)?.email;
+            if (hEmail) to.add(hEmail);
+          }
+          const membersSnap = await db.collection('users').where('familyId', '==', familyId).get();
+          for (const m of membersSnap.docs) {
+            const u = m.data() as { role?: string; email?: string; notifyOnAward?: boolean };
+            if (u.role === 'parent' && u.email && u.notifyOnAward !== false) to.add(u.email);
+          }
+        } else {
         // Kid's own address (COPPA source pointer — absent = no send).
         try {
           const { resolveKidEmailAddress } = await import('@/lib/kidEmails.server');
@@ -310,11 +354,15 @@ export async function POST(req: NextRequest) {
         // Family mailing list.
         const membersSnap = await db.collection('users').where('familyId', '==', familyId).get();
         for (const m of membersSnap.docs) {
-          const u = m.data() as { role?: string; email?: string; notifyOnAward?: boolean };
+          const u = m.data() as { role?: string; email?: string; notifyOnAward?: boolean; helperListed?: boolean };
+          // 🤝 2026-08-25 — outside helpers (no kid assigned) are not
+          // mailed about a kid's recognition. Mirrors the client wizard.
+          if (u.role === 'helper' && u.helperListed === false) continue;
           if ((u.role === 'parent' || u.role === 'helper') && u.email && u.notifyOnAward !== false) to.add(u.email);
         }
         for (const c of famData?.externalContacts || []) {
           if (c.email && c.notifyOnAward) to.add(c.email);
+        }
         }
         if (to.size === 0) return NextResponse.json({ error: 'no-recipients' }, { status: 400 });
 
@@ -323,10 +371,13 @@ export async function POST(req: NextRequest) {
         if (!apiKey) return NextResponse.json({ error: 'email-not-configured' }, { status: 503 });
         const resend = new Resend(apiKey);
         const FROM = process.env.RESEND_FROM || 'Kaya <noreply@ourkaya.com>';
-        const subject = `🌟 Shine Card №${cardDoc.n} — ${cardDoc.kidName}`;
+        const subject = isHelperCard
+          ? (cardDoc.lang === 'sw' ? `🧡 Kadi ya Asante №${cardDoc.n} — ${cardDoc.kidName}` : `🧡 Asante Card №${cardDoc.n} — ${cardDoc.kidName}`)
+          : `🌟 Shine Card №${cardDoc.n} — ${cardDoc.kidName}`;
+        const headerLine = isHelperCard ? '🧡 Kaya · Asante Card' : '🌟 Kaya · Shine Card';
         const html =
           `<div style="font-family:-apple-system,Segoe UI,Arial,sans-serif;max-width:420px;margin:0 auto;padding:20px;text-align:center">
-            <p style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#9B8A72;font-weight:800;margin:0 0 12px">🌟 Kaya · Shine Card</p>
+            <p style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#9B8A72;font-weight:800;margin:0 0 12px">${headerLine}</p>
             <img src="${String(imageUrl)}" alt="Shine Card №${cardDoc.n}" style="width:100%;max-width:360px;border-radius:14px"/>
             <p style="font-size:13px;color:#1E120B;margin:14px 0 0">&ldquo;${String(cardDoc.quote || '').slice(0, 200)}&rdquo; — ${cardDoc.byName || 'family'}</p>
             ${cardDoc.gift ? `<p style="font-size:12.5px;color:#A87D0F;font-weight:800;margin:8px 0 0">🎁 ${String(cardDoc.gift)}</p>` : ''}
@@ -346,6 +397,15 @@ export async function POST(req: NextRequest) {
         }).catch(() => {});
         if (!sent) return NextResponse.json({ error: error || 'send-failed' }, { status: 500 });
         return NextResponse.json({ ok: true, count: to.size });
+      }
+
+      case 'helper-round-get': {
+        // 🤝 HR PR-3 — this month's helper spotlight (parents only; the
+        // round is reward-planning material, not helper-visible).
+        if (!isParent) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+        const month = /^\d{4}-\d{2}$/.test(String(body.month)) ? String(body.month) : new Date().toISOString().slice(0, 7);
+        const snap = await famRef.collection('helperRounds').doc(month).get();
+        return NextResponse.json({ ok: true, round: snap.exists ? { id: snap.id, ...snap.data() } : null });
       }
 
       case 'round-get': {

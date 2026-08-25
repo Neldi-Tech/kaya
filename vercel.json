@@ -85,6 +85,10 @@
       "schedule": "10 7 * * *"
     },
     {
+      "path": "/api/cron/care-doses",
+      "schedule": "40 * * * *"
+    },
+    {
       "path": "/api/cron/sparks-reflection-reminders",
       "schedule": "0,30 * * * *"
     },
