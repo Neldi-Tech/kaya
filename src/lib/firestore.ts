@@ -654,6 +654,10 @@ export interface Family {
     sundaySurpriseEnabled?: boolean;
     surprises?: Record<string, boolean>;
     goldenTickets?: string[];
+    /** 🌟 Note of the Week (Timeline 2.0, 2026-08-25): Kaya nominates the
+     *  week's journal notes, the family crowns one → Moments. Own flag,
+     *  default ON (absent = on). */
+    noteOfWeekEnabled?: boolean;
     /** Sunday-Meeting (song reveal, 2026-06-21): the closing song set
      *  AHEAD of the meeting by the leader or a parent. During the meeting
      *  the Closing step opens it as a surprise (5-4-3-2-1 countdown →
@@ -1404,6 +1408,16 @@ export interface Meeting {
     postId?: string;
     missions?: Record<string, string>;
     checkedMissions?: Record<string, boolean>;
+  };
+  /** 🌟 Note of the Week (Timeline 2.0): tonight's crowned journal note. */
+  noteOfWeek?: {
+    kidId: string;
+    kidName: string;
+    date: string;
+    surface: 'reflection' | 'diary';
+    excerpt: string;
+    postId?: string;
+    at: number;
   };
   /** SM3.1 (H·B): 🎭 tonight's co-host roles — roleId → childId. The Wheel
    *  deals them at Attendance; each role-kid earns +1 HP at finish. */
