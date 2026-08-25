@@ -37,6 +37,8 @@ import TodaysWorkplanCard from '@/components/helpers/TodaysWorkplanCard';
 import RoutineFillTab from '@/components/helpers/RoutineFillTab';
 import ScoreTab from '@/components/helpers/ScoreTab';
 import KidReviewsTab from '@/components/helpers/KidReviewsTab';
+import HelperRecognitionTab from '@/components/helpers/HelperRecognitionTab';
+import CompareHelpersView from '@/components/helpers/CompareHelpersView';
 import DayStepper from '@/components/helpers/DayStepper';
 import { listHelpers, getHelperLink } from '@/lib/helpers';
 import { getHelperPerformance, perfFace, type HelperPerformanceWindow } from '@/lib/helperPerformance';
@@ -98,7 +100,7 @@ export default function PantryWorkplanPage() {
   const searchParams = useSearchParams();
   const deepHelper = searchParams.get('helper');
   const deepTabRaw = searchParams.get('tab');
-  const deepTab: HelperTab | null = deepTabRaw === 'score' || deepTabRaw === 'fill' || deepTabRaw === 'reviews' || deepTabRaw === 'today' ? deepTabRaw : null;
+  const deepTab: HelperTab | null = deepTabRaw === 'score' || deepTabRaw === 'fill' || deepTabRaw === 'reviews' || deepTabRaw === 'today' || deepTabRaw === 'recognition' ? deepTabRaw : null;
   // HP2 D1/D2 (2026-08-23) — the family's performance policy drives
   // which helpers show performance surfaces at all (tracked) and
   // whether a helper may see their own (helpersSeeOwnScore).
@@ -184,6 +186,19 @@ export default function PantryWorkplanPage() {
   // HP2 D16 — desktop: which helper the detail pane shows + its tab.
   const [selectedUid, setSelectedUid] = useState<string | null>(deepHelper);
   const [desktopTab, setDesktopTab] = useState<HelperTab>(deepTab ?? 'today');
+  // 🤝 HR PR-1 — fold the rail to a slim avatar strip once a helper is
+  // picked (remembered), and ⚖️ compare mode for 2–3 helpers.
+  const [railFolded, setRailFoldedState] = useState(() => {
+    try { return localStorage.getItem('kayaHelperRailFolded') === '1'; } catch { return false; }
+  });
+  const setRailFolded = (v: boolean) => {
+    setRailFoldedState(v);
+    try { localStorage.setItem('kayaHelperRailFolded', v ? '1' : '0'); } catch { /* ignore */ }
+  };
+  const [compareOn, setCompareOn] = useState(false);
+  const [compareUids, setCompareUids] = useState<string[]>([]);
+  const toggleCompareUid = (uid: string) =>
+    setCompareUids((p) => p.includes(uid) ? p.filter((x) => x !== uid) : p.length >= 3 ? p : [...p, uid]);
   const selectedHelper = visibleHelpers?.find((h) => h.uid === selectedUid) ?? visibleHelpers?.[0] ?? null;
   const showPerfFor = (h: HelperLink) =>
     isHelperTracked(policy, h.uid) && (profile?.role === 'parent' || policy?.helpersSeeOwnScore !== false);
@@ -273,26 +288,68 @@ export default function PantryWorkplanPage() {
 
       {/* ── Desktop (≥1024px): two panes — helper rail + detail (HP2 D16) ── */}
       {isLg && visibleHelpers && visibleHelpers.length > 0 && (
-        <div className="hidden lg:grid lg:grid-cols-[300px_minmax(0,1fr)] lg:gap-6 lg:items-start">
+        <div className={`hidden lg:grid lg:gap-6 lg:items-start ${railFolded ? "lg:grid-cols-[64px_minmax(0,1fr)]" : "lg:grid-cols-[300px_minmax(0,1fr)]"}`}>
           <aside className="lg:sticky lg:top-6 bg-hive-paper border border-hive-line rounded-hive-lg p-2">
-            <p className="px-2 pt-1 pb-2 text-[10px] uppercase tracking-[1.5px] font-nunito font-black text-hive-muted">
-              Helpers · {visibleHelpers.length}{profile?.role === 'parent' ? ` · ${visibleHelpers.filter((h) => showPerfFor(h)).length} tracked` : ''}
-            </p>
+            {railFolded ? (
+              /* 🤝 HR PR-1 — slim avatar strip: results get the room. */
+              <div className="flex flex-col items-center gap-1.5 py-1">
+                <button type="button" onClick={() => setRailFolded(false)}
+                  title="Open the helper list"
+                  className="w-10 h-8 rounded-hive text-[13px] font-nunito font-black text-hive-muted hover:bg-hive-cream">›</button>
+                {visibleHelpers.map((h) => (
+                  <button
+                    key={h.uid}
+                    type="button"
+                    onClick={() => { setSelectedUid(h.uid); if (compareOn) toggleCompareUid(h.uid); }}
+                    title={h.displayName}
+                    className={`w-10 h-10 rounded-hive text-xl flex items-center justify-center transition-colors ${
+                      (compareOn ? compareUids.includes(h.uid) : selectedHelper?.uid === h.uid)
+                        ? 'bg-hive-honey border-2 border-hive-honey-dk' : 'hover:bg-hive-cream'
+                    }`}
+                  >{PRESET_EMOJI[h.preset]}</button>
+                ))}
+              </div>
+            ) : (
+            <>
+            <div className="flex items-center gap-1 px-2 pt-1 pb-2">
+              <p className="flex-1 text-[10px] uppercase tracking-[1.5px] font-nunito font-black text-hive-muted">
+                Helpers · {visibleHelpers.length}{profile?.role === 'parent' ? ` · ${visibleHelpers.filter((h) => showPerfFor(h)).length} tracked` : ''}
+              </p>
+              {profile?.role === 'parent' && visibleHelpers.length >= 2 && (
+                <button type="button"
+                  onClick={() => {
+                    const next = !compareOn;
+                    setCompareOn(next);
+                    if (next) setCompareUids(selectedHelper ? [selectedHelper.uid] : []);
+                  }}
+                  className={`px-2 py-1 rounded-full text-[10px] font-nunito font-black border ${compareOn ? 'bg-hive-ink text-white border-transparent' : 'bg-white text-hive-muted border-hive-line'}`}>
+                  ⚖️ Compare
+                </button>
+              )}
+              <button type="button" onClick={() => setRailFolded(true)} title="Fold the list"
+                className="px-1.5 py-1 rounded-full text-[11px] font-nunito font-black text-hive-muted hover:bg-hive-cream">‹</button>
+            </div>
+            {compareOn && (
+              <p className="px-2 pb-1.5 text-[10px] text-hive-muted font-bold">Pick 2–3 to compare · {compareUids.length} chosen</p>
+            )}
             <div className="space-y-0.5">
               {visibleHelpers.map((h) => (
-                <RailRow
-                  key={h.uid}
-                  helper={h}
-                  familyId={family.id}
-                  selected={selectedHelper?.uid === h.uid}
-                  onSelect={() => setSelectedUid(h.uid)}
-                  showPerf={showPerfFor(h)}
-                  isParent={profile?.role === 'parent'}
-                  weekCodes={weekCodes[h.uid]}
-                />
+                <div key={h.uid} className={compareOn && compareUids.includes(h.uid) ? 'rounded-hive ring-2 ring-hive-honey-dk' : ''}>
+                  <RailRow
+                    helper={h}
+                    familyId={family.id}
+                    selected={compareOn ? compareUids.includes(h.uid) : selectedHelper?.uid === h.uid}
+                    onSelect={() => (compareOn ? toggleCompareUid(h.uid) : setSelectedUid(h.uid))}
+                    showPerf={showPerfFor(h)}
+                    isParent={profile?.role === 'parent'}
+                    weekCodes={weekCodes[h.uid]}
+                  />
+                </div>
               ))}
             </div>
-            {profile?.role === 'parent' && (
+            </>
+            )}
+            {!railFolded && profile?.role === 'parent' && (
               <Link
                 href="/pantry/workplan/assign"
                 className="mt-3 block w-full text-center bg-hive-honey hover:bg-hive-honey-dk text-hive-ink font-nunito font-black text-[13px] py-3 rounded-hive border-2 border-hive-honey-dk no-underline"
@@ -302,7 +359,18 @@ export default function PantryWorkplanPage() {
             )}
           </aside>
           <section className="min-w-0">
-            {selectedHelper && (
+            {compareOn && compareUids.length >= 2 && profile?.role === 'parent' ? (
+              <CompareHelpersView
+                familyId={family.id}
+                helpers={visibleHelpers.filter((h) => compareUids.includes(h.uid))}
+              />
+            ) : compareOn ? (
+              <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-8 text-center">
+                <p className="text-3xl mb-2">⚖️</p>
+                <p className="font-nunito font-extrabold text-[14px]">Pick {compareUids.length === 1 ? 'one more helper' : '2–3 helpers'} on the left to compare.</p>
+              </div>
+            ) : null}
+            {!(compareOn) && selectedHelper && (
               <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-5 space-y-4">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-center gap-3 min-w-0">
@@ -481,6 +549,9 @@ function HelperPanel({ helper, familyId, isParent, showPerf, selectedDate, tab, 
       {activeTab === 'reviews' && isParent && (
         <KidReviewsTab helper={helper} />
       )}
+      {activeTab === 'recognition' && isParent && (
+        <HelperRecognitionTab helper={helper} familyId={familyId} />
+      )}
 
       {activeTab === 'today' && <>
       {dayStepper}
@@ -601,12 +672,14 @@ function WeekDots({ codes }: { codes?: string }) {
 }
 
 // ── HP2 · tabs inside a helper card (D15) ───────────────────────
-type HelperTab = 'today' | 'fill' | 'score' | 'reviews';
+type HelperTab = 'today' | 'fill' | 'score' | 'reviews' | 'recognition';
 const HELPER_TABS: { id: HelperTab; label: string; parentOnly?: boolean; soon?: boolean }[] = [
   { id: 'today',   label: 'Today' },
   { id: 'fill',    label: 'Routine fill' },
   { id: 'score',   label: 'Score' },
   { id: 'reviews', label: 'Kid reviews', parentOnly: true },
+  // 🤝 HR PR-1 — the recognition scorecard (5 dials), parent-only.
+  { id: 'recognition', label: '🤝 Recognition', parentOnly: true },
 ];
 function HelperTabs({ tab, onChange, isParent }: { tab: HelperTab; onChange: (t: HelperTab) => void; isParent: boolean }) {
   const tabs = HELPER_TABS.filter((t) => !t.parentOnly || isParent);
