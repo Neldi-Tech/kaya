@@ -65,39 +65,76 @@ export function notePalette(theme: NoteTheme): Readonly<Palette> {
 const W = 680;
 const PAD = 44;
 const LINE_H = 34;
-const MAX_CARD_LINES = 18; // longer notes ellipsize — the A5 PDF carries it all
+// 2026-08-25 (Elia): the card must keep "the reads and organization" of
+// the write-up — the author's line breaks and stanza gaps are LAYOUT,
+// never collapsed. Rows are visual lines; a blank source line becomes a
+// smaller paragraph gap. Very long notes ellipsize — the A5 PDF always
+// carries the full note.
+const MAX_CARD_ROWS = 36;
+const GAP_H = 16; // breathing room where the author left a blank line
+
+/** One visual row of the card body — text, or a paragraph gap. */
+interface BodyRow { text: string; gap?: boolean }
+
+/** Structure-preserving layout: split on the author's newlines, wrap
+ *  each logical line by `fits`, keep blank lines as gaps. */
+function layoutRows(
+  text: string,
+  fits: (s: string) => boolean,
+  maxRows: number,
+  shrinkToFit: (s: string) => string,
+): BodyRow[] {
+  const logical = text.replace(/\r\n?/g, '\n').split('\n').map((l) => l.trimEnd());
+  const rows: BodyRow[] = [];
+  let pendingGap = false;
+  outer: for (const line of logical) {
+    if (!line.trim()) { if (rows.length > 0) pendingGap = true; continue; }
+    if (pendingGap) { rows.push({ text: '', gap: true }); pendingGap = false; }
+    let cur = '';
+    for (const w of line.trim().split(/\s+/)) {
+      const next = cur ? `${cur} ${w}` : w;
+      if (fits(next)) { cur = next; continue; }
+      if (cur) rows.push({ text: cur });
+      cur = w;
+      if (rows.length >= maxRows) break outer;
+    }
+    if (cur) rows.push({ text: cur });
+    if (rows.length >= maxRows) break;
+  }
+  // Truncated? End on a text row that visibly continues.
+  const fullLen = text.replace(/\s+/g, ' ').trim().length;
+  const usedLen = rows.map((r) => r.text).join(' ').replace(/\s+/g, ' ').trim().length;
+  if (usedLen < fullLen && rows.length > 0) {
+    while (rows.length > 0 && rows[rows.length - 1].gap) rows.pop();
+    if (rows.length > 0) {
+      rows[rows.length - 1] = { text: shrinkToFit(`${rows[rows.length - 1].text}`) };
+    }
+  }
+  return rows;
+}
+
+function rowsHeight(rows: BodyRow[]): number {
+  return Math.max(rows.reduce((h, r) => h + (r.gap ? GAP_H : LINE_H), 0), 3 * LINE_H);
+}
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 }
 
-/** Word-wrap into ≤maxLines lines of ≤maxChars, ellipsizing the last. */
-function wrap(text: string, maxChars: number, maxLines: number): string[] {
-  const words = text.replace(/\s+/g, ' ').trim().split(' ');
-  const lines: string[] = [];
-  let cur = '';
-  for (const w of words) {
-    const next = cur ? `${cur} ${w}` : w;
-    if (next.length <= maxChars) { cur = next; continue; }
-    if (cur) lines.push(cur);
-    cur = w.length > maxChars ? `${w.slice(0, maxChars - 1)}…` : w;
-    if (lines.length >= maxLines) break;
-  }
-  if (cur && lines.length < maxLines) lines.push(cur);
-  const used = lines.join(' ').length;
-  if (used < text.replace(/\s+/g, ' ').trim().length && lines.length > 0) {
-    const last = lines[lines.length - 1];
-    lines[lines.length - 1] = `${last.slice(0, Math.max(0, maxChars - 1))}…`;
-  }
-  return lines;
-}
-
 export function noteCardSvg(d: NoteCardData): string {
   const p = PALETTES[d.theme];
-  const lines = wrap(d.text, 42, MAX_CARD_LINES);
+  // Structure-preserving layout, char-count flavour (this SVG is only
+  // the instant placeholder while the canvas draws — same rows shape).
+  const MAXC = 42;
+  const rows = layoutRows(
+    d.text,
+    (s) => s.length <= MAXC,
+    MAX_CARD_ROWS,
+    (s) => `${s.slice(0, Math.max(1, MAXC - 1))}…`,
+  );
   const bodyTop = 196;
-  const footTop = bodyTop + Math.max(lines.length, 3) * LINE_H + 26;
+  const footTop = bodyTop + rowsHeight(rows) + 26;
   const H = footTop + 64;
 
   const decorBits: string[] = [];
@@ -115,8 +152,14 @@ export function noteCardSvg(d: NoteCardData): string {
     decorBits.push(`<text x="${W - 76}" y="58" font-size="34">☀️</text>`);
   }
 
-  const body = lines.map((ln, i) =>
-    `<text x="${PAD}" y="${bodyTop + i * LINE_H}" font-family="Lato, Georgia, serif" font-style="italic" font-size="22" fill="${p.text}">${esc(ln)}</text>`).join('\n  ');
+  const bodyBits: string[] = [];
+  let svgY = bodyTop;
+  for (const r of rows) {
+    if (r.gap) { svgY += GAP_H; continue; }
+    bodyBits.push(`<text x="${PAD}" y="${svgY}" font-family="Lato, Georgia, serif" font-style="italic" font-size="22" fill="${p.text}">${esc(r.text)}</text>`);
+    svgY += LINE_H;
+  }
+  const body = bodyBits.join('\n  ');
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
   <rect width="${W}" height="${H}" rx="26" fill="${p.bg}"/>
@@ -172,28 +215,6 @@ function roundedRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w:
   ctx.closePath();
 }
 
-/** Measured word-wrap — true pixel widths, ≤maxLines with ellipsis. */
-function wrapMeasured(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines: number): string[] {
-  const words = text.replace(/\s+/g, ' ').trim().split(' ');
-  const lines: string[] = [];
-  let cur = '';
-  for (const w of words) {
-    const next = cur ? `${cur} ${w}` : w;
-    if (ctx.measureText(next).width <= maxWidth) { cur = next; continue; }
-    if (cur) lines.push(cur);
-    cur = w;
-    if (lines.length >= maxLines) break;
-  }
-  if (cur && lines.length < maxLines) lines.push(cur);
-  const used = lines.join(' ').length;
-  if (used < text.replace(/\s+/g, ' ').trim().length && lines.length > 0) {
-    let last = lines[lines.length - 1];
-    while (last.length > 1 && ctx.measureText(`${last}…`).width > maxWidth) last = last.slice(0, -1);
-    lines[lines.length - 1] = `${last}…`;
-  }
-  return lines;
-}
-
 async function drawNoteCard(d: NoteCardData): Promise<HTMLCanvasElement> {
   const p = PALETTES[d.theme];
   const F = resolvedFonts();
@@ -203,11 +224,17 @@ async function drawNoteCard(d: NoteCardData): Promise<HTMLCanvasElement> {
   const ctx = c.getContext('2d');
   if (!ctx) throw new Error('no-canvas');
 
-  // measure first — the wrap decides the height
+  // measure first — the structured layout decides the height
   ctx.font = `italic 22px ${F.body}`;
-  const lines = wrapMeasured(ctx, d.text, W - PAD * 2, MAX_CARD_LINES);
+  const maxW = W - PAD * 2;
+  const rows = layoutRows(
+    d.text,
+    (s) => ctx.measureText(s).width <= maxW,
+    MAX_CARD_ROWS,
+    (s) => { let t = s; while (t.length > 1 && ctx.measureText(`${t}…`).width > maxW) t = t.slice(0, -1); return `${t}…`; },
+  );
   const bodyTop = 196;
-  const footTop = bodyTop + Math.max(lines.length, 3) * LINE_H + 26;
+  const footTop = bodyTop + rowsHeight(rows) + 26;
   const H = footTop + 64;
 
   c.width = W * 2; c.height = H * 2;
@@ -250,7 +277,12 @@ async function drawNoteCard(d: NoteCardData): Promise<HTMLCanvasElement> {
   ctx.fillStyle = p.accent; ctx.font = '52px Georgia, serif';
   ctx.fillText('“', PAD - 6, bodyTop - 26);
   ctx.fillStyle = p.text; ctx.font = `italic 22px ${F.body}`;
-  lines.forEach((ln, i) => ctx.fillText(ln, PAD, bodyTop + i * LINE_H));
+  let rowY = bodyTop;
+  for (const r of rows) {
+    if (r.gap) { rowY += GAP_H; continue; }
+    ctx.fillText(r.text, PAD, rowY);
+    rowY += LINE_H;
+  }
 
   // footer
   ctx.strokeStyle = p.edge; ctx.lineWidth = 1.5;
