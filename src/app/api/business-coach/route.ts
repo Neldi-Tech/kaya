@@ -13,7 +13,7 @@ export const runtime = 'nodejs';
 const apiKey = process.env.ANTHROPIC_API_KEY;
 const client = apiKey ? new Anthropic({ apiKey }) : null;
 
-type Loop = 'idea' | 'pricing' | 'cost_flag' | 'weekly' | 'design';
+type Loop = 'idea' | 'pricing' | 'cost_flag' | 'weekly' | 'design' | 'review';
 
 interface CoachBody {
   loop: Loop;
@@ -31,6 +31,7 @@ const LOOP_BRIEF: Record<Loop, string> = {
   cost_flag: 'A COST looks high or margin dropped. Gently flag it (never shame) and offer options to look into — bigger pack, different supplier, or a small price nudge. Suggestions = 2-3 options to explore.',
   weekly: 'Write a short, warm WEEKLY recap a kid can share with a parent: best moment, biggest cost, and one thing to try next week. Use their real numbers. Suggestions = 1-2 things to try next week.',
   design: 'The kid is making a MAKER PROJECT (a craft / build / art / recipe), not a business. Help them DESIGN it: reflect their idea back warmly, suggest one fun improvement or next build step, and (if useful) what simple materials they might need. No money talk. Suggestions = 2-3 tiny next steps or ideas to try.',
+  review: 'The kid just completed their BUSINESS REVIEW (Business 2.0, R20): their real numbers for the period are in the facts (units sold or hours worked, customers served, revenue, profit, and their own two reflections). Give ONE specific, kind piece of advice computed from those numbers — e.g. margin per product, a repeat customer worth thanking, pacing vs last period, or trying a new selling moment. Acknowledge their own reflection if they wrote one. Suggestions = 1-2 concrete things to try before the next review.',
 };
 
 const SYSTEM = `You are a kid-friendly coach inside the Kaya family app. A CHILD is either running a tiny real micro-business (lemonade, eggs, a car-wash, crafts) or making a creative maker project — and you help them learn by doing.
