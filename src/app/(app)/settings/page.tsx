@@ -1138,6 +1138,12 @@ export default function SettingsPage() {
             { id: 'greetings', icon: '✉️', label: 'Cards', keywords: 'greeting cards people book contacts signature whatsapp honoree kaya writes' },
             { id: 'kids', icon: '👀', label: 'Kids', keywords: 'modules visibility what kids see household' },
             { id: 'security', icon: '🔐', label: 'Security', keywords: 'password login reset code privacy sign out' },
+            // Sub-pages (href) — these live on their own route, so the chip
+            // navigates rather than unfolding a card. Before this, typing
+            // "performance" or "meetings" returned "Nothing matches".
+            { id: 'helpers-page', icon: '🤝', label: 'Helpers', keywords: 'helper nanny tutor driver gardener login codes kids they can act on', href: '/settings/helpers' },
+            { id: 'performance-page', icon: '⚖️', label: 'Performance', keywords: 'performance policy tracked track helper score scoring weights metrics work days kids review who is tracked', href: '/settings/performance' },
+            { id: 'meetings-page', icon: '🗓️', label: 'Meetings', keywords: 'meeting sunday family meeting steps agenda reflection', href: '/settings/meetings' },
           ] : [
             { id: 'privacy', icon: '🔐', label: 'My privacy', keywords: 'password login code email' },
           ]),
@@ -2271,6 +2277,27 @@ export default function SettingsPage() {
                   <p className="font-bold text-sm">Manage helpers + their login codes</p>
                   <p className="text-[11px] text-kaya-sand mt-0.5 leading-relaxed">
                     Add nannies, tutors, grandparents with a family-code login. Pick which kids each helper can act on.
+                  </p>
+                </div>
+                <span className="text-kaya-sand text-xl flex-shrink-0">→</span>
+              </div>
+            </button>
+          )}
+
+          {/* Performance policy — who's tracked + how the helper score is
+              built. Lived only under Stats → ⚖️ in the sidebar, so parents
+              looking for it in Settings found nothing (Elia, 2026-08-25). */}
+          {isParent && (
+            <button
+              onClick={() => router.push('/settings/performance')}
+              className="w-full bg-white border border-kaya-warm-dark rounded-kaya p-4 text-left hover:border-kaya-chocolate transition-colors"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-1">Helper performance</p>
+                  <p className="font-bold text-sm">Choose who&apos;s tracked + tune the score</p>
+                  <p className="text-[11px] text-kaya-sand mt-0.5 leading-relaxed">
+                    Switch performance tracking on per helper, set their work days, allow kids to review them, and weight the five dials behind the score.
                   </p>
                 </div>
                 <span className="text-kaya-sand text-xl flex-shrink-0">→</span>

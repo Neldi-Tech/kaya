@@ -7,22 +7,32 @@
 // /settings#alerts etc. work from guides, emails and the kids' 🌍 shortcut.
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 export interface QuickFindTarget {
-  id: string;      // the #hash / CollapsibleSection id
+  id: string;      // the #hash / CollapsibleSection id — also the React key
   icon: string;
   label: string;
   keywords?: string; // extra search terms, lowercase
+  /** Settings sub-page route (e.g. '/settings/performance'). When set the
+   *  chip NAVIGATES instead of unfolding a card on this page. Without it
+   *  quick-find could only reach #hash sections, so whole sub-pages
+   *  (Performance policy, Meetings) were unfindable — typing "perfo"
+   *  returned "Nothing matches" even though the page existed. */
+  href?: string;
 }
 
 export default function SettingsQuickFind({ targets }: { targets: QuickFindTarget[] }) {
+  const router = useRouter();
   const [q, setQ] = useState('');
   const needle = q.trim().toLowerCase();
   const shown = needle
     ? targets.filter((t) => `${t.label} ${t.keywords ?? ''}`.toLowerCase().includes(needle))
     : targets;
 
-  const jump = (id: string) => {
+  const jump = (t: QuickFindTarget) => {
+    if (t.href) { router.push(t.href); return; }
+    const id = t.id;
     if (typeof window === 'undefined') return;
     if (window.location.hash === `#${id}`) {
       // Same hash again — the browser won't fire hashchange, so nudge it.
@@ -38,7 +48,7 @@ export default function SettingsQuickFind({ targets }: { targets: QuickFindTarge
         type="search"
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter' && shown.length > 0) jump(shown[0].id); }}
+        onKeyDown={(e) => { if (e.key === 'Enter' && shown.length > 0) jump(shown[0]); }}
         placeholder="🔎 Find a setting…"
         aria-label="Find a setting"
         className="w-full rounded-full border border-kaya-warm-dark/70 px-4 py-2 text-[13px] font-semibold placeholder:text-kaya-sand focus:outline-none focus:border-kaya-gold"
@@ -48,10 +58,10 @@ export default function SettingsQuickFind({ targets }: { targets: QuickFindTarge
           <button
             key={t.id}
             type="button"
-            onClick={() => jump(t.id)}
+            onClick={() => jump(t)}
             className="px-2.5 py-1 rounded-full text-[11px] font-extrabold border border-kaya-warm-dark/60 bg-white text-kaya-chocolate hover:border-kaya-gold transition"
           >
-            {t.icon} {t.label}
+            {t.icon} {t.label}{t.href ? ' →' : ''}
           </button>
         ))}
         {shown.length === 0 && (
