@@ -13,9 +13,9 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   Business, HiveSplit, BusinessStatus, LedgerEntry, BusinessMilestone, BUSINESS_MILESTONES, StockTake,
-  StockMovement, StockMovementKind,
+  StockMovement, StockMovementKind, BusinessItem,
   subscribeToBusiness, subscribeToBusinessRequests, subscribeToLedger, subscribeToBusinessMilestones, subscribeToStockTakes,
-  subscribeToStockMovements,
+  subscribeToStockMovements, subscribeToBusinessItems,
   setBusinessStatus, requestBusinessLaunch, updateBusiness, readBusinessConfig,
   keepsStock, resolvePricingModel, pricingModelMeta,
   BusinessReview, subscribeToBusinessReviews, reviewDue,
@@ -26,6 +26,7 @@ import { formatCash } from '@/components/hive/format';
 import { formatWorth } from '@/components/business/money';
 import { typeMeta, STATUS_META } from '@/components/business/meta';
 import DailySalesCard from '@/components/business/DailySalesCard';
+import OrdersCard from '@/components/business/OrdersCard';
 import AICoachCard from '@/components/business/AICoachCard';
 import AIImageButton from '@/components/business/AIImageButton';
 import StockTakeHistory from '@/components/business/StockTakeHistory';
@@ -67,6 +68,7 @@ export default function BusinessDashboardPage() {
   const [takes, setTakes] = useState<StockTake[]>([]);
   const [moves, setMoves] = useState<StockMovement[]>([]);
   const [reviews, setReviews] = useState<BusinessReview[]>([]);
+  const [items, setItems] = useState<BusinessItem[]>([]);
   const [milestones, setMilestones] = useState<BusinessMilestone[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -81,7 +83,8 @@ export default function BusinessDashboardPage() {
     const u4 = subscribeToStockTakes(familyId, businessId, setTakes, 30);
     const u5 = subscribeToStockMovements(familyId, businessId, setMoves, 8);
     const u6 = subscribeToBusinessReviews(familyId, businessId, setReviews, 3);
-    return () => { u1(); u2(); u3(); u4(); u5(); u6(); };
+    const u7 = subscribeToBusinessItems(familyId, businessId, setItems);
+    return () => { u1(); u2(); u3(); u4(); u5(); u6(); u7(); };
   }, [familyId, businessId]);
 
   // Milestones live under the owner kid — subscribe once we know the owner.
@@ -384,6 +387,20 @@ export default function BusinessDashboardPage() {
       {/* Daily auto-sale drafts (products flagged "sold daily") */}
       {isOwner && familyId && profile?.uid && business.status !== 'closed' && (
         <DailySalesCard familyId={familyId} business={business} requests={requests} currency={config.currency} uid={profile.uid} />
+      )}
+
+      {/* 🛎️ Family Orders Board (Business 2.0) — the family's demand loop.
+          Owner + parents see the queue; everyone else can order. */}
+      {familyId && profile?.uid && business.status !== 'closed' && (
+        <OrdersCard
+          familyId={familyId}
+          business={business}
+          items={items}
+          uid={profile.uid}
+          isParent={isParent}
+          isOwner={isOwner}
+          currency={config.currency}
+        />
       )}
 
       {/* Headline numbers (desktop: 4-up) */}
