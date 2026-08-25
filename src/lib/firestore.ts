@@ -297,6 +297,9 @@ export interface Family {
    *  live with zero extra subscriptions). Keys: childId for kids, auth uid
    *  for helpers. A person's own users/{uid}.languagePref always wins. */
   memberLanguageDefaults?: Record<string, import('./i18n').Locale>;
+  /** 🎁 HR PR-3 — the family's own helper gift ideas (Recognition tab
+   *  gift advisor). Empty/absent = the built-in starter list shows. */
+  helperGiftBank?: string[];
   // ── Keepsake subscription plan ────────────────────────────────
   // Drives gating across Albums (album/photo caps, sub-albums,
   // custom access, AI features). Defaults to 'free' when missing —

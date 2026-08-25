@@ -9,18 +9,37 @@ import { useEffect, useMemo, useState } from 'react';
 import { computeHelperDials, DIAL_META, dialColor, type HelperDials } from '@/lib/helperRecognition';
 import type { HelperLink } from '@/lib/firestore';
 import { useFamily } from '@/contexts/FamilyContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { asLocale, localeForCountry } from '@/lib/i18n';
 import {
   createShineCard, listShineCards, setShineCardLang, deleteShineCard,
-  shineCardSvg, type ShineCard, type CardLang,
+  setShineCardGift, getHelperRound, shineCardSvg,
+  type ShineCard, type CardLang, type HelperRound,
 } from '@/lib/shineCards';
 import { CardShareRow } from '@/components/rewards/ShineCards';
+import { createDraftRequest } from '@/lib/purchase';
+import { doc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import Link from 'next/link';
 
 // Same avatar vocabulary as the workplan rail.
 const HELPER_EMOJI: Record<HelperLink['preset'], string> = {
   nanny: '🤱', tutor: '📚', driver: '🚗', grandparent: '👵', gardener: '🌿',
   security: '🛡️', cleaner: '🧽', cook: '🍳', handyman: '🛠️', custom: '🤝',
 };
+
+/** 🎁 HR PR-3 — the starter gift ideas when the family hasn't built
+ *  its own gift bank yet. Parents can add/remove their own. */
+const DEFAULT_GIFT_IDEAS = [
+  '💵 Cash bonus (via payroll)',
+  '🌴 A paid day off',
+  '📱 Airtime top-up',
+  '🛍️ Shopping voucher',
+  '🍰 Dinner treat with the family',
+  '🧺 Kanga / kitenge gift',
+];
+const GIFT_MEMORY_DAYS = 60;
+const LENS_EMOJI: Record<string, string> = { best: '🏆', improved: '📈', unsung: '🕯️' };
 
 /** One thank-you line per dial, in both languages — the top dial seeds
  *  the composer so the card says WHY, not just "thanks". */
@@ -37,8 +56,10 @@ export default function HelperRecognitionTab({ helper, familyId }: {
   familyId: string;
 }) {
   const { family } = useFamily();
+  const { profile } = useAuth();
   const [dials, setDials] = useState<HelperDials | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [round, setRound] = useState<HelperRound | null>(null);
 
   // 🧡 Asante composer — the parent-set default for THIS helper, else
   // their country's language (same chain useLocale uses for helpers).
@@ -63,6 +84,9 @@ export default function HelperRecognitionTab({ helper, familyId }: {
       .catch(() => { if (alive) setState('error'); });
     listShineCards(familyId, `helper:${helper.uid}`)
       .then((c) => { if (alive) setCards(c); })
+      .catch(() => {});
+    getHelperRound(familyId)
+      .then((r) => { if (alive) setRound(r); })
       .catch(() => {});
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -136,6 +160,78 @@ export default function HelperRecognitionTab({ helper, familyId }: {
     await refreshCards();
   };
 
+  // ── 🎁 Gift advisor (HR PR-3) ───────────────────────────────────
+  const [giftMsg, setGiftMsg] = useState('');
+  const [newIdea, setNewIdea] = useState('');
+  const [bonusAmount, setBonusAmount] = useState('');
+  const [bonusBusy, setBonusBusy] = useState(false);
+  const giftIdeas = (family?.helperGiftBank?.length ? family.helperGiftBank : DEFAULT_GIFT_IDEAS);
+  const usingOwnBank = !!family?.helperGiftBank?.length;
+  // 60-day memory — gifts already given to THIS helper sink + get a tick.
+  const recentGifts = useMemo(() => {
+    const cutoff = Date.now() - GIFT_MEMORY_DAYS * 86400_000;
+    return new Set(cards.filter((c) => c.at >= cutoff && (c.gift || c.giftMeta?.label))
+      .map((c) => (c.giftMeta?.label || c.gift || '').toLowerCase()));
+  }, [cards]);
+  const rankedIdeas = useMemo(() => {
+    const fresh = giftIdeas.filter((g) => !recentGifts.has(g.toLowerCase()));
+    const given = giftIdeas.filter((g) => recentGifts.has(g.toLowerCase()));
+    return [...fresh, ...given];
+  }, [giftIdeas, recentGifts]);
+
+  const recordGift = async (label: string) => {
+    if (!cards[0]) { setGiftMsg('Create an Asante card first — the gift seals onto the newest card.'); return; }
+    setGiftMsg('');
+    try {
+      await setShineCardGift(familyId, cards[0].id, label, { label, source: 'custom', pathway: 'simple' });
+      setGiftMsg(`🎁 Sealed onto card №${cards[0].n} — Kaya remembers for ${GIFT_MEMORY_DAYS} days.`);
+      await refreshCards();
+    } catch (e) { setGiftMsg(e instanceof Error ? e.message : 'Could not record the gift.'); }
+  };
+
+  const addIdea = async () => {
+    const idea = newIdea.trim().slice(0, 60);
+    if (!idea || !family) return;
+    setNewIdea('');
+    // Starting from the default list? Seed the bank with it first so
+    // nothing the parent already saw disappears.
+    const seed = usingOwnBank ? [idea] : [...DEFAULT_GIFT_IDEAS, idea];
+    await updateDoc(doc(db, 'families', family.id), { helperGiftBank: arrayUnion(...seed) }).catch(() => {});
+  };
+  const removeIdea = async (idea: string) => {
+    if (!family || !usingOwnBank) return;
+    await updateDoc(doc(db, 'families', family.id), { helperGiftBank: arrayRemove(idea) }).catch(() => {});
+  };
+
+  // 💼 Payroll-sealed bonus — a one-off payroll request the parents
+  // approve like any pay run; the gift record seals with the amount.
+  const sendBonus = async () => {
+    const amount = Math.round(Number(bonusAmount) * 100);
+    if (!profile || !Number.isFinite(amount) || amount <= 0 || bonusBusy) return;
+    setBonusBusy(true); setGiftMsg('');
+    try {
+      const monthKey = new Date().toISOString().slice(0, 7);
+      await createDraftRequest(familyId, {
+        name: `Recognition bonus · ${helper.displayName} · ${monthKey}`,
+        createdBy: profile.uid,
+        createdByRole: 'parent',
+        module: 'payroll',
+        helperUid: helper.uid,
+        items: [{ id: crypto.randomUUID(), name: `🌟 Recognition bonus — ${monthKey}`, qty: 1, unit: 'bonus', estimatedCents: amount }],
+        initialStatus: 'pending_approval',
+      });
+      if (cards[0]) {
+        await setShineCardGift(familyId, cards[0].id, `💵 Recognition bonus`, {
+          label: '💵 Recognition bonus (payroll)', source: 'custom', pathway: 'simple', amountCents: amount,
+        }).catch(() => {});
+        await refreshCards();
+      }
+      setBonusAmount('');
+      setGiftMsg('💼 Bonus request created in Payroll — approve it there to seal the pay.');
+    } catch (e) { setGiftMsg(e instanceof Error ? e.message : 'Could not create the bonus request.'); }
+    setBonusBusy(false);
+  };
+
   if (state === 'loading') {
     return <p className="text-[12.5px] text-hive-muted py-4">Reading {helper.displayName.split(' ')[0]}&apos;s last 4 weeks…</p>;
   }
@@ -146,6 +242,22 @@ export default function HelperRecognitionTab({ helper, familyId }: {
   const first = helper.displayName.split(' ')[0];
   return (
     <div className="space-y-3">
+      {/* 🤝 HR PR-3 — this month's spotlight, when it shines on THIS helper */}
+      {round?.item?.helperUid === helper.uid && (
+        <div className="bg-hive-honey/25 border-2 border-hive-honey-dk rounded-hive p-3 flex items-start gap-2.5">
+          <span className="text-2xl">{LENS_EMOJI[round.lens] || '🌟'}</span>
+          <div className="min-w-0 flex-1">
+            <p className="font-nunito font-black text-[13.5px]">This month&apos;s helper spotlight: {first}!</p>
+            <p className="text-[12px] text-hive-ink mt-0.5">{round.item.line}</p>
+            <button type="button"
+              onClick={() => setQuote(suggestions[0] || `Asante ${first}!`)}
+              className="mt-2 px-3 py-1.5 rounded-hive bg-hive-honey hover:bg-hive-honey-dk border border-hive-honey-dk text-hive-ink font-nunito font-black text-[11.5px]">
+              🧡 Turn it into an Asante card
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Composite */}
       <div className="flex items-center gap-3 bg-white border border-hive-line rounded-hive p-3">
         <span className="font-nunito font-black text-3xl" style={{ color: dialColor(dials.score) }}>
@@ -235,6 +347,52 @@ export default function HelperRecognitionTab({ helper, familyId }: {
         {composerMsg && <p className="text-[11.5px] font-bold text-center">{composerMsg}</p>}
       </div>
 
+      {/* 🎁 Gift advisor (HR PR-3) — ideas ranked by the 60-day memory */}
+      <div className="bg-white border border-hive-line rounded-hive p-3 space-y-2">
+        <p className="font-nunito font-black text-[14px]">🎁 Gift advisor</p>
+        <p className="text-[11px] text-hive-muted">
+          Tap an idea to seal it onto {first}&apos;s newest Asante card. Recently-given gifts sink down with a ✔ so nothing repeats inside {GIFT_MEMORY_DAYS} days.
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          {rankedIdeas.map((g) => {
+            const given = recentGifts.has(g.toLowerCase());
+            return (
+              <span key={g} className="inline-flex items-center">
+                <button type="button" onClick={() => void recordGift(g)}
+                  className={`px-2.5 py-1.5 rounded-l-full text-[11px] font-bold border border-hive-line ${given ? 'bg-hive-cream/50 text-hive-muted' : 'bg-hive-cream text-hive-ink hover:bg-hive-honey/40'}`}>
+                  {g}{given ? ' ✔' : ''}
+                </button>
+                {usingOwnBank ? (
+                  <button type="button" onClick={() => void removeIdea(g)} title="Remove from the gift bank"
+                    className="px-1.5 py-1.5 rounded-r-full text-[10px] font-black text-hive-muted border border-l-0 border-hive-line hover:text-rose-500">✕</button>
+                ) : <span className="rounded-r-full border border-l-0 border-hive-line px-1 py-1.5 text-[10px] text-transparent">·</span>}
+              </span>
+            );
+          })}
+        </div>
+        <div className="flex gap-1.5">
+          <input value={newIdea} onChange={(e) => setNewIdea(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void addIdea(); }}
+            placeholder="Add your own gift idea…"
+            className="flex-1 border border-hive-line rounded-hive px-3 py-1.5 text-[12px] focus:outline-none focus:border-hive-honey-dk" />
+          <button type="button" onClick={() => void addIdea()} disabled={!newIdea.trim()}
+            className="px-3 rounded-hive bg-hive-cream border border-hive-line text-[12px] font-nunito font-black disabled:opacity-40">＋</button>
+        </div>
+        {/* 💼 Payroll-sealed bonus */}
+        <div className="border-t border-dashed border-hive-line pt-2 flex items-center gap-1.5 flex-wrap">
+          <span className="text-[12px] font-nunito font-extrabold">💼 Cash bonus via Payroll:</span>
+          <input value={bonusAmount} onChange={(e) => setBonusAmount(e.target.value.replace(/[^\d.]/g, ''))}
+            inputMode="decimal" placeholder="Amount"
+            className="w-24 border border-hive-line rounded-hive px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-hive-honey-dk" />
+          <button type="button" onClick={() => void sendBonus()} disabled={bonusBusy || !Number(bonusAmount)}
+            className="px-3 py-1.5 rounded-hive bg-hive-ink text-white text-[11.5px] font-nunito font-black disabled:opacity-40">
+            {bonusBusy ? 'Creating…' : 'Create bonus request'}
+          </button>
+          <Link href="/pantry/payroll" className="text-[11px] font-black text-hive-muted hover:underline">Payroll →</Link>
+        </div>
+        {giftMsg && <p className="text-[11.5px] font-bold">{giftMsg}</p>}
+      </div>
+
       {/* The helper's Asante wall — every card, shareable, EN↔SW switch */}
       {cards.length > 0 && (
         <div className="bg-white border border-hive-line rounded-hive p-3 space-y-3">
@@ -267,7 +425,7 @@ export default function HelperRecognitionTab({ helper, familyId }: {
       )}
 
       <p className="text-[10.5px] text-hive-muted">
-        🌟 The monthly helper round (first Monday) proposes recognition from these dials — the gift advisor and Payroll-sealed bonuses ride the next update.
+        🌟 Every first Monday, Kaya's helper round rotates the spotlight — 🏆 Best · 📈 Most improved · 🕯️ Unsung — and rings the parents to celebrate here.
       </p>
     </div>
   );
