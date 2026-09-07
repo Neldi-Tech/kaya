@@ -1,4 +1,5 @@
 'use client';
+import { useKidAiLevel, aiRequestHeaders } from '@/lib/ai/useAiLevel';
 
 // Kaya Sparks · Treasures 2.0 — ✍️ "Write about it" (C4 · D34 · D35).
 //
@@ -60,6 +61,8 @@ export default function ReadingNoteComposer({ familyId, treasureId, bookName, re
   const [scanOpen, setScanOpen] = useState(false);
   const [listening, setListening] = useState(false);
   const [speechOk, setSpeechOk] = useState(false);
+  // 🤖 Kaya AI Levels — the READER's level (never the note-writer's).
+  const aiLevel = useKidAiLevel(reading.readerKidId).level;
   const recRef = useRef<SpeechRecognitionLike | null>(null);
   const baseRef = useRef('');
 
@@ -138,14 +141,14 @@ export default function ReadingNoteComposer({ familyId, treasureId, bookName, re
         })(),
         (async () => {
           try {
-            const res = await fetch('/api/sparks/ai/reflection-score', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: r.text }) });
+            const res = await fetch('/api/sparks/ai/reflection-score', { method: 'POST', headers: await aiRequestHeaders(), body: JSON.stringify({ text: r.text, kidId: reading.readerKidId, aiLevel }) });
             const d = await res.json().catch(() => ({}));
             if (d && !d.skipped && typeof d.soundness === 'number') { out.score = d.soundness; await attachReadingNoteAI(treasureId, r.entryId, { ai_score: d }); }
           } catch { /* best-effort */ }
         })(),
         (async () => {
           try {
-            const res = await fetch('/api/sparks/ai/reflect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: r.text, firstName: kidFirstName, ...(kidAge ? { ageYears: kidAge } : {}), context: `This is about the book "${bookName}" the child is reading.` }) });
+            const res = await fetch('/api/sparks/ai/reflect', { method: 'POST', headers: await aiRequestHeaders(), body: JSON.stringify({ text: r.text, firstName: kidFirstName, ...(kidAge ? { ageYears: kidAge } : {}), context: `This is about the book "${bookName}" the child is reading.`, kidId: reading.readerKidId, aiLevel }) });
             const d = await res.json().catch(() => ({}));
             if (d && !d.skipped && d.wentWell) { out.fb = d; await attachReadingNoteAI(treasureId, r.entryId, { feedback: d }); }
           } catch { /* best-effort */ }

@@ -71,6 +71,7 @@ export default function WeeklyReviewPage() {
   ) : (
     <AICoachCard
       loop="weekly"
+      kidId={business?.ownerId}
       coachName={coachName}
       currency={cur}
       cta={`Get ${coachName}'s story of the week`}

@@ -101,6 +101,16 @@ export function aiLevelAddendum(surface: AiSurface, level: AiLevel): string | nu
   return `${HEADINGS[surface]}: ${aiLevelLabel(level)} (set by the child's parent). ${brief}\n${KINDNESS_FLOOR}`;
 }
 
+/** A system-prompt block as the Anthropic SDK accepts it. */
+export type SystemBlock = { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } };
+
+/** Append the level addendum AFTER the route's cached base block. With a
+ *  null addendum (🌤 Balanced) the base array is returned untouched, so the
+ *  request is byte-for-byte what it was before AI Levels. */
+export function withLevelAddendum(base: SystemBlock[], addendum: string | null): SystemBlock[] {
+  return addendum ? [...base, { type: 'text', text: addendum }] : base;
+}
+
 /** Deeper levels write more; never LOWER a route's budget (a truncated
  *  JSON answer is worse than a slightly long one). */
 export function scaleTokens(base: number, level: AiLevel): number {

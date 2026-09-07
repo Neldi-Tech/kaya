@@ -6,6 +6,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { resolveAiLevelFromRequest } from '@/lib/ai/level.server';
+import { aiLevelAddendum, withLevelAddendum } from '@/lib/ai/level.prompts';
 
 export const runtime = 'nodejs';
 export const maxDuration = 20;
@@ -38,7 +40,8 @@ const SCHEMA = {
 } as const;
 
 export async function POST(req: NextRequest) {
-  let body: { firstName?: string; age?: number };
+  // 🤖 kidId + aiLevel — Kaya AI Levels (prompt complexity on top of age).
+  let body: { firstName?: string; age?: number; kidId?: string; aiLevel?: number };
   try { body = await req.json(); } catch { body = {}; }
   const firstName = (body.firstName || '').trim().slice(0, 40);
   const age = Number.isFinite(body.age) ? Math.max(3, Math.min(17, Number(body.age))) : null;
@@ -46,11 +49,13 @@ export async function POST(req: NextRequest) {
   if (!client) {
     return NextResponse.json({ prompt: BANK[Math.floor(Math.random() * BANK.length)], source: 'bank' });
   }
+  const ai = await resolveAiLevelFromRequest(req, body);
+  const addendum = aiLevelAddendum('diary-prompt', ai.level);
   try {
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 100,
-      system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
+      system: withLevelAddendum([{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }], addendum),
       output_config: { format: { type: 'json_schema', schema: SCHEMA } },
       messages: [{
         role: 'user',
@@ -60,7 +65,7 @@ export async function POST(req: NextRequest) {
     const t = response.content.find((b) => b.type === 'text');
     if (t && t.type === 'text') {
       const parsed = JSON.parse(t.text) as { prompt?: string };
-      if (parsed.prompt) return NextResponse.json({ prompt: parsed.prompt.slice(0, 200), source: 'ai' });
+      if (parsed.prompt) return NextResponse.json({ prompt: parsed.prompt.slice(0, 200), source: 'ai', level: ai.level });
     }
   } catch { /* fall through to bank */ }
   return NextResponse.json({ prompt: BANK[Math.floor(Math.random() * BANK.length)], source: 'bank' });

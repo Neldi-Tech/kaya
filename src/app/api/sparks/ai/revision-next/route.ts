@@ -11,6 +11,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { resolveAiLevelFromRequest } from '@/lib/ai/level.server';
+import { aiLevelAddendum, scaleTokens, withLevelAddendum } from '@/lib/ai/level.prompts';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -26,6 +28,10 @@ interface NextBody {
   notes?: string;
   /** Optional — past round titles so we don't repeat the same questions. */
   recentRounds?: Array<{ subject: string; ai_notes?: string }>;
+  /** 🤖 Kaya AI Levels — the kid + the client's level hint (see
+   *  lib/ai/level.server.ts). Overrides the score→difficulty ladder. */
+  kidId?: string;
+  aiLevel?: number;
 }
 
 const SYSTEM = `You are the in-app AI tutor for Kaya Sparks Home Revisions. The child has just submitted a homework revision; you've already scored it. Now generate exactly 3 follow-up practice questions tuned to what they got wrong.
@@ -79,6 +85,8 @@ export async function POST(req: NextRequest) {
   const score = Math.max(0, Math.min(100, Number(body?.score) || 0));
   const notes = (body?.notes || '').trim().slice(0, 600);
   const recent = (body?.recentRounds ?? []).slice(0, 4);
+  const ai = await resolveAiLevelFromRequest(req, body);
+  const addendum = aiLevelAddendum('next', ai.level);
 
   if (!subject) return NextResponse.json(EMPTY);
 
@@ -94,8 +102,8 @@ export async function POST(req: NextRequest) {
   try {
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 800,
-      system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
+      max_tokens: scaleTokens(800, ai.level),
+      system: withLevelAddendum([{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }], addendum),
       output_config: { format: { type: 'json_schema', schema: SCHEMA } },
       messages: [
         { role: 'user', content: [{ type: 'text', text: context }] },
@@ -107,7 +115,7 @@ export async function POST(req: NextRequest) {
     const parsed = JSON.parse(text.text) as { questions?: string[] };
     const qs = (parsed.questions ?? []).filter((q) => typeof q === 'string' && q.trim().length > 0).slice(0, 3);
     if (qs.length < 3) return NextResponse.json(EMPTY);
-    return NextResponse.json({ questions: qs });
+    return NextResponse.json({ questions: qs, aiLevel: ai.level });
   } catch (e: unknown) {
     if (e instanceof Anthropic.APIError) {
       return NextResponse.json({ error: e.message }, { status: e.status ?? 500 });

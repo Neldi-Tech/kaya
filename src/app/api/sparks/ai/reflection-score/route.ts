@@ -12,6 +12,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { resolveAiLevelFromRequest } from '@/lib/ai/level.server';
+import { aiLevelAddendum, withLevelAddendum } from '@/lib/ai/level.prompts';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
@@ -22,6 +24,10 @@ const client = apiKey ? new Anthropic({ apiKey }) : null;
 interface ScoreBody {
   text: string;
   firstName?: string;
+  /** 🤖 Kaya AI Levels — the kid + level hint (lib/ai/level.server.ts).
+   *  Shifts the soundness anchors; Balanced = today's prompt. */
+  kidId?: string;
+  aiLevel?: number;
 }
 
 const SYSTEM = `You score how SOUND a child's short daily reflection is for Kaya Sparks. "Sound" = thoughtful, honest, and reasonably complete for a kid writing a few lines about their day — does it go beyond "it was fine" to name what happened, how they felt, or what they noticed/learned? You are scoring the REFLECTION itself, NOT spelling, grammar, vocabulary, or handwriting (you only see transcribed text).
@@ -57,12 +63,14 @@ export async function POST(req: NextRequest) {
   const text = (body?.text || '').trim().slice(0, 1500);
   if (!text) return NextResponse.json({ error: 'Empty text' }, { status: 400 });
   const firstName = (body?.firstName || '').trim().slice(0, 40) || 'the kid';
+  const ai = await resolveAiLevelFromRequest(req, body);
+  const addendum = aiLevelAddendum('reflection-score', ai.level);
 
   try {
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 250,
-      system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
+      system: withLevelAddendum([{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }], addendum),
       output_config: { format: { type: 'json_schema', schema: SCHEMA } },
       messages: [{
         role: 'user',
@@ -73,7 +81,9 @@ export async function POST(req: NextRequest) {
     if (!out || out.type !== 'text') return NextResponse.json({ error: 'No response' }, { status: 500 });
     const parsed = JSON.parse(out.text) as { soundness?: number; rationale?: string };
     const soundness = Math.max(0, Math.min(100, Math.round(Number(parsed.soundness) || 0)));
-    return NextResponse.json({ soundness, rationale: String(parsed.rationale || '') });
+    // `level` = the level this was scored at; saved alongside soundness so
+    // the chip can explain a strict or gentle read later on.
+    return NextResponse.json({ soundness, rationale: String(parsed.rationale || ''), level: ai.level });
   } catch (e: unknown) {
     if (e instanceof Anthropic.APIError) {
       return NextResponse.json({ error: e.message }, { status: e.status ?? 500 });

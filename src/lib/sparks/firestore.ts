@@ -615,6 +615,8 @@ export interface NewThreadMessageInput {
   redo_breakdown?: { correct: number; partial: number; wrong: number };
   redo_notes?: string;
   redo_round?: number;
+  /** 🤖 Kaya AI Levels — the level the re-score was marked at (1-4). */
+  redo_level?: import('@/lib/ai/level.shared').AiLevel;
 }
 
 /** Append a message to a sparks_item's thread. */
@@ -637,6 +639,7 @@ export async function postThreadMessage(
     if (input.redo_breakdown) payload.redo_breakdown = input.redo_breakdown;
     if (input.redo_notes && input.redo_notes.trim().length > 0) payload.redo_notes = input.redo_notes.trim();
     if (typeof input.redo_round === 'number')  payload.redo_round = input.redo_round;
+    if (typeof input.redo_level === 'number')  payload.redo_level = input.redo_level;
   }
   const ref = await addDoc(threadCol(familyId, itemId), payload);
   return ref.id;

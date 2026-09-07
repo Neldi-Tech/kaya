@@ -9,6 +9,8 @@
 'use client';
 
 import type { SparksItemArea } from './schema';
+import { aiRequestHeaders } from '@/lib/ai/useAiLevel';
+import { parseAiLevel, type AiLevel } from '@/lib/ai/level.shared';
 
 const MAX_LONG_EDGE_AI = 1280; // px — keeps base64 payload small
 const JPEG_Q = 0.85;
@@ -309,9 +311,19 @@ export interface RevisionScore {
   parsedQuestions: string[];
   /** Slice 7i · structured per-question breakdown (answers mode only). */
   structured?: RevisionStructured;
+  /** 🤖 Kaya AI Levels — the level the server marked this page at. */
+  aiLevel?: AiLevel;
 }
 
-export interface ScoreRevisionArgs {
+/** 🤖 Kaya AI Levels — who the work belongs to + the client's resolved
+ *  level (useKidAiLevel). The bearer token from aiRequestHeaders lets the
+ *  route resolve the level server-side; the hint covers previews. */
+export interface AiLevelArgs {
+  kidId?: string;
+  aiLevel?: AiLevel;
+}
+
+export interface ScoreRevisionArgs extends AiLevelArgs {
   files: File[];
   kidName: string;
   /** 'answers' (default) = score the work · 'questions' = parse the page. */
@@ -325,7 +337,7 @@ export interface ScoreRevisionArgs {
 /** Re-evaluate ALREADY-uploaded work (no re-capture): the server fetches the
  *  existing answer images + question paper by URL and re-scores with the
  *  kid/parent clarification. Powers the revision re-evaluation chat. */
-export interface ReEvaluateRevisionArgs {
+export interface ReEvaluateRevisionArgs extends AiLevelArgs {
   imageUrls: string[];
   kidName: string;
   clarification: string;
@@ -383,6 +395,7 @@ export function normalizeRevisionScore(data: unknown): RevisionScore {
     notes: String(d.notes ?? ''),
     parsedQuestions: Array.isArray(d.parsedQuestions) ? (d.parsedQuestions as string[]) : [],
     ...(structured ? { structured } : {}),
+    ...(parseAiLevel(d.aiLevel) ? { aiLevel: parseAiLevel(d.aiLevel) as AiLevel } : {}),
   };
 }
 
@@ -402,7 +415,7 @@ export async function scoreRevision(
     }
     const res = await fetch('/api/sparks/ai/revision-score', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await aiRequestHeaders(),
       body: JSON.stringify({
         imageBase64s,
         mediaType,
@@ -410,6 +423,8 @@ export async function scoreRevision(
         mode: args.mode ?? 'answers',
         focusSubjects: args.focusSubjects,
         questionPaperUrls: args.questionPaperUrls,
+        kidId: args.kidId,
+        aiLevel: args.aiLevel,
       }),
     });
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
@@ -431,7 +446,7 @@ export async function reEvaluateRevision(
     if (imageUrls.length === 0) return { ok: false, error: 'No work to re-evaluate' };
     const res = await fetch('/api/sparks/ai/revision-score', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await aiRequestHeaders(),
       body: JSON.stringify({
         imageUrls,
         questionPaperUrls: args.questionPaperUrls,
@@ -439,6 +454,8 @@ export async function reEvaluateRevision(
         kidName: args.kidName,
         mode: 'answers',
         focusSubjects: args.focusSubjects,
+        kidId: args.kidId,
+        aiLevel: args.aiLevel,
       }),
     });
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
@@ -490,7 +507,7 @@ export async function autoFileScan(file: File, kidName?: string): Promise<AutoFi
   }
 }
 
-export interface SuggestNextArgs {
+export interface SuggestNextArgs extends AiLevelArgs {
   kidName: string;
   subject: string;
   gradeLevel: string;
@@ -505,7 +522,7 @@ export async function suggestNextQuestions(
   try {
     const res = await fetch('/api/sparks/ai/revision-next', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await aiRequestHeaders(),
       body: JSON.stringify(args),
     });
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };

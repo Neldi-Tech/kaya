@@ -21,6 +21,7 @@
 //     sparks_profiles.sibling_visibility is 'open'.
 
 import { NextRequest, NextResponse } from 'next/server';
+import { parseAiLevel } from '@/lib/ai/level.shared';
 import { getAdminFirestore, getAdminAuth } from '@/lib/firebaseAdmin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { dayKeyInTZ } from '@/lib/dates';
@@ -177,13 +178,16 @@ export async function POST(req: NextRequest) {
 
     if (action === 'aiscore') {
       const raw = body.ai_score && typeof body.ai_score === 'object'
-        ? body.ai_score as { soundness?: unknown; rationale?: unknown } : null;
+        ? body.ai_score as { soundness?: unknown; rationale?: unknown; level?: unknown } : null;
       const soundness = raw && typeof raw.soundness === 'number' && isFinite(raw.soundness)
         ? Math.max(0, Math.min(100, Math.round(raw.soundness))) : null;
       if (soundness === null) return NextResponse.json({ error: 'bad-aiscore' }, { status: 400 });
       const rationale = typeof raw?.rationale === 'string' ? raw.rationale.trim().slice(0, 400) : '';
+      // 🤖 Kaya AI Levels — the level this entry was scored at (1-4), stamped
+      // so the chip can explain a strict or gentle read later.
+      const level = parseAiLevel(raw?.level);
       await ref.set(
-        { ai_score: { soundness, rationale }, updatedAt: FieldValue.serverTimestamp() },
+        { ai_score: { soundness, rationale, ...(level ? { level } : {}) }, updatedAt: FieldValue.serverTimestamp() },
         { merge: true },
       );
       return NextResponse.json({ ok: true });

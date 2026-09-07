@@ -1,4 +1,5 @@
 'use client';
+import { useKidAiLevel, aiRequestHeaders } from '@/lib/ai/useAiLevel';
 
 // Kaya Sparks · Daily Reflection (/sparks/[kidId]/reflection).
 //
@@ -75,6 +76,8 @@ export default function ReflectionPage() {
   const kid = useMemo(() => children.find((c) => c.id === kidId), [children, kidId]);
   const kidName = kid?.name || 'Kid';
   const sw = useLocale() === 'sw';
+  // 🤖 Kaya AI Levels — this kid's level for soundness scoring + feedback.
+  const aiLevel = useKidAiLevel(kidId).level;
 
   const today = reflectionDayKey();
   const [profile, setProfile] = useState<SparksProfile | null>(null);
@@ -340,8 +343,8 @@ export default function ReflectionPage() {
         void (async () => {
           try {
             const res = await fetch('/api/sparks/ai/reflection-score', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ text: newText }),
+              method: 'POST', headers: await aiRequestHeaders(),
+              body: JSON.stringify({ text: newText, kidId, aiLevel }),
             });
             const data = await res.json().catch(() => ({}));
             if (data && !data.skipped && typeof data.soundness === 'number') {
@@ -436,8 +439,8 @@ export default function ReflectionPage() {
         try {
           const res = await fetch('/api/sparks/ai/reflection-score', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: draft.trim(), firstName: kidName.split(' ')[0] }),
+            headers: await aiRequestHeaders(),
+            body: JSON.stringify({ text: draft.trim(), firstName: kidName.split(' ')[0], kidId, aiLevel }),
           });
           const data = await res.json().catch(() => ({}));
           if (data && !data.skipped && !data.error && typeof data.soundness === 'number') {
@@ -451,8 +454,8 @@ export default function ReflectionPage() {
       try {
         const res = await fetch('/api/sparks/ai/reflect', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: draft.trim(), firstName: kidName }),
+          headers: await aiRequestHeaders(),
+          body: JSON.stringify({ text: draft.trim(), firstName: kidName, kidId, aiLevel }),
         });
         const fb = await res.json().catch(() => ({}));
         if (fb && !fb.skipped && !fb.error && fb.wentWell) {
@@ -477,8 +480,8 @@ export default function ReflectionPage() {
     try {
       const res = await fetch('/api/sparks/ai/reflection-score', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: entry.text.trim(), firstName: kidName.split(' ')[0] }),
+        headers: await aiRequestHeaders(),
+        body: JSON.stringify({ text: entry.text.trim(), firstName: kidName.split(' ')[0], kidId, aiLevel }),
       });
       const data = await res.json().catch(() => ({}));
       if (data && !data.skipped && !data.error && typeof data.soundness === 'number') {

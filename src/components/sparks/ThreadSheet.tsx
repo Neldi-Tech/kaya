@@ -1,4 +1,6 @@
 'use client';
+import { useKidAiLevel } from '@/lib/ai/useAiLevel';
+import type { AiLevel } from '@/lib/ai/level.shared';
 
 // Kaya Sparks · revision thread sheet (Slice 7e + 7f).
 //
@@ -64,6 +66,11 @@ export default function ThreadSheet({
   const [error, setError] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<{ photos: string[]; index: number } | null>(null);
   const [cameraMode, setCameraMode] = useState<'scan' | 'photo' | null>(null);
+
+  // 🤖 Kaya AI Levels — the level of the kid whose work this is (never
+  // the parent / helper replying). Sent with every re-score; the level
+  // the server marked at is stamped on the redo message.
+  const kidAiLevel = useKidAiLevel(item.kid_id).level;
 
   // Re-do is only meaningful on revision items the AI scored (answers
   // mode). Question-mode uploads + non-revision items skip the button.
@@ -197,15 +204,19 @@ export default function ThreadSheet({
         kidName: kidName ?? authorName,
         mode: 'answers',
         questionPaperUrls: item.question_paper_urls,
+        kidId: item.kid_id,
+        aiLevel: kidAiLevel,
       });
 
       let redoScore: number | undefined;
       let redoBreakdown: { correct: number; partial: number; wrong: number } | undefined;
       let redoNotes: string | undefined;
+      let redoLevel: AiLevel | undefined;
       if (score.ok) {
         redoScore = score.data.score;
         redoBreakdown = score.data.breakdown;
         redoNotes = score.data.notes;
+        redoLevel = score.data.aiLevel ?? kidAiLevel;
       } else if (score.skipped) {
         redoNotes = 'AI is off on this environment — re-do posted without a score.';
       } else if (score.error) {
@@ -230,6 +241,7 @@ export default function ThreadSheet({
         redo_breakdown: redoBreakdown,
         redo_notes: redoNotes,
         redo_round: nextRedoRound,
+        redo_level: redoLevel,
       });
 
       setText('');
@@ -254,14 +266,18 @@ export default function ThreadSheet({
         questionPaperUrls: item.question_paper_urls,
         clarification: text.trim(),
         kidName: kidName ?? authorName,
+        kidId: item.kid_id,
+        aiLevel: kidAiLevel,
       });
       let redoScore: number | undefined;
       let redoBreakdown: { correct: number; partial: number; wrong: number } | undefined;
       let redoNotes: string | undefined;
+      let redoLevel: AiLevel | undefined;
       if (result.ok) {
         redoScore = result.data.score;
         redoBreakdown = result.data.breakdown;
         redoNotes = result.data.notes;
+        redoLevel = result.data.aiLevel ?? kidAiLevel;
       } else if (result.skipped) {
         redoNotes = 'AI is off on this environment — your note was posted without a new score.';
       } else {
@@ -277,6 +293,7 @@ export default function ThreadSheet({
         redo_breakdown: redoBreakdown,
         redo_notes: redoNotes,
         redo_round: nextRedoRound,
+        redo_level: redoLevel,
       });
       setText('');
       clearDraft(dKey);

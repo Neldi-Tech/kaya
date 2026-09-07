@@ -44,6 +44,8 @@ export interface ReflectionFeedback {
   tip?: string;
   /** 👏 a short closing cheer. */
   cheer: string;
+  /** 🤖 Kaya AI Levels — the level this feedback was written at (1-4). */
+  level?: import('@/lib/ai/level.shared').AiLevel;
 }
 
 /** Slice 7p · Post-scan AI read. Mood + theme + warm 1-line Kaya
@@ -80,6 +82,8 @@ export interface ReflectionParentRating {
 export interface ReflectionAIScore {
   soundness: number;   // 0-100
   rationale: string;   // 1 short sentence, kid-readable
+  /** 🤖 Kaya AI Levels — the level this entry was scored at (1-4). */
+  level?: import('@/lib/ai/level.shared').AiLevel;
 }
 
 /** 🗄 Treasures 2.0 (D35) · where a reflection came from. Absent = the

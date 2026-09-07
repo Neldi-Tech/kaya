@@ -27,6 +27,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFirestore, getAdminAuth } from '@/lib/firebaseAdmin';
+import { resolveAiLevelAdmin } from '@/lib/ai/level.server';
+import { aiLevelAddendum, withLevelAddendum } from '@/lib/ai/level.prompts';
 import { FieldValue } from 'firebase-admin/firestore';
 import Anthropic from '@anthropic-ai/sdk';
 
@@ -405,7 +407,7 @@ export async function POST(req: NextRequest) {
 
   // ── Child context (first name + age) ──────────────────────────────
   const kidSnap = await famRef.collection('children').doc(kidId).get();
-  const kidData = kidSnap.data() as { name?: string; birthday?: string } | undefined;
+  const kidData = kidSnap.data() as { name?: string; birthday?: string; aiLevel?: unknown } | undefined;
   const kidName = (kidData?.name || 'the child').split(' ')[0];
   const age = ageFrom(kidData?.birthday);
 
@@ -665,11 +667,15 @@ export async function POST(req: NextRequest) {
       `TRANSCRIPT:\n${transcript}`,
     ].join('\n');
 
+    // 🤖 Kaya AI Levels — the KID's level (never the actor's): how many
+    // notes, how blunt, how strict the clarity read. Balanced = untouched.
+    const coachLevel = await resolveAiLevelAdmin(db, familyId, kidId, { child: kidData });
+
     try {
       const r = await client!.messages.create({
         model: MODEL,
         max_tokens: 800,
-        system: [{ type: 'text', text: COACH_SYSTEM, cache_control: { type: 'ephemeral' } }],
+        system: withLevelAddendum([{ type: 'text', text: COACH_SYSTEM, cache_control: { type: 'ephemeral' } }], aiLevelAddendum('coach-ear', coachLevel)),
         output_config: { format: { type: 'json_schema', schema: COACH_SCHEMA } },
         messages: [{ role: 'user', content: [{ type: 'text', text: userMsg }] }],
       });
@@ -681,6 +687,7 @@ export async function POST(req: NextRequest) {
         clarity: clamp(Number(out.clarity), 0, 100, 55),
         cheer: String(out.cheer || '').slice(0, 200),
         wpm, fillers, words: words.length,
+        aiLevel: coachLevel,
       });
     } catch (e) {
       return aiFailed('coach', e);

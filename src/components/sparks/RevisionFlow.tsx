@@ -1,4 +1,5 @@
 'use client';
+import { useKidAiLevel } from '@/lib/ai/useAiLevel';
 
 // Kaya Sparks · Home Revisions flow.
 //
@@ -93,6 +94,10 @@ export default function RevisionFlow({
     () => captureDraftKey({ familyId, kidId, surface: 'revision' }),
     [familyId, kidId],
   );
+  // 🤖 Kaya AI Levels — THIS kid's level (family default · age guard ·
+  // per-child override). Sent with every scoring call; the level the
+  // server actually marked at comes back and is stamped on the item.
+  const aiLevel = useKidAiLevel(kidId).level;
 
   // Reset on open/close so a previous run doesn't leak in.
   useEffect(() => {
@@ -218,6 +223,8 @@ export default function RevisionFlow({
       kidName,
       mode,
       focusSubjects: settings.focus_subjects,
+      kidId,
+      aiLevel,
     });
     if ('skipped' in out && out.skipped) {
       setAiSkipped(true);
@@ -253,6 +260,8 @@ export default function RevisionFlow({
         score: out.data.score,
         notes: out.data.notes,
         recentRounds,
+        kidId,
+        aiLevel: out.data.aiLevel ?? aiLevel,
       });
       if ('skipped' in nq && nq.skipped) {
         setNextQuestions(['AI is off — pick 3 questions you got wrong and re-do them slowly.']);
@@ -312,6 +321,8 @@ export default function RevisionFlow({
           ...(mode === 'answers' ? {
             ai_score: score.score,
             ai_breakdown: score.breakdown,
+            // 🤖 the level this page was marked at — never re-marked later.
+            ...(aiSkipped ? {} : { ai_level: score.aiLevel ?? aiLevel }),
             // Slice 7i · persist structured breakdown so the revisions
             // list can render Strengths / Areas / Q-by-Q without
             // re-calling the AI on every page open.
