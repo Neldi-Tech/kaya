@@ -2206,6 +2206,7 @@ export interface BusinessReview {
   wentWell?: string;       // reflection 1
   tryNext?: string;        // reflection 2
   aiAdvice?: string;       // the coach's one specific tip, snapshotted
+  aiAdviceLevel?: import('@/lib/ai/level.shared').AiLevel; // 🤖 level it was written at
   byUid: string;
   at: Timestamp;
   hpRequested?: boolean;
@@ -2226,6 +2227,8 @@ export interface BusinessReviewInput {
   wentWell?: string;
   tryNext?: string;
   aiAdvice?: string;
+  /** 🤖 Kaya AI Levels — the owner's level the advice was written at (1-4). */
+  aiAdviceLevel?: import('@/lib/ai/level.shared').AiLevel;
 }
 
 /** Save (or overwrite) a Business Review. One per calendar day per business. */
@@ -2255,6 +2258,7 @@ export async function saveBusinessReview(
   if (input.wentWell?.trim()) data.wentWell = input.wentWell.trim().slice(0, 500);
   if (input.tryNext?.trim()) data.tryNext = input.tryNext.trim().slice(0, 500);
   if (input.aiAdvice?.trim()) data.aiAdvice = input.aiAdvice.trim().slice(0, 1000);
+  if (input.aiAdvice?.trim() && input.aiAdviceLevel) data.aiAdviceLevel = input.aiAdviceLevel;
   await setDoc(doc(stockTakesCol(familyId, businessId), id), data, { merge: true });
   await updateDoc(businessDoc(familyId, businessId), { 'stats.lastActivityAt': serverTimestamp() });
   return id;

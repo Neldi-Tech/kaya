@@ -1,5 +1,6 @@
 'use client';
 import AiLevelChip from '@/components/ai/AiLevelChip';
+import { aiLevelLabel } from '@/lib/ai/level.shared';
 
 // Kaya Sparks · 🎤 Coach Ear 2.1 (QF-2 · 2026-07-22 · hardened 2026-09-07).
 //
@@ -324,7 +325,9 @@ export default function CoachEarCard({ familyId, kidId, kidName, quest }: {
         questId: quest.id,
         markerId: rubricMarker.id,
         value: result.clarity,
-        note: `Coach Ear · ${result.wpm} wpm · ${result.fillers} filler word${result.fillers === 1 ? '' : 's'}`,
+        // 🤖 the level Coach Kaya answered at rides in the note so the
+        // marker's history explains a strict or gentle clarity read.
+        note: `Coach Ear${result.aiLevel ? ` · ${aiLevelLabel(result.aiLevel)}` : ''} · ${result.wpm} wpm · ${result.fillers} filler word${result.fillers === 1 ? '' : 's'}`,
       });
       setSavedTo(rubricMarker.label);
     } catch {
