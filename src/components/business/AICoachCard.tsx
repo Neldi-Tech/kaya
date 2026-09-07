@@ -4,8 +4,15 @@
 // not on every render — keeps it cheap) and shows the coach's bubble + advisory
 // reply chips. The coach only ever proposes; the chips are conversation
 // prompts, not actions. Renders nothing if the API has no key (graceful).
+//
+// 🤖 Kaya AI Levels (2026-09-07): pass `kidId` (the business / project owner)
+// and the coach speaks at THAT kid's level — Gentle keeps it light, Stretch
+// is direct, Exam-Ready is numbers-first. The level it answered at rides
+// back as `aiLevel` (shown as a chip).
 
 import { useState } from 'react';
+import { useKidAiLevel, aiRequestHeaders } from '@/lib/ai/useAiLevel';
+import type { AiLevel } from '@/lib/ai/level.shared';
 
 type Loop = 'idea' | 'pricing' | 'cost_flag' | 'weekly' | 'design';
 
@@ -15,30 +22,36 @@ export default function AICoachCard({
   coachName = 'Kaya Coach',
   currency = 'USD',
   cta = 'Ask for a tip',
+  kidId,
 }: {
   loop: Loop;
   facts: Record<string, string | number>;
   coachName?: string;
   currency?: string;
   cta?: string;
+  /** The kid this business / project belongs to — sets the coaching level. */
+  kidId?: string;
 }) {
   const [state, setState] = useState<'idle' | 'loading' | 'done' | 'error' | 'off'>('idle');
   const [message, setMessage] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [answeredAt, setAnsweredAt] = useState<AiLevel | null>(null);
+  const aiLevel = useKidAiLevel(kidId).level;
 
   const ask = async () => {
     setState('loading');
     try {
       const r = await fetch('/api/business-coach', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ loop, coachName, currency, facts }),
+        headers: await aiRequestHeaders(),
+        body: JSON.stringify({ loop, coachName, currency, facts, kidId, aiLevel }),
       });
       const j = await r.json();
       if (j?.skipped) { setState('off'); return; }
       if (!r.ok || j?.error || !j?.message) { setState('error'); return; }
       setMessage(j.message);
       setSuggestions(Array.isArray(j.suggestions) ? j.suggestions : []);
+      setAnsweredAt(j.aiLevel === 1 || j.aiLevel === 2 || j.aiLevel === 3 || j.aiLevel === 4 ? j.aiLevel : null);
       setState('done');
     } catch {
       setState('error');
@@ -90,7 +103,10 @@ export default function AICoachCard({
           ))}
         </div>
       )}
-      <button onClick={ask} className="mt-2.5 text-[11px] font-nunito font-bold text-hive-honey-soft/70 hover:text-hive-honey">↻ Ask again</button>
+      <div className="flex items-center gap-3 mt-2.5">
+        <button onClick={ask} className="text-[11px] font-nunito font-bold text-hive-honey-soft/70 hover:text-hive-honey">↻ Ask again</button>
+        {answeredAt && <span data-ai-level={answeredAt} className="hidden" />}
+      </div>
     </Bubble>
   );
 }

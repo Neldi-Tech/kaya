@@ -33,6 +33,9 @@ import { getAdminFirestore, getAdminAuth } from '@/lib/firebaseAdmin';
 import { FieldValue } from 'firebase-admin/firestore';
 import Anthropic from '@anthropic-ai/sdk';
 import { bumpBadgeCountersAdmin } from '@/lib/badgeCountersAdmin';
+import { resolveAiLevelAdmin } from '@/lib/ai/level.server';
+import { aiLevelAddendum, withLevelAddendum } from '@/lib/ai/level.prompts';
+import { parseAiLevel } from '@/lib/ai/level.shared';
 
 // C4 · D36 — the Finish Quiz is generated + scored by Claude. Absent key
 // → honest generic questions and no score (never an error).
@@ -841,11 +844,11 @@ export async function POST(req: NextRequest) {
       if (!isParent && !isHelper && viewerChildId !== readerKidId) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
       const patch: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
       const fb = body.feedback && typeof body.feedback === 'object' ? body.feedback as Record<string, unknown> : null;
-      if (fb && typeof fb.wentWell === 'string') patch.feedback = { wentWell: str(fb.wentWell, 600), ...(fb.tip ? { tip: str(fb.tip, 400) } : {}), cheer: str(fb.cheer, 200) };
+      if (fb && typeof fb.wentWell === 'string') patch.feedback = { wentWell: str(fb.wentWell, 600), ...(fb.tip ? { tip: str(fb.tip, 400) } : {}), cheer: str(fb.cheer, 200), ...(parseAiLevel(fb.level) ? { level: parseAiLevel(fb.level) } : {}) };
       const air = body.ai_read && typeof body.ai_read === 'object' ? body.ai_read as Record<string, unknown> : null;
       if (air && typeof air.mood_emoji === 'string') patch.ai_read = { mood_emoji: str(air.mood_emoji, 8), mood_word: str(air.mood_word, 40), theme_emoji: str(air.theme_emoji, 8), theme_label: str(air.theme_label, 60), kaya_response: str(air.kaya_response, 400) };
-      const sc = body.ai_score && typeof body.ai_score === 'object' ? body.ai_score as { soundness?: unknown; rationale?: unknown } : null;
-      if (sc && typeof sc.soundness === 'number' && Number.isFinite(sc.soundness)) patch.ai_score = { soundness: Math.max(0, Math.min(100, Math.round(sc.soundness))), rationale: str(sc.rationale, 400) };
+      const sc = body.ai_score && typeof body.ai_score === 'object' ? body.ai_score as { soundness?: unknown; rationale?: unknown; level?: unknown } : null;
+      if (sc && typeof sc.soundness === 'number' && Number.isFinite(sc.soundness)) patch.ai_score = { soundness: Math.max(0, Math.min(100, Math.round(sc.soundness))), rationale: str(sc.rationale, 400), ...(parseAiLevel(sc.level) ? { level: parseAiLevel(sc.level) } : {}) };
       if (Object.keys(patch).length === 1) return NextResponse.json({ error: 'nothing-to-attach' }, { status: 400 });
       await reflCol.doc(entryId).set(patch, { merge: true });
       return NextResponse.json({ ok: true });
@@ -915,6 +918,9 @@ export async function POST(req: NextRequest) {
         if (existing.length) return NextResponse.json({ questions: existing, generated: true });
         // Kaya writes the questions from the book + the kid's own notes.
         let questions: string[] = [];
+        // 🤖 Kaya AI Levels — the READER's level (family default, age
+        // guard, per-child override), resolved with the Admin SDK.
+        const quizLevel = await resolveAiLevelAdmin(db, familyId, readerKidId);
         if (anthropic) {
           try {
             const notesSnap = await reflCol.where('kidId', '==', readerKidId).get();
@@ -928,7 +934,7 @@ export async function POST(req: NextRequest) {
               model: 'claude-opus-5',
               max_tokens: 700,
               output_config: { effort: 'low', format: { type: 'json_schema', schema: QUIZ_Q_SCHEMA } },
-              system: [{ type: 'text', text: 'You write a warm, short end-of-book quiz for a child in a family app. 3 to 5 open questions, age-appropriate, about the story, the characters, and what the child thinks — never trick questions, never yes/no. One sentence each. Use the child\'s own notes when given so the questions feel personal. Return JSON {"questions": [...]}.', cache_control: { type: 'ephemeral' } }],
+              system: withLevelAddendum([{ type: 'text', text: 'You write a warm, short end-of-book quiz for a child in a family app. 3 to 5 open questions, age-appropriate, about the story, the characters, and what the child thinks — never trick questions, never yes/no. One sentence each. Use the child\'s own notes when given so the questions feel personal. Return JSON {"questions": [...]}.', cache_control: { type: 'ephemeral' } }], aiLevelAddendum('quiz-write', quizLevel)),
               messages: [{ role: 'user', content:
                 `Book: "${bookName}"${bookAuthor ? ` by ${bookAuthor}` : ''}.${bookSummary ? `\nWhat it's about: ${bookSummary}` : ''}\nReader: ${kidFirst}${kidAge !== undefined ? `, about ${kidAge} years old` : ''}.\n${notes.length ? `Their notes while reading:\n${notes.join('\n')}` : 'No notes were written while reading.'}\nWrite the questions.` }],
             });
@@ -941,8 +947,8 @@ export async function POST(req: NextRequest) {
         }
         const generated = questions.length >= 3;
         if (!generated) questions = QUIZ_FALLBACK;
-        await saveQuiz({ ...quiz, questions, askedAt: now, generated });
-        return NextResponse.json({ questions, generated });
+        await saveQuiz({ ...quiz, questions, askedAt: now, generated, level: quizLevel });
+        return NextResponse.json({ questions, generated, aiLevel: quizLevel });
       }
 
       if (action === 'quiz-answer') {
@@ -952,13 +958,16 @@ export async function POST(req: NextRequest) {
         if (!answers.some(Boolean)) return NextResponse.json({ error: 'empty' }, { status: 400 });
         let understanding: number | undefined;
         let rationale = '';
+        // 🤖 Kaya AI Levels — rate at the reader's level (Balanced = the
+        // generous prompt below, untouched).
+        const rateLevel = await resolveAiLevelAdmin(db, familyId, readerKidId);
         if (anthropic) {
           try {
             const resp = await anthropic.messages.create({
               model: 'claude-opus-5',
               max_tokens: 400,
               output_config: { effort: 'low', format: { type: 'json_schema', schema: QUIZ_SCORE_SCHEMA } },
-              system: [{ type: 'text', text: 'You read a child\'s answers to an end-of-book quiz and rate their UNDERSTANDING of the book from 0 to 100 — generously, for effort and real engagement, never for spelling or grammar. Then write ONE short, kind sentence a child can read that names something they got right. Return JSON {"understanding": number, "rationale": string}.', cache_control: { type: 'ephemeral' } }],
+              system: withLevelAddendum([{ type: 'text', text: 'You read a child\'s answers to an end-of-book quiz and rate their UNDERSTANDING of the book from 0 to 100 — generously, for effort and real engagement, never for spelling or grammar. Then write ONE short, kind sentence a child can read that names something they got right. Return JSON {"understanding": number, "rationale": string}.', cache_control: { type: 'ephemeral' } }], aiLevelAddendum('quiz-rate', rateLevel)),
               messages: [{ role: 'user', content:
                 `Book: "${bookName}"${bookAuthor ? ` by ${bookAuthor}` : ''}. Reader: ${kidFirst}${kidAge !== undefined ? `, about ${kidAge}` : ''}.\n${qs.map((q, i) => `Q${i + 1}: ${q}\nA${i + 1}: ${answers[i] || '(no answer)'}`).join('\n')}` }],
             });
@@ -970,7 +979,7 @@ export async function POST(req: NextRequest) {
             }
           } catch { understanding = undefined; }
         }
-        const q: Record<string, unknown> = { ...quiz, answers, answeredAt: now };
+        const q: Record<string, unknown> = { ...quiz, answers, answeredAt: now, level: rateLevel };
         if (understanding !== undefined) { q.understanding = understanding; q.rationale = rationale; }
         await saveQuiz(q);
         await bumpBadgeCountersAdmin(db, familyId, readerKidId, { quizzesDone: 1 });
@@ -978,7 +987,7 @@ export async function POST(req: NextRequest) {
           treasureId, kidId, kind: 'read_finish', on: today, at: now, byName: actorName,
           note: `${kidFirst} answered Kaya’s Finish Quiz${understanding !== undefined ? ` — understanding ${understanding}%` : ''}`,
         });
-        return NextResponse.json({ ok: true, understanding, rationale });
+        return NextResponse.json({ ok: true, understanding, rationale, aiLevel: rateLevel });
       }
     }
 

@@ -16,6 +16,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { resolveAiLevelFromRequest } from '@/lib/ai/level.server';
+import { aiLevelAddendum, scaleTokens, withLevelAddendum } from '@/lib/ai/level.prompts';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -44,6 +46,11 @@ interface ScoreBody {
   mode?: Mode;
   /** Optional hint — the focus subjects from sparks_profiles. */
   focusSubjects?: string[];
+  /** 🤖 Kaya AI Levels — the kid whose work this is + the client's level
+   *  hint. With a bearer token the level is resolved SERVER-side for this
+   *  kid (lib/ai/level.server.ts); the hint only applies without one. */
+  kidId?: string;
+  aiLevel?: number;
 }
 
 type ImgBlock = { type: 'image'; source: { type: 'base64'; media_type: ImgMedia; data: string } };
@@ -220,6 +227,10 @@ export async function POST(req: NextRequest) {
   const focus = (body?.focusSubjects ?? []).slice(0, 8).join(', ');
   const mode: Mode = body?.mode === 'questions' ? 'questions' : 'answers';
   const clarification = (body?.clarification || '').trim().slice(0, 1000);
+  // 🤖 AI level — marking strictness / depth / voice for THIS kid. Answers
+  // mode only (questions mode just reads the page). Balanced → no addendum.
+  const ai = await resolveAiLevelFromRequest(req, body);
+  const addendum = mode === 'answers' ? aiLevelAddendum('marking', ai.level) : null;
 
   // Answer images: inline base64 first (fresh capture), then fetch any URLs
   // (re-evaluation of already-uploaded work). Cap the combined set at 4.
@@ -262,12 +273,13 @@ export async function POST(req: NextRequest) {
       model: 'claude-sonnet-4-6',
       // Slice 7i bumped from 1200 → 3000 for answers mode to fit the new
       // structured qbq array (up to ~25 questions × ~80 tokens each).
-      max_tokens: mode === 'questions' ? 1800 : 3000,
-      system: [{
+      // 🤖 Stretch / Exam-Ready write a fuller breakdown → more room (never less).
+      max_tokens: mode === 'questions' ? 1800 : scaleTokens(3000, ai.level),
+      system: withLevelAddendum([{
         type: 'text',
         text: mode === 'questions' ? SYSTEM_QUESTIONS : SYSTEM_ANSWERS,
         cache_control: { type: 'ephemeral' },
-      }],
+      }], addendum),
       output_config: { format: { type: 'json_schema', schema: SCHEMA } },
       messages: [
         {
@@ -292,9 +304,12 @@ export async function POST(req: NextRequest) {
         notes: "Couldn't parse this page — try a clearer photo.",
         parsedQuestions: [],
         structured: { coverage: { read: 0, total: 0 }, strengths: [], areas: [], qbq: [] },
+        aiLevel: ai.level,
       });
     }
-    return NextResponse.json(JSON.parse(text.text));
+    // The level this page was marked at rides back so the client can stamp
+    // it on the item / thread message (chips + "never re-marks past work").
+    return NextResponse.json({ ...JSON.parse(text.text), aiLevel: ai.level });
   } catch (e: unknown) {
     if (e instanceof Anthropic.APIError) {
       return NextResponse.json({ error: e.message }, { status: e.status ?? 500 });

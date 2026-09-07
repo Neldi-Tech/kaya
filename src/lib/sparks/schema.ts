@@ -478,6 +478,9 @@ export interface SparksItem {
     ai_score?: number;          // 0-100 overall % (answers mode only)
     ai_breakdown?: { correct: number; partial: number; wrong: number };
     ai_notes?: string;          // short "why" explanation for the kid
+    /** 🤖 Kaya AI Levels — the level this page was MARKED at (1-4).
+     *  Stamped at submit; changing the level never re-marks past work. */
+    ai_level?: import('@/lib/ai/level.shared').AiLevel;
     /** Questions Claude PARSED from the uploaded worksheet page
      *  (questions mode only). */
     parsed_questions?: string[];
@@ -710,6 +713,8 @@ export interface SparksThreadMessage {
   redo_breakdown?: { correct: number; partial: number; wrong: number };
   redo_notes?: string;       // short kid-readable "why"
   redo_round?: number;       // 1-indexed redo number (1 = first redo)
+  /** 🤖 Kaya AI Levels — the level this re-do / re-evaluation was marked at. */
+  redo_level?: import('@/lib/ai/level.shared').AiLevel;
   createdAt: Timestamp;
 }
 

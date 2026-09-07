@@ -7,6 +7,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { resolveAiLevelFromRequest } from '@/lib/ai/level.server';
+import { aiLevelAddendum, scaleTokens, withLevelAddendum } from '@/lib/ai/level.prompts';
 
 export const runtime = 'nodejs';
 
@@ -23,6 +25,10 @@ interface CoachBody {
    *  numbers). Display strings only — no PII beyond the business + customer
    *  names the kid themselves typed. */
   facts?: Record<string, string | number>;
+  /** 🤖 Kaya AI Levels — the business owner (kid) + level hint
+   *  (lib/ai/level.server.ts). Sets how direct the coach is. */
+  kidId?: string;
+  aiLevel?: number;
 }
 
 const LOOP_BRIEF: Record<Loop, string> = {
@@ -79,12 +85,14 @@ export async function POST(req: NextRequest) {
     .slice(0, 20)
     .map(([k, v]) => `- ${k}: ${v}`)
     .join('\n') || '- (no numbers yet)';
+  const ai = await resolveAiLevelFromRequest(req, body);
+  const addendum = aiLevelAddendum('business', ai.level);
 
   try {
     const response = await client.messages.create({
       model: 'claude-opus-4-7',
-      max_tokens: 600,
-      system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
+      max_tokens: scaleTokens(600, ai.level),
+      system: withLevelAddendum([{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }], addendum),
       output_config: { format: { type: 'json_schema', schema: SCHEMA } },
       messages: [
         {
@@ -109,6 +117,7 @@ ${factLines}`,
       suggestions: Array.isArray(parsed.suggestions)
         ? parsed.suggestions.filter((s) => typeof s === 'string' && s.trim()).slice(0, 3)
         : [],
+      aiLevel: ai.level,
     });
   } catch (e: unknown) {
     if (e instanceof Anthropic.APIError) {

@@ -17,6 +17,7 @@
 'use client';
 
 import { auth } from '../firebase';
+import { aiRequestHeaders } from '@/lib/ai/useAiLevel';
 import { isGuestActive } from '../mockFamily';
 
 // ── Types ───────────────────────────────────────────────────────────
@@ -360,12 +361,16 @@ export async function setDiaryVisibility(ownerId: string, visibility: 'personal'
 // ── Slice 8f · the five features · client helpers ───────────────────
 
 /** 🫙 Prompt Jar — one kid-appropriate writing prompt (AI or bank). */
-export async function getDiaryPrompt(firstName: string, age?: number | null): Promise<string> {
+export async function getDiaryPrompt(
+  firstName: string, age?: number | null,
+  /** 🤖 Kaya AI Levels — the diary owner + their resolved level. */
+  level?: { kidId?: string; aiLevel?: number },
+): Promise<string> {
   try {
     const res = await fetch('/api/sparks/ai/diary-prompt', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ firstName, age: age ?? undefined }),
+      headers: await aiRequestHeaders(),
+      body: JSON.stringify({ firstName, age: age ?? undefined, kidId: level?.kidId, aiLevel: level?.aiLevel }),
     });
     const data = await res.json().catch(() => ({}));
     if (data?.prompt) return String(data.prompt);

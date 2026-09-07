@@ -11,6 +11,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { resolveAiLevelFromRequest } from '@/lib/ai/level.server';
+import { aiLevelAddendum, withLevelAddendum } from '@/lib/ai/level.prompts';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -24,6 +26,10 @@ interface WeekBody {
   weekKey: string;
   /** Up to 7 entries · oldest → newest. */
   entries: Array<{ date: string; text: string }>;
+  /** 🤖 Kaya AI Levels (light touch: the tip's directness only). The cron
+   *  resolves the kid's level with the Admin SDK and passes it here. */
+  kidId?: string;
+  aiLevel?: number;
 }
 
 const SYSTEM = `You read a child's 5–7 daily reflections from one school week and write a structured weekly review for Kaya Sparks. The output is shown on the kid's reflection page and emailed to parents — keep it warm, specific, and never preachy.
@@ -115,12 +121,14 @@ export async function POST(req: NextRequest) {
     .map((e) => `[${e.date}] ${e.text.replace(/\s+/g, ' ').trim()}`)
     .join('\n');
   const userText = `Kid: ${kidName}\nWeek: ${weekKey}\n${entries.length} entry/entries:\n\n${entriesText}`;
+  const ai = await resolveAiLevelFromRequest(req, body);
+  const addendum = aiLevelAddendum('week', ai.level);
 
   try {
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 1200,
-      system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
+      system: withLevelAddendum([{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }], addendum),
       output_config: { format: { type: 'json_schema', schema: SCHEMA } },
       messages: [{ role: 'user', content: [{ type: 'text', text: userText }] }],
     });
@@ -128,7 +136,7 @@ export async function POST(req: NextRequest) {
     if (!text || text.type !== 'text') {
       return NextResponse.json({ error: 'No response' }, { status: 500 });
     }
-    return NextResponse.json(JSON.parse(text.text));
+    return NextResponse.json({ ...JSON.parse(text.text), level: ai.level });
   } catch (e: unknown) {
     if (e instanceof Anthropic.APIError) {
       return NextResponse.json({ error: e.message }, { status: e.status ?? 500 });

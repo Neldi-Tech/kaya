@@ -293,6 +293,7 @@ export default function BusinessDashboardPage() {
       <div className="space-y-2.5 mb-3">
         <AICoachCard
           loop="pricing"
+          kidId={business.ownerId}
           coachName={coachName}
           currency={config.currency}
           cta={`Ask ${coachName} about your price`}

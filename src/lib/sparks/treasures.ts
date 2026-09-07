@@ -279,6 +279,8 @@ export interface ReadingQuiz {
   /** Kaya's read of understanding, 0–100 — display-only, never points. */
   understanding?: number;
   rationale?: string;
+  /** 🤖 Kaya AI Levels — the reader's level the quiz was written / rated at. */
+  level?: import('@/lib/ai/level.shared').AiLevel;
   skippedAt?: number;
   parentRating?: { stars?: number; percent?: number; note?: string; byName: string; at: number; pointsAwarded?: number };
 }

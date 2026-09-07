@@ -1,4 +1,5 @@
 'use client';
+import { useKidAiLevel } from '@/lib/ai/useAiLevel';
 
 // Kaya Sparks · Diary — day page (Slice 8a · 2026-07-21).
 //
@@ -60,6 +61,8 @@ export default function DiaryPage() {
   const kid = useMemo(() => children.find((c) => c.id === kidId), [children, kidId]);
   const kidName = kid?.name || 'Kid';
   const sw = useLocale() === 'sw';
+  // 🤖 Kaya AI Levels — prompt complexity for the 🫙 Prompt Jar.
+  const aiLevel = useKidAiLevel(kidId).level;
 
   const isParent = authProfile?.role === 'parent';
   // Client-side guard for the obvious sibling case — the API is the
@@ -601,7 +604,7 @@ export default function DiaryPage() {
             <button type="button" disabled={jarBusy}
               onClick={async () => {
                 setJarBusy(true);
-                try { setJarPrompt(await getDiaryPrompt(kidName.split(' ')[0], kid?.birthday ? ageNow(kid.birthday) : null)); }
+                try { setJarPrompt(await getDiaryPrompt(kidName.split(' ')[0], kid?.birthday ? ageNow(kid.birthday) : null, { kidId, aiLevel })); }
                 finally { setJarBusy(false); }
               }}
               className="text-[11px] font-extrabold px-2.5 py-1 rounded-full bg-[#FFF1C9] text-[#8A6800] disabled:opacity-50">

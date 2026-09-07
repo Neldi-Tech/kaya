@@ -1,4 +1,5 @@
 'use client';
+import { useKidAiLevel, aiRequestHeaders } from '@/lib/ai/useAiLevel';
 
 // Kaya Business 2.0 · 📝 Business Review (R18–R21).
 //
@@ -42,6 +43,8 @@ export default function BusinessReviewPage() {
   const coachName = readBusinessConfig(family).coachName;
 
   const [business, setBusiness] = useState<Business | null>(null);
+  // 🤖 Kaya AI Levels — the OWNER's level sets how direct the review advice is.
+  const reviewAiLevel = useKidAiLevel(business?.ownerId).level;
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [reviews, setReviews] = useState<BusinessReview[]>([]);
   const [wentWell, setWentWell] = useState('');
@@ -110,9 +113,10 @@ export default function BusinessReviewPage() {
     try {
       const r = await fetch('/api/business-coach', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await aiRequestHeaders(),
         body: JSON.stringify({
           loop: 'review', coachName, currency,
+          kidId: business.ownerId, aiLevel: reviewAiLevel,
           facts: {
             business: business.name,
             period: `last ${periodDays} days`,
@@ -145,9 +149,10 @@ export default function BusinessReviewPage() {
         try {
           const r = await fetch('/api/business-coach', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: await aiRequestHeaders(),
             body: JSON.stringify({
               loop: 'review', coachName, currency,
+              kidId: business.ownerId, aiLevel: reviewAiLevel,
               facts: {
                 business: business.name, period: `last ${periodDays} days`,
                 [unitWord]: period.units, customersServed: period.customers,

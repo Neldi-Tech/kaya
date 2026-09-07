@@ -273,6 +273,7 @@ export default function ProjectDetailPage() {
         <div className="mb-3">
           <AICoachCard
             loop="design"
+            kidId={project.ownerId}
             coachName={coachName}
             cta={`Ask ${coachName} for design help`}
             facts={{

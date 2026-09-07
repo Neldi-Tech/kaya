@@ -15,6 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebaseAdmin';
+import { resolveAiLevelAdmin } from '@/lib/ai/level.server';
 import { FieldValue } from 'firebase-admin/firestore';
 import { dayKeyInTZ } from '@/lib/dates';
 
@@ -58,6 +59,8 @@ function last7LocalDays(endLocal: string): string[] {
 
 async function callReviewAPI(args: {
   kidName: string; weekKey: string; entries: AIEntry[];
+  /** 🤖 Kaya AI Levels — resolved here with the Admin SDK, passed as the hint. */
+  kidId?: string; aiLevel?: number;
 }): Promise<Record<string, unknown> | null> {
   try {
     const url = `${APP_URL}/api/sparks/ai/reflection-week`;
@@ -122,7 +125,12 @@ async function handle(req: NextRequest) {
 
         if (entries.length === 0) { skipped++; continue; }
 
-        const ai = await callReviewAPI({ kidName, weekKey, entries });
+        // 🤖 Kaya AI Levels (light touch — the tip's directness).
+        const aiLevel = await resolveAiLevelAdmin(db, famDoc.id, kidId, {
+          family: famDoc.data() as { aiConfig?: { defaultLevel?: unknown } },
+          child: kidDoc.data() as { aiLevel?: unknown; birthday?: string },
+        });
+        const ai = await callReviewAPI({ kidName, weekKey, entries, kidId, aiLevel });
         if (!ai) { skipped++; continue; }
 
         const docId = `${kidId}_${weekKey}`;
@@ -140,6 +148,7 @@ async function handle(req: NextRequest) {
           mood_summary: String(ai.mood_summary || ''),
           tip:          String(ai.tip || ''),
           highlight_for_parent: String(ai.highlight_for_parent || ''),
+          aiLevel,
           generatedAt:  FieldValue.serverTimestamp(),
         }).catch(() => {});
 

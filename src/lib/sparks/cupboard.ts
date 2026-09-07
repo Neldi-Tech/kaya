@@ -436,9 +436,9 @@ export interface BookNoteEntry {
   source: 'typed' | 'scan';
   scanUrl?: string;
   origin: { kind: 'book'; refId: string; label?: string; readingId?: string; page?: number };
-  feedback?: { wentWell: string; tip?: string; cheer: string };
+  feedback?: { wentWell: string; tip?: string; cheer: string; level?: import('@/lib/ai/level.shared').AiLevel };
   ai_read?: { mood_emoji: string; mood_word: string; theme_emoji: string; theme_label: string; kaya_response: string };
-  ai_score?: { soundness: number; rationale: string };
+  ai_score?: { soundness: number; rationale: string; level?: import('@/lib/ai/level.shared').AiLevel };
   parent_rating?: { stars?: number; soundness_percent?: number; notes?: string; ratedByName: string; ratedAt?: number };
   createdAt?: number;
 }
@@ -474,8 +474,8 @@ export async function listReadingNotes(treasureId: string, readerKidId?: string)
 
 // ── 🏁 The Finish Quiz (C4 · D36) ───────────────────────────────────
 
-export async function startQuiz(familyId: string, treasureId: string, readingId: string): Promise<{ questions: string[]; generated: boolean }> {
-  const r = await cupboardApi<{ questions: string[]; generated: boolean }>('quiz-start', { treasureId, readingId });
+export async function startQuiz(familyId: string, treasureId: string, readingId: string): Promise<{ questions: string[]; generated: boolean; aiLevel?: number }> {
+  const r = await cupboardApi<{ questions: string[]; generated: boolean; aiLevel?: number }>('quiz-start', { treasureId, readingId });
   pingCupboard(familyId);
   return r;
 }
@@ -483,7 +483,7 @@ export async function startQuiz(familyId: string, treasureId: string, readingId:
 export async function answerQuiz(
   familyId: string, treasureId: string, readingId: string, answers: string[],
 ): Promise<{ understanding?: number; rationale?: string }> {
-  const r = await cupboardApi<{ understanding?: number; rationale?: string }>('quiz-answer', { treasureId, readingId, answers });
+  const r = await cupboardApi<{ understanding?: number; rationale?: string; aiLevel?: number }>('quiz-answer', { treasureId, readingId, answers });
   pingCupboard(familyId);
   return r;
 }
