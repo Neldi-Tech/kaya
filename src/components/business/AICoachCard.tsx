@@ -1,4 +1,5 @@
 'use client';
+import AiLevelChip from '@/components/ai/AiLevelChip';
 
 // Kaya Business · AI co-pilot card. Calls /api/business-coach on demand (a tap,
 // not on every render — keeps it cheap) and shows the coach's bubble + advisory
@@ -105,7 +106,7 @@ export default function AICoachCard({
       )}
       <div className="flex items-center gap-3 mt-2.5">
         <button onClick={ask} className="text-[11px] font-nunito font-bold text-hive-honey-soft/70 hover:text-hive-honey">↻ Ask again</button>
-        {answeredAt && <span data-ai-level={answeredAt} className="hidden" />}
+        {answeredAt && <AiLevelChip level={answeredAt} what="coaching" size="xs" />}
       </div>
     </Bubble>
   );

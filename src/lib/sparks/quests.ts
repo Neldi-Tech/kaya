@@ -940,6 +940,8 @@ export interface CoachResult {
   wpm: number;
   fillers: number;
   words: number;
+  /** 🤖 Kaya AI Levels — the kid's level Coach Kaya answered at (1-4). */
+  aiLevel?: import('@/lib/ai/level.shared').AiLevel;
 }
 
 /** True when this browser can transcribe speech locally. Claude's API

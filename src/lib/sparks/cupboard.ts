@@ -482,7 +482,7 @@ export async function startQuiz(familyId: string, treasureId: string, readingId:
 
 export async function answerQuiz(
   familyId: string, treasureId: string, readingId: string, answers: string[],
-): Promise<{ understanding?: number; rationale?: string }> {
+): Promise<{ understanding?: number; rationale?: string; aiLevel?: number }> {
   const r = await cupboardApi<{ understanding?: number; rationale?: string; aiLevel?: number }>('quiz-answer', { treasureId, readingId, answers });
   pingCupboard(familyId);
   return r;

@@ -1,4 +1,5 @@
 'use client';
+import AiLevelChip from '@/components/ai/AiLevelChip';
 import { useKidAiLevel, aiRequestHeaders } from '@/lib/ai/useAiLevel';
 
 // Kaya Sparks · Daily Reflection (/sparks/[kidId]/reflection).
@@ -654,6 +655,10 @@ export default function ReflectionPage() {
               {todayEntry.ai_score.rationale && (
                 <div className="mt-1.5 text-[12px] text-[#2c2056] leading-snug">{todayEntry.ai_score.rationale}</div>
               )}
+              {/* 🤖 Kaya AI Levels — the level this entry was scored at. */}
+              {todayEntry.ai_score.level && (
+                <div className="mt-1.5"><AiLevelChip level={todayEntry.ai_score.level} what="scoring" size="xs" /></div>
+              )}
               <div className="mt-1.5 text-[10px] text-[#5A6488] leading-snug">
                 ⚠️ {sw ? 'Alama ya Kaya ni kadirio — maneno yako ndiyo ukweli.' : 'Kaya’s score is a guess — your own words are the truth.'}
               </div>
@@ -1269,6 +1274,8 @@ function ReflectionFeedbackCard({ feedback, busy, sw }: { feedback?: ReflectionF
         <div className="font-nunito font-black text-[12px] flex items-center gap-1.5">👏 {sw ? 'Hongera' : 'Cheer'}</div>
         <p className="text-[12.5px] leading-snug mt-0.5">{feedback.cheer}</p>
       </div>
+      {/* 🤖 Kaya AI Levels — the level this feedback was written at. */}
+      {feedback.level && <AiLevelChip level={feedback.level} what="feedback" size="xs" />}
     </div>
   );
 }
@@ -2106,6 +2113,9 @@ function ReflectionRatingSheet({
           {entry.ai_score ? (
             <div className="rounded-xl bg-[#F6EFFF] border border-[#cdbdf0] px-3 py-2.5">
               <ScoreBar label="🤖 Soundness" tone="ai" percent={entry.ai_score.soundness} />
+              {entry.ai_score.level && (
+                <div className="mt-1"><AiLevelChip level={entry.ai_score.level} what="scoring" size="xs" /></div>
+              )}
               {entry.ai_score.rationale && (
                 <div className="mt-1.5 text-[11.5px] text-[#2c2056] leading-snug">{entry.ai_score.rationale}</div>
               )}

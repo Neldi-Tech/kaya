@@ -1,4 +1,6 @@
 'use client';
+import AiLevelChip from '@/components/ai/AiLevelChip';
+import { parseAiLevel, type AiLevel } from '@/lib/ai/level.shared';
 
 // Kaya Sparks · Treasures 2.0 — 🏁 the Finish Quiz (C4 · D36 · N5).
 //
@@ -50,6 +52,8 @@ export default function FinishQuizSheet({ familyId, treasureId, bookName, readin
   const [result, setResult] = useState<{ understanding?: number; rationale?: string } | null>(
     quiz?.answeredAt ? { understanding: quiz.understanding, rationale: quiz.rationale } : null,
   );
+  // 🤖 Kaya AI Levels — the reader's level the quiz was written / rated at.
+  const [quizLevel, setQuizLevel] = useState<AiLevel | null>(parseAiLevel(quiz?.level));
   const [stars, setStars] = useState(quiz?.parentRating?.stars || 0);
   const [note, setNote] = useState(quiz?.parentRating?.note || '');
   const [rated, setRated] = useState(!!quiz?.parentRating);
@@ -67,7 +71,7 @@ export default function FinishQuizSheet({ familyId, treasureId, bookName, readin
     let dead = false;
     setBusy(true);
     startQuiz(familyId, treasureId, reading.id)
-      .then((r) => { if (!dead) { setQuestions(r.questions); setGenerated(r.generated); } })
+      .then((r) => { if (!dead) { setQuestions(r.questions); setGenerated(r.generated); if (parseAiLevel(r.aiLevel)) setQuizLevel(parseAiLevel(r.aiLevel)); } })
       .catch(() => { if (!dead) setErr('Kaya couldn’t write the questions right now — try again later.'); })
       .finally(() => { if (!dead) setBusy(false); });
     return () => { dead = true; };
@@ -97,6 +101,7 @@ export default function FinishQuizSheet({ familyId, treasureId, bookName, readin
     try {
       const r = await answerQuiz(familyId, treasureId, reading.id, answers);
       setResult(r);
+      if (parseAiLevel(r.aiLevel)) setQuizLevel(parseAiLevel(r.aiLevel));
       onChanged();
     } catch { setErr('Could not send the answers — try again.'); }
     finally { setBusy(false); }
@@ -177,6 +182,7 @@ export default function FinishQuizSheet({ familyId, treasureId, bookName, readin
               <b className="text-[#5A3CB8]">Kaya</b> · {typeof u === 'number' ? <>Understanding <b>{u}%</b> — {result?.rationale || 'you followed the story.'}</> : (result?.rationale || 'Answers saved. Kaya’s reader was resting, so no score this time.')}
               {typeof u === 'number' && <div className="h-2 rounded-full bg-white overflow-hidden mt-1.5"><div className="h-full" style={{ width: `${u}%`, background: 'linear-gradient(90deg,#E9746D,#F0B23C,#3FA38F)' }} /></div>}
               <div className="text-[10px] mt-1.5 opacity-80">Display-only — never points. Parents rate as usual below.</div>
+              {quizLevel && <div className="mt-1.5"><AiLevelChip level={quizLevel} what="quiz" size="xs" /></div>}
             </div>
           )}
 
