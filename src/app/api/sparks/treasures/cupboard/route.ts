@@ -58,7 +58,9 @@ const QUIZ_FALLBACK = [
 
 const QUIZ_Q_SCHEMA = {
   type: 'object', additionalProperties: false, required: ['questions'],
-  properties: { questions: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 5 } },
+  // 3–5 lives in the prompt + the slice/fallback in code — structured outputs
+  // reject minItems/maxItems (400), which made every quiz fall back silently.
+  properties: { questions: { type: 'array', items: { type: 'string' } } },
 } as const;
 
 const QUIZ_SCORE_SCHEMA = {
@@ -943,7 +945,12 @@ export async function POST(req: NextRequest) {
               const j = JSON.parse(textBlock.text) as { questions?: unknown };
               if (Array.isArray(j.questions)) questions = j.questions.map((q) => str(q, 240)).filter(Boolean).slice(0, 5);
             }
-          } catch { questions = []; }
+          } catch (e) {
+            // Never a bare catch around messages.create — log so a dead
+            // quiz shows up in Vercel logs instead of looking "flaky".
+            console.error('[cupboard] quiz-start ai failed', (e as { status?: number })?.status, (e as Error)?.message);
+            questions = [];
+          }
         }
         const generated = questions.length >= 3;
         if (!generated) questions = QUIZ_FALLBACK;
