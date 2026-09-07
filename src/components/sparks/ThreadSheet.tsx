@@ -1,4 +1,5 @@
 'use client';
+import AiLevelChip from '@/components/ai/AiLevelChip';
 import { useKidAiLevel } from '@/lib/ai/useAiLevel';
 import type { AiLevel } from '@/lib/ai/level.shared';
 
@@ -616,6 +617,8 @@ function ThreadBubble({
                 {delta > 0 ? `↑ +${delta}` : delta < 0 ? `↓ ${delta}` : '· no change'}
               </span>
             )}
+            {/* 🤖 the level this re-score was marked at. */}
+            {msg.redo_level && <AiLevelChip level={msg.redo_level} what="marking" size="xs" />}
           </div>
         )}
 

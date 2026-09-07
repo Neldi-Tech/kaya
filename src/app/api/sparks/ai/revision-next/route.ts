@@ -50,11 +50,13 @@ Rules:
 const SCHEMA = {
   type: 'object',
   properties: {
+    // Exactly 3 is enforced by the prompt + the `qs.length < 3 → EMPTY`
+    // guard below — never by the schema: structured outputs reject
+    // minItems/maxItems with a 400 (this route was silently dead until the
+    // AI Levels QA harness surfaced it on 2026-09-07).
     questions: {
       type: 'array',
       items: { type: 'string' },
-      minItems: 3,
-      maxItems: 3,
     },
   },
   required: ['questions'],

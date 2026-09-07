@@ -1,4 +1,5 @@
 'use client';
+import AiLevelChip from '@/components/ai/AiLevelChip';
 import { useKidAiLevel, aiRequestHeaders } from '@/lib/ai/useAiLevel';
 
 // Kaya Sparks · Treasures 2.0 — ✍️ "Write about it" (C4 · D34 · D35).
@@ -56,7 +57,7 @@ export default function ReadingNoteComposer({ familyId, treasureId, bookName, re
   const [page, setPage] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-  const [reply, setReply] = useState<{ kaya?: string; score?: number; fb?: BookNoteEntry['feedback'] } | null>(null);
+  const [reply, setReply] = useState<{ kaya?: string; score?: number; level?: unknown; fb?: BookNoteEntry['feedback'] } | null>(null);
   const [notes, setNotes] = useState<BookNoteEntry[] | null>(null);
   const [scanOpen, setScanOpen] = useState(false);
   const [listening, setListening] = useState(false);
@@ -130,7 +131,7 @@ export default function ReadingNoteComposer({ familyId, treasureId, bookName, re
       });
       setText(''); setPage('');
       // The engine, in parallel — all best-effort, like the daily reflection.
-      const out: { kaya?: string; score?: number; fb?: BookNoteEntry['feedback'] } = {};
+      const out: { kaya?: string; score?: number; level?: unknown; fb?: BookNoteEntry['feedback'] } = {};
       await Promise.all([
         (async () => {
           try {
@@ -143,7 +144,7 @@ export default function ReadingNoteComposer({ familyId, treasureId, bookName, re
           try {
             const res = await fetch('/api/sparks/ai/reflection-score', { method: 'POST', headers: await aiRequestHeaders(), body: JSON.stringify({ text: r.text, kidId: reading.readerKidId, aiLevel }) });
             const d = await res.json().catch(() => ({}));
-            if (d && !d.skipped && typeof d.soundness === 'number') { out.score = d.soundness; await attachReadingNoteAI(treasureId, r.entryId, { ai_score: d }); }
+            if (d && !d.skipped && typeof d.soundness === 'number') { out.score = d.soundness; out.level = d.level; await attachReadingNoteAI(treasureId, r.entryId, { ai_score: d }); }
           } catch { /* best-effort */ }
         })(),
         (async () => {
@@ -200,6 +201,8 @@ export default function ReadingNoteComposer({ familyId, treasureId, bookName, re
             <div className="mt-1.5">
               <span className="text-[10.5px] font-extrabold">Thoughtfulness {reply.score}%</span>
               <div className="h-1.5 rounded-full bg-white overflow-hidden mt-1"><div className="h-full" style={{ width: `${reply.score}%`, background: 'linear-gradient(90deg,#E9746D,#F0B23C,#3FA38F)' }} /></div>
+              {/* 🤖 the level this note was scored at. */}
+              <div className="mt-1"><AiLevelChip level={reply.level} what="scoring" size="xs" /></div>
             </div>
           )}
           <div className="mt-1.5 text-[10.5px]"><ReflectionOriginChip origin={{ kind: 'book', label: bookName }} small withLabel /> · saved to <Link href={`/sparks/${readerKidId}/reflection`} className="font-extrabold text-[#5A3CB8]">Reflections →</Link></div>

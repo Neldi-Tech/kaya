@@ -1,4 +1,5 @@
 'use client';
+import AiLevelChip from '@/components/ai/AiLevelChip';
 
 // Kaya Sparks · 🎤 Coach Ear 2.1 (QF-2 · 2026-07-22 · hardened 2026-09-07).
 //
@@ -477,6 +478,8 @@ export default function CoachEarCard({ familyId, kidId, kidName, quest }: {
             <span className="text-[11px] text-[#5A6488] font-bold">
               clarity · {result.wpm} wpm · {result.fillers} filler{result.fillers === 1 ? '' : 's'}
             </span>
+            {/* 🤖 the level Coach Kaya answered at. */}
+            {result.aiLevel && <AiLevelChip level={result.aiLevel} what="coaching" size="xs" />}
           </div>
           <ul className="m-0 pl-0 list-none grid gap-1.5">
             {result.notes.map((n, i) => (

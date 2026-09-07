@@ -1,4 +1,5 @@
 'use client';
+import AiLevelChip from '@/components/ai/AiLevelChip';
 
 // Kaya Sparks · Home Revisions (/sparks/[kidId]/revisions).
 //
@@ -247,6 +248,10 @@ export default function RevisionsPage() {
                           >
                             {score}%
                           </span>
+                        )}
+                        {/* 🤖 the level this page was marked at (rows before AI Levels have none). */}
+                        {score !== null && d?.ai_level && (
+                          <AiLevelChip level={d.ai_level} what="marking" size="xs" />
                         )}
                         {/* Slice 7i · coverage chip — N/N questions read. */}
                         {d?.ai_breakdown_structured && d.ai_breakdown_structured.coverage.total > 0 && (

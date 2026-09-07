@@ -1,4 +1,5 @@
 'use client';
+import AiLevelChip from '@/components/ai/AiLevelChip';
 import { useKidAiLevel } from '@/lib/ai/useAiLevel';
 
 // Kaya Sparks · Home Revisions flow.
@@ -768,6 +769,12 @@ export default function RevisionFlow({
                       <span className="text-[#8A6800]">~ {score.breakdown.partial} partial</span>
                       <span className="text-[#A33A2A]">✗ {score.breakdown.wrong} wrong</span>
                     </div>
+                    {/* 🤖 Kaya AI Levels — the level this page was marked at. */}
+                    {!aiSkipped && (
+                      <div className="mt-2 flex justify-center">
+                        <AiLevelChip level={score.aiLevel ?? aiLevel} what="marking" />
+                      </div>
+                    )}
                     {score.score >= settings.qualifying_score && (
                       <div className="mt-3 inline-flex items-center gap-1.5 bg-white text-[#1B1547] rounded-full px-3 py-1 text-[11.5px] font-extrabold shadow-sm">
                         🎯 Qualifies for +{score.score >= settings.bonus_threshold ? settings.bonus_points : settings.base_points} Kaya Points
