@@ -50,16 +50,21 @@ Rules:
 - The description may be in any language (English, Swahili…). Reply in the SAME language the parent used for name/how.
 - note: one short sentence for the parent explaining what will be tracked, or why it must be awarded by hand.`;
 
+// ⚠️ Structured outputs accept only a JSON-Schema SUBSET. `maxLength` on the strings + `minimum/maximum` on threshold
+// made the API answer 400 on EVERY call (verified on prod 2026-09-08: "For
+// 'array' type, 'minItems' values other than 0 or 1 are not supported" /
+// "For 'integer' type, properties maximum, minimum are not supported").
+// Counts and ranges live in the prompt and are enforced in code below.
 const SCHEMA = {
   type: 'object',
   additionalProperties: false,
   required: ['name', 'icon', 'tier', 'area', 'how', 'tracker', 'note'],
   properties: {
-    name: { type: 'string', maxLength: 40 },
-    icon: { type: 'string', maxLength: 8 },
+    name: { type: 'string' },
+    icon: { type: 'string' },
     tier: { type: 'string', enum: ['easy', 'medium', 'hard', 'legendary'] },
     area: { type: 'string', enum: BADGE_AREAS.map((a) => a.id) },
-    how: { type: 'string', maxLength: 90 },
+    how: { type: 'string' },
     tracker: {
       type: 'string',
       enum: [
@@ -69,8 +74,8 @@ const SCHEMA = {
         'parent_confirm',
       ],
     },
-    threshold: { type: 'integer', minimum: 1, maximum: 100000 },
-    note: { type: 'string', maxLength: 160 },
+    threshold: { type: 'integer' },
+    note: { type: 'string' },
   },
 } as const;
 
@@ -138,6 +143,7 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (e: unknown) {
+    console.error('[badges/studio] ai failed', (e as { status?: number })?.status ?? '', (e as Error)?.message);
     if (e instanceof Anthropic.APIError) return NextResponse.json({ ok: false, error: e.message }, { status: e.status ?? 500 });
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : 'studio-failed' }, { status: 500 });
   }
