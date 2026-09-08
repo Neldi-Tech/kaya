@@ -57,6 +57,11 @@ Rules:
 - "fact": a "Did you know?" style fun fact about the correct answer — max 28 words, kid-friendly, genuinely interesting, plain text.
 - Match the requested DIFFICULTY exactly. Vary the position of the correct answer across the set. Plain text only (no markdown, no numbering). Do NOT repeat or paraphrase any question the user asks you to avoid. No dark or scary themes.`;
 
+// ⚠️ Structured outputs accept only a JSON-Schema SUBSET. `minItems/maxItems` on choices + `minimum/maximum` on answer
+// made the API answer 400 on EVERY call (verified on prod 2026-09-08: "For
+// 'array' type, 'minItems' values other than 0 or 1 are not supported" /
+// "For 'integer' type, properties maximum, minimum are not supported").
+// Counts and ranges live in the prompt and are enforced in code below.
 const SCHEMA = {
   type: 'object',
   properties: {
@@ -66,8 +71,8 @@ const SCHEMA = {
         type: 'object',
         properties: {
           q: { type: 'string' },
-          choices: { type: 'array', items: { type: 'string' }, minItems: 4, maxItems: 4 },
-          answer: { type: 'integer', minimum: 0, maximum: 3 },
+          choices: { type: 'array', items: { type: 'string' } },
+          answer: { type: 'integer' },
           context: { type: 'string' },
           fact: { type: 'string' },
         },
@@ -149,6 +154,7 @@ export async function POST(req: NextRequest) {
     const qs = sanitize(JSON.parse(text.text)).slice(0, count);
     return NextResponse.json({ questions: qs });
   } catch (e: unknown) {
+    console.error('[trivia] ai failed', (e as { status?: number })?.status ?? '', (e as Error)?.message);
     if (e instanceof Anthropic.APIError) return NextResponse.json({ error: e.message }, { status: e.status ?? 500 });
     return NextResponse.json({ error: e instanceof Error ? e.message : 'Trivia generation failed' }, { status: 500 });
   }

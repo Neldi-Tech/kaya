@@ -378,11 +378,14 @@ export async function POST(req: NextRequest) {
       refine ? `Refinement requested: ${refine}.` : '',
     ].filter(Boolean).join('\n');
 
+    // ⚠️ Structured outputs reject array-count constraints (prod 2026-09-08:
+    // "'minItems' values other than 0 or 1 are not supported") — every Kaya
+    // Writes call was a 400. "Exactly 3" lives in the prompt + slice(0, 3).
     const SCHEMA = {
       type: 'object',
       properties: {
         suggestions: {
-          type: 'array', minItems: 3, maxItems: 3,
+          type: 'array',
           items: { type: 'object', properties: { voice: { type: 'string' }, oneLiner: { type: 'string' }, message: { type: 'string' } }, required: ['voice', 'oneLiner', 'message'], additionalProperties: false },
         },
       },
@@ -407,6 +410,7 @@ export async function POST(req: NextRequest) {
       })).filter((s) => s.oneLiner);
       return NextResponse.json({ suggestions });
     } catch (e) {
+      console.error('[cards/write] ai failed', (e as { status?: number })?.status ?? '', (e as Error)?.message);
       return NextResponse.json({ error: 'ai-failed', detail: e instanceof Error ? e.message.slice(0, 200) : '' }, { status: 502 });
     }
   }

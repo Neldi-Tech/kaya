@@ -35,15 +35,20 @@ Rules:
 - "creativity", "teamwork", "imagination": 0 to 100 each, encouraging (aim 70 to 100).
 - Keep everything kind, positive and age-appropriate.`;
 
+// ⚠️ Structured outputs accept only a JSON-Schema SUBSET. `minimum/maximum` on the four integers
+// made the API answer 400 on EVERY call (verified on prod 2026-09-08: "For
+// 'array' type, 'minItems' values other than 0 or 1 are not supported" /
+// "For 'integer' type, properties maximum, minimum are not supported").
+// Counts and ranges live in the prompt and are enforced in code below.
 const SCHEMA = {
   type: 'object',
   properties: {
     title: { type: 'string' },
-    stars: { type: 'integer', minimum: 1, maximum: 5 },
+    stars: { type: 'integer' },
     praise: { type: 'string' },
-    creativity: { type: 'integer', minimum: 0, maximum: 100 },
-    teamwork: { type: 'integer', minimum: 0, maximum: 100 },
-    imagination: { type: 'integer', minimum: 0, maximum: 100 },
+    creativity: { type: 'integer' },
+    teamwork: { type: 'integer' },
+    imagination: { type: 'integer' },
   },
   required: ['title', 'stars', 'praise', 'creativity', 'teamwork', 'imagination'],
   additionalProperties: false,
@@ -76,7 +81,9 @@ async function scoreStory(text: string): Promise<StoryScore | null> {
       teamwork: clampInt(p.teamwork, 0, 100, 85),
       imagination: clampInt(p.imagination, 0, 100, 80),
     };
-  } catch {
+  } catch (e) {
+    // Fail SAFE (score:null) but never silently — the story is kept either way.
+    console.error('[story/save] ai score failed', (e as { status?: number })?.status ?? '', (e as Error)?.message);
     return null;
   }
 }
