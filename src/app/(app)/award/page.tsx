@@ -14,6 +14,8 @@ import { auth as fbAuth } from '@/lib/firebase';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
 import { PAGE_WIDTH_CLASS } from '@/components/layout/Page';
+import KayaWritesReason from '@/components/awards/KayaWritesReason';
+import { useLocale } from '@/lib/useLocale';
 
 const CATEGORIES = [
   { id: 'kindness',       icon: '💖', label: 'Kindness' },
@@ -34,6 +36,8 @@ const DIAMOND_POINTS = [3, 4, 5, 6, 7, 8, 9, 10];
 export default function AwardPage() {
   const { profile } = useAuth();
   const { family, children, rewards: familyRewards } = useFamily();
+  // ✨ Kaya Writes (award notes) — drafts in the family's language.
+  const locale = useLocale();
 
   // Families can disable Diamond points from Settings → "How kids earn points".
   // Honour that preference here; otherwise fall back to the Phase-1 default.
@@ -178,6 +182,11 @@ export default function AwardPage() {
   const child = selectedKidObjs[0] || null;
   const cat = CATEGORIES.find((c) => c.id === category) || null;
   const canSubmit = !!(selectedChildren.length > 0 && category && reason.trim() && !saving);
+  // ✨ Kaya Writes — drafts the "Tell them why" note from what's picked on
+  // the page. Honours the family's Kaya Writes switch (absent = on).
+  const kayaWritesOn = family?.greetingConfig?.kayaWrites !== false;
+  const effectiveKind: AwardKind = isDiamond ? 'diamond' : isReducing ? 'reducing' : isKudos ? 'kudos' : isImprovement ? 'improvement_note' : 'regular';
+  const kidFirstNames = selectedKidObjs.map((c) => c.name.split(' ')[0]);
 
   const toggleChild = (id: string) => {
     setSelectedChildren((prev) =>
@@ -535,6 +544,16 @@ export default function AwardPage() {
             className="w-full h-24 px-4 py-3 bg-white border border-kaya-warm-dark rounded-kaya-sm text-sm resize-none focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
             placeholder="e.g. You helped your sister with homework without being asked!"
           />
+          <KayaWritesReason
+            kidNames={kidFirstNames}
+            category={cat?.label ?? ''}
+            kind={effectiveKind}
+            points={finalPoints}
+            hint={reason}
+            lang={locale === 'sw' ? 'sw' : 'en'}
+            enabled={kayaWritesOn}
+            onUse={setReason}
+          />
         </div>
 
         <button
@@ -610,6 +629,16 @@ export default function AwardPage() {
                 rows={4}
                 className="w-full px-4 py-3 bg-kaya-cream/60 border border-kaya-warm-dark rounded-kaya-sm text-sm resize-none focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
                 placeholder="e.g. You helped your sister with homework without being asked!"
+              />
+              <KayaWritesReason
+                kidNames={kidFirstNames}
+                category={cat?.label ?? ''}
+                kind={effectiveKind}
+                points={finalPoints}
+                hint={reason}
+                lang={locale === 'sw' ? 'sw' : 'en'}
+                enabled={kayaWritesOn}
+                onUse={setReason}
               />
             </div>
           </section>
