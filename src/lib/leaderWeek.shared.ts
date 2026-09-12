@@ -34,6 +34,28 @@ export interface LeaderConfig {
   missionsOn: boolean;
   /** 👀 Fairness-coach whispers on the leader's Notebook tile (idea C). */
   coachNudgesOn: boolean;
+  /**
+   * ⌛ What happens to a note nobody decided (2026-09-12, Elia: "kids don't
+   * miss points"). 'never' (default) = it waits in the parent inbox until
+   * decided, even after the crown moves on. 'term-end' = the old behaviour
+   * (open notes expire when the week seals). '7d' / '14d' = expire N days
+   * after the note was sent (or brought back).
+   */
+  noteExpiry: LeaderNoteExpiry;
+}
+
+export type LeaderNoteExpiry = 'never' | 'term-end' | '7d' | '14d';
+
+export const NOTE_EXPIRY_OPTIONS: ReadonlyArray<[LeaderNoteExpiry, string]> = [
+  ['never', 'Never'],
+  ['term-end', 'When the week ends'],
+  ['7d', 'After 7 days'],
+  ['14d', 'After 14 days'],
+];
+
+/** Days a waiting note may sit before it expires under `cfg` — null = never by age. */
+export function noteExpiryDays(cfg: Pick<LeaderConfig, 'noteExpiry'>): number | null {
+  return cfg.noteExpiry === '7d' ? 7 : cfg.noteExpiry === '14d' ? 14 : null;
 }
 
 export const DEFAULT_LEADER_CONFIG: LeaderConfig = {
@@ -47,6 +69,7 @@ export const DEFAULT_LEADER_CONFIG: LeaderConfig = {
   customDuties: [],
   missionsOn: true,
   coachNudgesOn: true,
+  noteExpiry: 'never',
 };
 
 export function readLeaderConfig(family: { leaderConfig?: Partial<LeaderConfig> } | null | undefined): LeaderConfig {
@@ -64,6 +87,7 @@ export function readLeaderConfig(family: { leaderConfig?: Partial<LeaderConfig> 
     customDuties: Array.isArray(s.customDuties) ? s.customDuties.filter((d) => typeof d === 'string' && d.trim()).slice(0, 3) : [],
     missionsOn: typeof s.missionsOn === 'boolean' ? s.missionsOn : DEFAULT_LEADER_CONFIG.missionsOn,
     coachNudgesOn: typeof s.coachNudgesOn === 'boolean' ? s.coachNudgesOn : DEFAULT_LEADER_CONFIG.coachNudgesOn,
+    noteExpiry: s.noteExpiry === 'term-end' || s.noteExpiry === '7d' || s.noteExpiry === '14d' ? s.noteExpiry : DEFAULT_LEADER_CONFIG.noteExpiry,
   };
 }
 
@@ -170,6 +194,9 @@ export interface LeaderNote {
   resolvedAt?: number;
   /** true when the leader has seen the outcome (clears the kid-side dot). */
   seenByLeader?: boolean;
+  /** ↩︎ A parent brought an expired note back to the inbox (restarts the age clock). */
+  revivedAt?: number;
+  revivedBy?: string;
 }
 
 export const NOTE_CATEGORIES: ReadonlyArray<{ id: string; icon: string; label: string }> = [

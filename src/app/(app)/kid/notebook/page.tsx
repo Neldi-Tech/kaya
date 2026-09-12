@@ -24,7 +24,7 @@ function statusLine(n: NotebookBundle['notes'][number]): { text: string; tone: s
     case 'approved': return { text: `✅ approved ${n.finalPoints && n.finalPoints !== 0 ? (n.finalPoints > 0 ? `+${n.finalPoints}` : n.finalPoints) : ''}${n.resolvedByName ? ` · ${n.resolvedByName}` : ''}${n.parentNote ? `: ${n.parentNote}` : ''}`, tone: 'text-green-700' };
     case 'adjusted': return { text: `🔁 adjusted to ${n.finalPoints && n.finalPoints !== 0 ? (n.finalPoints > 0 ? `+${n.finalPoints}` : n.finalPoints) : 'note only'}${n.resolvedByName ? ` · ${n.resolvedByName}` : ''}${n.parentNote ? `: ${n.parentNote}` : ''}`, tone: 'text-amber-700' };
     case 'declined': return { text: `❌ not this time${n.resolvedByName ? ` · ${n.resolvedByName}` : ''}${n.parentNote ? `: ${n.parentNote}` : ''}`, tone: 'text-red-700' };
-    case 'expired': return { text: '⌛ the week ended before a parent decided', tone: 'text-kaya-sand' };
+    case 'expired': return { text: '⌛ expired before a parent decided', tone: 'text-kaya-sand' };
     case 'resolving': return { text: '👀 a parent is looking at it now', tone: 'text-kaya-sand' };
     default: return { text: '⏳ waiting for Mum or Dad', tone: 'text-kaya-sand' };
   }

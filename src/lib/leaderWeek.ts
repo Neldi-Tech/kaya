@@ -62,6 +62,8 @@ export const releaseLeaderNote = (familyId: string, noteId: string) => leaderApi
 export const finalizeLeaderNote = (familyId: string, p: { noteId: string; decision: 'approved' | 'adjusted' | 'declined'; finalPoints?: number; parentNote?: string; awardId?: string }) =>
   leaderApi<{ ok: true }>('note-finalize', { familyId, ...p });
 export const markLeaderNotesSeen = (familyId: string, noteIds: string[]) => leaderApi<{ ok: true }>('note-seen', { familyId, noteIds });
+/** ↩︎ Parents bring expired notes back to the inbox so the kids still get their points. */
+export const reviveLeaderNotes = (familyId: string, noteIds: string[]) => leaderApi<{ ok: true; revived: number }>('note-revive', { familyId, noteIds });
 export const listLeaderTerms = (familyId: string, childId?: string) =>
   leaderApi<{ ok: true; terms: LeaderTerm[]; lifetime: LeaderLifetime[] }>('term-list', { familyId, ...(childId ? { childId } : {}) });
 export const appointLeader = (familyId: string, childId: string) =>
