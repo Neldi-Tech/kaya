@@ -18,7 +18,7 @@ import { getAdminFirestore, getAdminAuth } from '@/lib/firebaseAdmin';
 import { bumpBadgeCountersAdmin } from '@/lib/badgeCountersAdmin';
 import {
   readLeaderConfig, computeTraits, styleFor, averageTraits, pickMission, localDayKey,
-  noteBounds, coachWhisper, NOTE_CATEGORIES,
+  noteBounds, coachWhisper, noteExpiryDays, NOTE_CATEGORIES,
   type HouseLeader, type LeaderTerm, type LeaderNote, type LeaderTermCounts, type LeaderNoteKind,
   type LeaderTraits,
 } from '@/lib/leaderWeek.shared';
@@ -29,7 +29,7 @@ export const maxDuration = 30;
 
 type Action =
   | 'handover' | 'appoint' | 'end-term'
-  | 'notebook' | 'note-create' | 'note-list' | 'note-claim' | 'note-finalize' | 'note-release' | 'note-seen'
+  | 'notebook' | 'note-create' | 'note-list' | 'note-claim' | 'note-finalize' | 'note-release' | 'note-seen' | 'note-revive'
   | 'term-list' | 'advice-set' | 'term-celebrated';
 
 const TZ = 'Africa/Dar_es_Salaam';
@@ -156,6 +156,54 @@ export async function POST(req: NextRequest) {
     return s.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<LeaderTerm, 'id'>) }));
   };
 
+  // ⌛ Age-based expiry (config '7d' / '14d'): a lazy sweep on every read
+  // that lists notes — no cron. The clock starts at createdAt, or at
+  // revivedAt once a parent has brought a note back. 'never' / 'term-end'
+  // → no-op. Returns the notes with the fresh statuses applied.
+  const sweepStaleNotes = async (notes: LeaderNote[]): Promise<LeaderNote[]> => {
+    const days = noteExpiryDays(config);
+    if (!days) return notes;
+    const now = Date.now();
+    const cutoff = days * 86400000;
+    const out: LeaderNote[] = [];
+    for (const n of notes) {
+      const open = n.status === 'pending' || n.status === 'resolving';
+      const since = n.revivedAt || n.createdAt;
+      if (open && now - since > cutoff) {
+        await notesCol.doc(n.id).update({ status: 'expired', resolvedAt: now }).catch(() => {});
+        out.push({ ...n, status: 'expired', resolvedAt: now });
+      } else out.push(n);
+    }
+    return out;
+  };
+
+  // A note decided AFTER its week sealed (carry-over) still counts for the
+  // leader: re-tally the sealed term's decision counts from its notes (same
+  // formulas as the seal) + bump the leader's badge counter so "notes
+  // approved" stays honest. The radar itself is not recomputed.
+  const creditSealedTerm = async (n: LeaderNote, decision: 'approved' | 'adjusted' | 'declined') => {
+    try {
+      const tRef = termsCol.doc(n.termId);
+      const tSnap = await tRef.get();
+      if (!tSnap.exists) return;
+      const t = tSnap.data() as LeaderTerm;
+      if (!t.endAt || !t.counts) return;
+      const notes = await termNotes(n.termId);
+      const decided = notes.filter((x) => x.status === 'approved' || x.status === 'adjusted');
+      const aboutOthers = decided.filter((x) => x.targetChildId !== t.childId);
+      await tRef.update({
+        'counts.shoutOuts': aboutOthers.filter((x) => x.kind === 'shoutout').length,
+        'counts.headsUps': aboutOthers.filter((x) => x.kind === 'headsup').length,
+        'counts.approved': notes.filter((x) => x.status === 'approved').length,
+        'counts.adjusted': notes.filter((x) => x.status === 'adjusted').length,
+        'counts.declined': notes.filter((x) => x.status === 'declined').length,
+        'counts.expired': notes.filter((x) => x.status === 'expired').length,
+        'counts.siblingsNoticed': new Set(aboutOthers.map((x) => x.targetChildId)).size,
+      });
+      if (decision !== 'declined') await bumpBadgeCountersAdmin(db, familyId, n.leaderChildId, { leaderNotesApproved: 1 });
+    } catch { /* best-effort */ }
+  };
+
   // ── Seal a term: counts → traits → style → bonus → counters ─────
   const sealTerm = async (
     termRef: DocumentReference,
@@ -164,9 +212,12 @@ export async function POST(req: NextRequest) {
     children: ChildLite[],
   ): Promise<LeaderTerm> => {
     const now = Date.now();
-    const notes = await termNotes(term.id);
-    // Expire anything still open (no effect on traits).
-    const open = notes.filter((n) => n.status === 'pending' || n.status === 'resolving');
+    const notes = await sweepStaleNotes(await termNotes(term.id));
+    // Open notes: under 'term-end' they expire with the week (the original
+    // behaviour). Under 'never' / '7d' / '14d' they STAY in the parent inbox
+    // — a kid never loses points because the crown moved on (2026-09-12).
+    const stillOpen = notes.filter((n) => n.status === 'pending' || n.status === 'resolving');
+    const open = config.noteExpiry === 'term-end' ? stillOpen : [];
     for (const n of open) await notesCol.doc(n.id).update({ status: 'expired', resolvedAt: now }).catch(() => {});
     const others = children.filter((c) => c.id !== term.childId);
     const decided = notes.filter((n) => n.status === 'approved' || n.status === 'adjusted');
@@ -378,7 +429,7 @@ export async function POST(req: NextRequest) {
         const children = await loadChildren();
         const tSnap = await termsCol.doc(hl.termId).get();
         const term = tSnap.exists ? ({ id: tSnap.id, ...(tSnap.data() as Omit<LeaderTerm, 'id'>) }) : null;
-        const notes = term ? await termNotes(term.id) : [];
+        const notes = term ? await sweepStaleNotes(await termNotes(term.id)) : [];
         const today = localDayKey(Date.now(), TZ);
         const todays = notes.filter((n) => n.day === today);
         const selfToday = todays.filter((n) => n.targetChildId === hl.childId && n.kind === 'shoutout').length;
@@ -485,7 +536,9 @@ export async function POST(req: NextRequest) {
         else if (status) q = q.where('status', '==', status);
         else q = q.orderBy('createdAt', 'desc').limit(100);
         const s = await q.get();
-        let notes = s.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<LeaderNote, 'id'>) }));
+        let notes = await sweepStaleNotes(s.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<LeaderNote, 'id'>) })));
+        // A status filter must still hold after the sweep flipped some.
+        if (!termId && status) notes = notes.filter((n) => n.status === status);
         if (!isAdult) {
           // Kids: only notes THEY wrote (never pending notes about them).
           notes = notes.filter((n) => n.leaderChildId === myChildId);
@@ -536,6 +589,7 @@ export async function POST(req: NextRequest) {
           ...(parentNote ? { parentNote } : {}),
         };
         await ref.set(patch, { merge: true });
+        await creditSealedTerm(n, decision as 'approved' | 'adjusted' | 'declined');
         // Leader hears the outcome.
         const leaderUid = await kidLoginUid(n.leaderChildId);
         const who = n.targetChildId === n.leaderChildId ? 'yourself' : n.targetName.split(' ')[0];
@@ -561,6 +615,30 @@ export async function POST(req: NextRequest) {
           }
         }
         return NextResponse.json({ ok: true });
+      }
+
+      // ↩︎ Bring expired notes back to the inbox (parents). Restarts the age
+      // clock (revivedAt) so a '7d' family doesn't lose it again on the next
+      // read; a sealed term's `counts.expired` is settled when it is decided.
+      case 'note-revive': {
+        if (!isParent) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+        const ids = Array.isArray(body.noteIds) ? body.noteIds.slice(0, 50).map(String) : [];
+        if (!ids.length) return NextResponse.json({ error: 'bad-request' }, { status: 400 });
+        const now = Date.now();
+        let revived = 0;
+        for (const id of ids) {
+          const ref = notesCol.doc(id);
+          const ok = await db.runTransaction(async (tx) => {
+            const s = await tx.get(ref);
+            if (!s.exists) return false;
+            const n = s.data() as LeaderNote;
+            if (n.status !== 'expired') return false;
+            tx.update(ref, { status: 'pending', revivedAt: now, revivedBy: uid, resolvedAt: FieldValue.delete(), seenByLeader: false });
+            return true;
+          }).catch(() => false);
+          if (ok) revived += 1;
+        }
+        return NextResponse.json({ ok: true, revived });
       }
 
       case 'note-seen': {

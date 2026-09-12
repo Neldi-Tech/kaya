@@ -40,8 +40,9 @@ export default function LeaderHomeCard({ className = '' }: { className?: string 
   useEffect(() => {
     if (!family?.id || !isParent || !hl) { setPendingCount(null); return; }
     let alive = true;
+    // Carry-over (2026-09-12): notes from an earlier week wait too.
     listLeaderNotes(family.id, { status: 'pending' })
-      .then((r) => { if (alive) setPendingCount(r.notes.filter((n) => n.termId === hl.termId).length); })
+      .then((r) => { if (alive) setPendingCount(r.notes.length); })
       .catch(() => { if (alive) setPendingCount(null); });
     return () => { alive = false; };
   }, [family?.id, hl?.termId, hl, isParent]);

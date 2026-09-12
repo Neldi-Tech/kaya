@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react';
 import { useFamily } from '@/contexts/FamilyContext';
 import { updateFamily, updateChild } from '@/lib/firestore';
-import { readLeaderConfig, DEFAULT_LEADER_CONFIG, type LeaderConfig } from '@/lib/leaderWeek.shared';
+import { readLeaderConfig, DEFAULT_LEADER_CONFIG, NOTE_EXPIRY_OPTIONS, type LeaderConfig } from '@/lib/leaderWeek.shared';
 import { ageOf } from '@/lib/participation';
 
 function Toggle({ on, onChange, label, help }: { on: boolean; onChange: (v: boolean) => void; label: string; help?: string }) {
@@ -112,6 +112,15 @@ export default function LeaderSettingsSection() {
         <Seg value={cfg.dailyNoteCap} options={[[3, '3'], [5, '5'], [8, '8'], [10, '10']]} onChange={(v) => write({ dailyNoteCap: v })} />
       </div>
       <Toggle on={cfg.allowSelfNotes} onChange={(v) => write({ allowSelfNotes: v })} label="Notes about themselves" help="Max 1 self shout-out a day; an approved self heads-up earns Honest ✓. Self notes never move the radar." />
+
+      <div className="border-t border-kaya-warm-dark/60 my-2" />
+      <div className="py-2">
+        <p className="font-display font-extrabold text-[14px] text-kaya-chocolate">⌛ Waiting notes expire</p>
+        <p className="text-[12px] text-kaya-sand mb-2">
+          <b>Never</b> keeps every note in your inbox until you decide — even after the crown moves on, so a kid never misses their points. Expired notes can always be brought back from the Leader hub.
+        </p>
+        <Seg value={cfg.noteExpiry} options={NOTE_EXPIRY_OPTIONS.map(([v, l]) => [v, l] as [typeof v, string])} onChange={(v) => write({ noteExpiry: v })} />
+      </div>
 
       <div className="border-t border-kaya-warm-dark/60 my-2" />
       <div className="py-2">

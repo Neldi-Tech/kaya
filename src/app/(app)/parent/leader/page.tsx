@@ -4,7 +4,8 @@
 //   • 📒 notes inbox (S4): Approve · Adjust · Decline — claim → giveAward
 //     (the existing rail: points, badge counters, 🏅 email, thresholds) →
 //     finalize; release on failure so nothing double-awards
-//   • decided notes history
+//   • decided notes history — ⌛ expired ones carry a ↩︎ Bring back (parents)
+//     so a note nobody decided in time never costs a kid their points
 //   • 👑 Leadership cards per kid (radar · style · counters · share PNG)
 //   • 📖 Leader's Book — the advice chain written by the kids (idea B)
 // Helpers may open the page read-only (inbox visible, no decide buttons).
@@ -15,7 +16,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { giveAward, readPointSystemConfig, type AwardKind } from '@/lib/firestore';
 import {
-  listLeaderNotes, claimLeaderNote, finalizeLeaderNote, releaseLeaderNote, listLeaderTerms, leaderErrorText,
+  listLeaderNotes, claimLeaderNote, finalizeLeaderNote, releaseLeaderNote, reviveLeaderNotes, listLeaderTerms, leaderErrorText,
   type LeaderNote, type LeaderTerm,
 } from '@/lib/leaderWeek';
 import { readLeaderConfig, noteBounds, NOTE_CATEGORIES } from '@/lib/leaderWeek.shared';
@@ -44,6 +45,8 @@ function NoteCard({ note, canDecide, familyId, onDone }: { note: LeaderNote; can
   const isSelf = note.targetChildId === note.leaderChildId;
   const leaderFirst = note.leaderName.split(' ')[0];
   const targetFirst = note.targetName.split(' ')[0];
+  // Carry-over: a note from a week that already ended (or one brought back).
+  const earlierWeek = !!family && note.termId !== family.houseLeader?.termId;
 
   const decide = async (decision: 'approved' | 'adjusted' | 'declined') => {
     if (!profile || busy) return;
@@ -102,7 +105,11 @@ function NoteCard({ note, canDecide, familyId, onDone }: { note: LeaderNote; can
         </span> · {catLabel(note.category)}
       </p>
       <p className="text-[12.5px] font-bold text-kaya-chocolate-light mt-1">“{note.reason}”</p>
-      <p className="text-[10.5px] font-bold text-kaya-sand mt-0.5">{fmtWhen(note.createdAt)}{note.status === 'resolving' ? ' · 👀 a parent is deciding' : ''}</p>
+      <p className="text-[10.5px] font-bold text-kaya-sand mt-0.5">
+        {fmtWhen(note.createdAt)}{note.status === 'resolving' ? ' · 👀 a parent is deciding' : ''}
+        {earlierWeek ? <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] font-black" style={{ background: '#FFF3D6', color: GOLD }}>⏮ from an earlier week</span> : null}
+        {note.revivedAt ? <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] font-black" style={{ background: '#FFF3D6', color: GOLD }}>↩︎ brought back</span> : null}
+      </p>
       {canDecide && (
         <>
           <p className="text-[10.5px] font-nunito font-black uppercase tracking-[1.2px] text-kaya-sand mt-3 mb-1">Points</p>
@@ -142,6 +149,7 @@ export default function ParentLeaderPage() {
   const [history, setHistory] = useState<LeaderNote[] | null>(null);
   const [terms, setTerms] = useState<LeaderTerm[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [reviving, setReviving] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!familyId) return;
@@ -163,6 +171,20 @@ export default function ParentLeaderPage() {
 
   const kids = children || [];
   const adviceBook = useMemo(() => (terms || []).filter((t) => t.advice).slice(0, 30), [terms]);
+  const expired = useMemo(() => (history || []).filter((n) => n.status === 'expired'), [history]);
+
+  // ↩︎ Bring expired notes back to the inbox → the parent decides → the
+  // kid gets their points through the normal award rail.
+  const revive = async (ids: string[], key: string) => {
+    if (!familyId || reviving || ids.length === 0) return;
+    setReviving(key); setErr(null);
+    try {
+      await reviveLeaderNotes(familyId, ids);
+      await load();
+    } catch (e) {
+      setErr(leaderErrorText((e as { code?: string }).code));
+    } finally { setReviving(null); }
+  };
 
   if (!profile || !isAdult) {
     return (
@@ -205,6 +227,23 @@ export default function ParentLeaderPage() {
             {!isParent && pending && pending.length > 0 && <p className="text-[11px] font-bold text-kaya-sand mt-2">Parents decide leader notes — you can see them here.</p>}
           </div>
 
+          {/* ⌛ Expired before a decision → one tap brings them all back */}
+          {isParent && expired.length > 0 && (
+            <div className="mb-4 rounded-kaya border px-4 py-3" style={{ background: '#FFF7E5', borderColor: '#E9C867' }}>
+              <p className="text-[12.5px] font-black text-kaya-chocolate">⌛ {expired.length} note{expired.length === 1 ? '' : 's'} expired before anyone decided</p>
+              <p className="text-[11.5px] font-bold text-[#6b5a2a] mt-0.5">The kids may have missed points. Bring them back to your inbox and decide them now.</p>
+              <button
+                type="button"
+                disabled={!!reviving}
+                onClick={() => revive(expired.map((n) => n.id), 'all')}
+                className="mt-2 px-3.5 py-2 rounded-full text-[12px] font-black text-white disabled:opacity-60"
+                style={{ background: GOLD }}
+              >
+                {reviving === 'all' ? '…' : `↩︎ Bring ${expired.length === 1 ? 'it' : 'them all'} back`}
+              </button>
+            </div>
+          )}
+
           {/* History */}
           <CollapsibleSection id="leader-history" icon="📜" title="Decided notes" remember summary={history ? `${history.length}` : ''}>
             {!history || history.length === 0 ? (
@@ -215,6 +254,11 @@ export default function ParentLeaderPage() {
                   <li key={n.id} className="text-[12px] font-bold text-kaya-chocolate border-b border-kaya-warm-dark/60 pb-1.5 last:border-0">
                     {n.kind === 'shoutout' ? '⭐' : '📝'} 👑 {n.leaderName.split(' ')[0]} → {n.targetChildId === n.leaderChildId ? 'self' : n.targetName.split(' ')[0]} · {n.status === 'approved' ? `✅ ${n.finalPoints && n.finalPoints > 0 ? `+${n.finalPoints}` : n.finalPoints || 'note'}` : n.status === 'adjusted' ? `🔁 ${n.finalPoints && n.finalPoints > 0 ? `+${n.finalPoints}` : n.finalPoints === 0 ? 'note only' : n.finalPoints}` : n.status === 'declined' ? '❌ declined' : '⌛ expired'}
                     <span className="text-kaya-sand"> · {fmtWhen(n.createdAt)}{n.resolvedByName ? ` · ${n.resolvedByName}` : ''}</span>
+                    {isParent && n.status === 'expired' && (
+                      <button type="button" disabled={!!reviving} onClick={() => revive([n.id], n.id)} className="ml-2 px-2 py-0.5 rounded-full text-[10.5px] font-black border bg-white disabled:opacity-60" style={{ color: GOLD, borderColor: '#E9C867' }}>
+                        {reviving === n.id ? '…' : '↩︎ Bring back'}
+                      </button>
+                    )}
                     <span className="block text-kaya-chocolate-light">“{n.reason}”{n.parentNote ? <span className="text-kaya-sand"> — {n.parentNote}</span> : null}</span>
                   </li>
                 ))}
