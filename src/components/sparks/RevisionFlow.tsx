@@ -1,5 +1,6 @@
 'use client';
 import AiLevelChip from '@/components/ai/AiLevelChip';
+import { aiLevelLabel } from '@/lib/ai/level.shared';
 import { useKidAiLevel } from '@/lib/ai/useAiLevel';
 
 // Kaya Sparks · Home Revisions flow.
@@ -303,6 +304,9 @@ export default function RevisionFlow({
       const points = willAwardNow ? (bonus ? settings.bonus_points : settings.base_points) : 0;
 
       const titlePrefix = mode === 'questions' ? `${finalSubject} · Questions` : `${finalSubject} · Round`;
+      // 🤖 Kaya AI Levels — the level rides in the award reason so Stats'
+      // award feed and the Sunday Points Review show what the mark was made at.
+      const levelTag = aiSkipped || mode !== 'answers' ? '' : ` · ${aiLevelLabel(score.aiLevel ?? aiLevel)}`;
 
       await setDoc(reservedRef, {
         kid_id: kidId,
@@ -346,8 +350,8 @@ export default function RevisionFlow({
       // Auto-award when permitted by settings (qualifying answers + no approval required)
       if (willAwardNow) {
         const reason = bonus
-          ? `Bonus revision — ${finalSubject} · ${score.score}%`
-          : `Revision — ${finalSubject} · ${score.score}%`;
+          ? `Bonus revision — ${finalSubject} · ${score.score}%${levelTag}`
+          : `Revision — ${finalSubject} · ${score.score}%${levelTag}`;
         const kind: AwardKind = 'regular';
         await giveAward(familyId, {
           childId: kidId,

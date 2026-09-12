@@ -1,4 +1,6 @@
 'use client';
+import AiLevelChip from '@/components/ai/AiLevelChip';
+import { parseAiLevel, type AiLevel } from '@/lib/ai/level.shared';
 import { useKidAiLevel, aiRequestHeaders } from '@/lib/ai/useAiLevel';
 
 // Kaya Business 2.0 · 📝 Business Review (R18–R21).
@@ -50,6 +52,8 @@ export default function BusinessReviewPage() {
   const [wentWell, setWentWell] = useState('');
   const [tryNext, setTryNext] = useState('');
   const [advice, setAdvice] = useState('');
+  // 🤖 the level the advice was actually written at (from the route).
+  const [adviceLevel, setAdviceLevel] = useState<AiLevel | null>(null);
   const [adviceBusy, setAdviceBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -133,7 +137,7 @@ export default function BusinessReviewPage() {
         }),
       });
       const j = await r.json();
-      if (j?.message) setAdvice(String(j.message));
+      if (j?.message) { setAdvice(String(j.message)); setAdviceLevel(parseAiLevel(j.aiLevel)); }
       else if (j?.skipped) setAdvice('');
     } catch { /* advice is a bonus — never blocks the review */ }
     finally { setAdviceBusy(false); }
@@ -145,6 +149,7 @@ export default function BusinessReviewPage() {
     try {
       // Fetch advice at save time if the kid didn't ask for it yet.
       let finalAdvice = advice;
+      let finalLevel: AiLevel | null = adviceLevel;
       if (!finalAdvice && !adviceBusy) {
         try {
           const r = await fetch('/api/business-coach', {
@@ -163,7 +168,7 @@ export default function BusinessReviewPage() {
             }),
           });
           const j = await r.json();
-          if (j?.message) { finalAdvice = String(j.message); setAdvice(finalAdvice); }
+          if (j?.message) { finalAdvice = String(j.message); setAdvice(finalAdvice); finalLevel = parseAiLevel(j.aiLevel); setAdviceLevel(finalLevel); }
         } catch { /* fine without */ }
       }
       const reviewId = await saveBusinessReview(familyId, businessId, {
@@ -179,6 +184,7 @@ export default function BusinessReviewPage() {
         wentWell: wentWell.trim() || undefined,
         tryNext: tryNext.trim() || undefined,
         aiAdvice: finalAdvice || undefined,
+        aiAdviceLevel: finalAdvice && finalLevel ? finalLevel : undefined,
       }, profile.uid);
 
       // R21 — completing a review earns HP (parent-review rail, D2 parity).
@@ -266,6 +272,7 @@ export default function BusinessReviewPage() {
               <div className="rounded-[16px_16px_16px_4px] bg-hive-navy text-hive-cream p-3.5">
                 <div className="text-[10px] font-nunito font-black uppercase tracking-wider text-hive-honey mb-1">🤖 {coachName} · from your real numbers</div>
                 <p className="text-[13px] leading-relaxed">{advice}</p>
+                {adviceLevel && <div className="mt-1.5"><AiLevelChip level={adviceLevel} what="coaching" size="xs" /></div>}
               </div>
             ) : (
               <button type="button" onClick={getAdvice} disabled={adviceBusy}

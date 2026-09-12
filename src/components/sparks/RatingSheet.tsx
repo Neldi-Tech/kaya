@@ -1,4 +1,5 @@
 'use client';
+import { aiLevelLabel } from '@/lib/ai/level.shared';
 
 // Kaya Sparks · rating sheet — single source for rating a sparks_item.
 //
@@ -221,9 +222,12 @@ export default function RatingSheet({
       // the rating still saved; the parent can re-try with a higher %.
       if (awardPoints && wouldQualify && !alreadyAwarded) {
         try {
+          // 🤖 Kaya AI Levels — the level the page was marked at rides in the
+          // award reason (Stats award feed + Sunday Points Review show it).
+          const levelTag = item.revision_data?.ai_level ? ` · ${aiLevelLabel(item.revision_data.ai_level)}` : '';
           const reason = wouldBonus
-            ? `Bonus revision — ${item.revision_data?.subject ?? 'subject'} · ${percent}%`
-            : `Revision — ${item.revision_data?.subject ?? 'subject'} · ${percent}%`;
+            ? `Bonus revision — ${item.revision_data?.subject ?? 'subject'} · ${percent}%${levelTag}`
+            : `Revision — ${item.revision_data?.subject ?? 'subject'} · ${percent}%${levelTag}`;
           const kind: AwardKind = 'regular';
           await giveAward(familyId, {
             childId: item.kid_id,
