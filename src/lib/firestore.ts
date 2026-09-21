@@ -676,6 +676,10 @@ export interface Family {
      *  week's journal notes, the family crowns one → Moments. Own flag,
      *  default ON (absent = on). */
     noteOfWeekEnabled?: boolean;
+    /** 🎡 Wheel sit-out (approved 2026-09-21): tonight's leader + the current
+     *  crown-wearer are left out of the Leader Wheel so the crown always
+     *  moves to someone new. Own flag, default ON (absent = on). */
+    wheelSitOut?: boolean;
     /** Sunday-Meeting (song reveal, 2026-06-21): the closing song set
      *  AHEAD of the meeting by the leader or a parent. During the meeting
      *  the Closing step opens it as a surprise (5-4-3-2-1 countdown →
@@ -702,7 +706,15 @@ export interface Family {
     kind: 'parent' | 'kid' | 'helper';
     pickedBy: string;       // uid of the user who picked
     pickedAt: number;       // epoch millis
+    /** 🎡 PR1 (2026-09-21): picks now save through /api/meetings/next-leader
+     *  (works from a kid's login). `via` = how it was chosen; the name lets
+     *  the card say "🎡 spun by Earlnathan · 20:14". Absent on older picks. */
+    pickedByName?: string;
+    via?: 'wheel' | 'pick';
   } | null;
+  /** 🎡 One-spin-per-night guard for non-parents (server-owned; written only
+   *  by /api/meetings/next-leader). `kidSpinDate` is the meeting's LOCAL day. */
+  leaderWheel?: { kidSpinDate?: string; byUid?: string; byName?: string; at?: number } | null;
   createdAt: Timestamp;
 }
 

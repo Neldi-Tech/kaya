@@ -114,6 +114,8 @@ export default function MeetingSetupPage() {
   const [sundaySurpriseEnabled, setSundaySurpriseEnabled] = useState<boolean>(true);
   // 🌟 Note of the Week (Timeline 2.0) — own flag, default ON.
   const [noteOfWeekEnabled, setNoteOfWeekEnabled] = useState<boolean>(true);
+  // 🎡 Wheel & 🙋 kid proposals (approved 2026-09-21) — each its own flag, default ON.
+  const [wheelSitOut, setWheelSitOut] = useState<boolean>(true);
   const [surpriseToggles, setSurpriseToggles] = useState<Record<string, boolean>>({});
   const [goldenTickets, setGoldenTickets] = useState<string[]>([]);
   const [ticketDraft, setTicketDraft] = useState('');
@@ -179,6 +181,7 @@ export default function MeetingSetupPage() {
     if (typeof s?.openingWordShowLibrary === 'boolean') setOpeningWordShowLibrary(s.openingWordShowLibrary);
     if (typeof s?.sundaySurpriseEnabled === 'boolean') setSundaySurpriseEnabled(s.sundaySurpriseEnabled);
     setNoteOfWeekEnabled(s?.noteOfWeekEnabled !== false);
+    setWheelSitOut(s?.wheelSitOut !== false);
     if (s?.surprises) setSurpriseToggles(s.surprises);
     if (Array.isArray(s?.goldenTickets)) setGoldenTickets(s.goldenTickets);
     if (s?.prayers && s.prayers.length > 0) setPrayers(s.prayers);
@@ -309,6 +312,7 @@ export default function MeetingSetupPage() {
         openingWordShowLibrary,
         sundaySurpriseEnabled,
         noteOfWeekEnabled,
+        wheelSitOut,
         surprises: surpriseToggles,
         goldenTickets,
       },
@@ -1037,6 +1041,26 @@ export default function MeetingSetupPage() {
               Pick both a day and a time — partial selections won't save.
             </p>
           )}
+        </div>
+      </section>
+
+      {/* ── 🎡 Wheel & 🙋 kid proposals (approved 2026-09-21 · S17) ── */}
+      <section id="wheel" className="mb-8 bg-white border border-kaya-warm-dark rounded-kaya-lg p-5 lg:p-7">
+        <h2 className="font-display text-lg lg:text-xl font-black mb-1">🎡 Wheel &amp; 🙋 kid proposals</h2>
+        <p className="text-[12.5px] lg:text-sm text-kaya-sand leading-snug mb-4">
+          How the Leader Wheel and the kids&apos; meeting awards behave. All default on — each is its
+          own switch, so saved meeting setups are never disturbed.
+        </p>
+        <div className="space-y-3">
+          <label className="flex items-start gap-3 cursor-pointer rounded-kaya border border-kaya-warm-dark/70 bg-kaya-cream/50 p-4">
+            <input type="checkbox" checked={wheelSitOut}
+              onChange={(e) => setWheelSitOut(e.target.checked)}
+              className="mt-1 w-5 h-5 accent-kaya-gold cursor-pointer" />
+            <div className="flex-1 min-w-0">
+              <p className="font-display font-extrabold text-sm text-kaya-chocolate">Tonight&apos;s leader sits out the wheel</p>
+              <p className="text-[12.5px] text-kaya-chocolate/70 leading-snug mt-0.5">So the crown always moves to someone new.</p>
+            </div>
+          </label>
         </div>
       </section>
 
