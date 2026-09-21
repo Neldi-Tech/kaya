@@ -176,9 +176,19 @@ export default function MeetingReviewPage() {
   // R18 — live states on the shared screen: ⏳ waiting → ✓ approved lands
   // within ~15 s of a parent deciding on their own phone.
   const decidedRef = useRef('');
+  // (QA walk, 21-Sep-2026: some cast / screen-share setups report the tab as
+  // "hidden" while the family is looking straight at it — so a hidden tab
+  // still polls, just three times slower, and catches up the moment it shows.)
   useEffect(() => {
-    const t = setInterval(() => { if (typeof document === 'undefined' || document.visibilityState === 'visible') void loadProposals(); }, 15_000);
-    return () => clearInterval(t);
+    let n = 0;
+    const t = setInterval(() => {
+      n += 1;
+      const hidden = typeof document !== 'undefined' && document.visibilityState !== 'visible';
+      if (!hidden || n % 3 === 0) void loadProposals();
+    }, 15_000);
+    const onShow = () => { if (document.visibilityState === 'visible') void loadProposals(); };
+    document.addEventListener('visibilitychange', onShow);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onShow); };
   }, [loadProposals]);
   useEffect(() => {
     const sig = Object.values(proposals).filter((x) => x.status === 'approved' || x.status === 'adjusted').map((x) => x.slot).sort().join('|');
