@@ -17,7 +17,16 @@ import { initOutboxSync, subscribeOutbox, countQueuedPhotos, syncOutbox } from '
 import { useCelebrate } from '@/components/celebrate/CelebrationProvider';
 
 export function OfflineSyncBoot() {
-  useEffect(() => { initOutboxSync(); }, []);
+  useEffect(() => {
+    initOutboxSync();
+    // 📴 O3 — register the Kaya service worker for EVERYONE (it used to
+    // register only when push was enabled). One worker, root scope: push
+    // handlers + the offline app shell live in the same file, so this never
+    // fights the push registration in lib/push.ts (same path).
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/firebase-messaging-sw.js').catch(() => { /* unsupported/blocked — fine */ });
+    }
+  }, []);
   return null;
 }
 
