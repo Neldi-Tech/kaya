@@ -1414,7 +1414,6 @@ function LadderTab({
   awards: AwardsCtx;
 }) {
   void pointSystem;
-  void childById;
   // 🪜 Ladder bonus (PR4 · R14) — nobody could give Ladder points from this
   // screen before. The champion = most routines kept Excellent; exact ties
   // EACH receive it. Parents give · kids propose — same control as the Belt.
@@ -1456,8 +1455,11 @@ function LadderTab({
         <div className="space-y-3 mb-4 lg:mb-5">
           {children.filter((c) => (completeCounts.get(c.id) ?? 0) === maxComplete).map((champ) => {
             const item: AwardItem = { type: 'ladder', childId: champ.id };
-            const others = [...completeCounts.entries()].filter(([id]) => id !== champ.id).sort((a, b) => b[1] - a[1]);
+            // "next: Diella & Daniella 17" — whoever is closest behind the champion(s).
+            const others = [...completeCounts.entries()].filter(([, n]) => n < maxComplete).sort((a, b) => b[1] - a[1]);
             const nextBest = others[0]?.[1] ?? 0;
+            const nextNames = others.filter(([, n]) => n === nextBest && n > 0)
+              .map(([id]) => (childById.get(id)?.name || '').split(' ')[0]).filter(Boolean);
             return (
               <div key={champ.id} className="rounded-kaya-lg bg-gradient-to-br from-kaya-gold/20 via-kaya-gold/5 to-transparent border border-kaya-gold/60 p-4 lg:p-5">
                 <p className="text-[10px] uppercase tracking-[0.18em] font-extrabold text-kaya-gold-light">🪜 Ladder champion</p>
@@ -1466,7 +1468,7 @@ function LadderTab({
                   <div className="min-w-0">
                     <p className="font-display font-black text-base lg:text-lg leading-tight">{champ.name}</p>
                     <p className="text-[11.5px] text-white/65 font-bold">
-                      {maxComplete} routine{maxComplete === 1 ? '' : 's'} kept Excellent{nextBest > 0 ? ` · next: ${nextBest}` : ''}
+                      {maxComplete} routine{maxComplete === 1 ? '' : 's'} kept Excellent{nextBest > 0 && nextNames.length > 0 ? ` · next: ${nextNames.join(' & ')} ${nextBest}` : ''}
                     </p>
                   </div>
                 </div>

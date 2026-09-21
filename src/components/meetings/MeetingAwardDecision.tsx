@@ -17,13 +17,15 @@ import { awardTitle, meetingAwardErrorText, type MeetingAwardProposal } from '@/
 import { decideMeetingAward, MeetingAwardError } from '@/lib/meetingAwards';
 
 export default function MeetingAwardDecision({
-  proposal: p, familyId, me, diamondMinPoints, onDone,
+  proposal: p, familyId, me, diamondMinPoints, onDone, approveAll,
 }: {
   proposal: MeetingAwardProposal;
   familyId: string;
   me: { uid: string; displayName?: string | null };
   diamondMinPoints: number;
   onDone: (result: { id: string; status: MeetingAwardProposal['status']; finalPoints: number; note: string }) => void;
+  /** S14 — shown on the first card only: approve EVERYTHING waiting with this card's note. */
+  approveAll?: { count: number; busy: boolean; run: (note: string) => void };
 }) {
   const [points, setPoints] = useState(p.points);
   const [note, setNote] = useState('');
@@ -107,6 +109,21 @@ export default function MeetingAwardDecision({
         </button>
         <button type="button" onClick={() => draft('decline')} disabled={aiBusy} className="h-10 px-3 rounded-full text-[11.5px] font-black text-[#5A3CB8] disabled:opacity-50">✨ help me decline kindly</button>
       </div>
+      {approveAll && approveAll.count > 1 && (
+        <div className="mt-2">
+          <button
+            type="button" disabled={!!busy || approveAll.busy}
+            onClick={() => {
+              if (note.trim().split(/\s+/).filter(Boolean).length < 2) { setErr(meetingAwardErrorText('note-required')); return; }
+              approveAll.run(note);
+            }}
+            className="h-10 px-4 rounded-full bg-[#1F2A44] text-white font-black text-[13px] disabled:opacity-50"
+          >
+            {approveAll.busy ? 'Approving…' : `✓ Approve all ${approveAll.count} waiting`}
+          </button>
+          <p className="text-[11px] text-kaya-sand font-bold mt-1">Uses this note for every one — at the family&apos;s set amounts.</p>
+        </div>
+      )}
     </div>
   );
 }
