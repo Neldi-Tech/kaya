@@ -725,7 +725,13 @@ export function computePointsStory(
   }
   for (const a of kidAwards) {
     const at = awardMillis(a);
-    const d = dayOf(at ? localDayKey(at) : range.to);
+    // The awards query bounds the window in UTC, so an award given just
+    // after local midnight can belong to a local day one step outside it —
+    // keep it inside the window the family is looking at (it still counts).
+    let dk = at ? localDayKey(at) : range.to;
+    if (dk > range.to) dk = range.to;
+    if (dk < range.from) dk = range.from;
+    const d = dayOf(dk);
     d.awards.push({
       id: a.id, points: a.points || 0, reason: a.reason || '', category: a.category || '',
       kind: a.kind || (a.points < 0 ? 'reducing' : 'regular'), byName: a.awardedByName || '', at,
