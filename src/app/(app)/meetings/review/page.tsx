@@ -13,7 +13,7 @@
 //
 // Belt® and Ladder® concepts by Diella.
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
@@ -37,7 +37,9 @@ import {
   listMeetingAwards, proposeMeetingAwards, awardMeetingDirect, MeetingAwardError,
   type MeetingAwardProposal, type AwardItem,
 } from '@/lib/meetingAwards';
-import { meetingAwardSlot, meetingAwardPoints, meetingAwardErrorText, kidWindowAllowed, KID_WINDOW_HINT } from '@/lib/meetingAwards.shared';
+import { meetingAwardSlot, meetingAwardPoints, meetingAwardErrorText, kidWindowAllowed, KID_WINDOW_HINT, awardTitle, MEDAL as AWARD_MEDAL } from '@/lib/meetingAwards.shared';
+import AwardImpactSheet, { type ImpactSheetData } from '@/components/meetings/AwardImpactSheet';
+import { computeImpact, monthRaceLine, type KidTotals } from '@/lib/meetingImpact';
 import { buildKidQuiz, quizCountForBads, type QuizQuestion } from '@/lib/meetingQuiz';
 import { auth as fbAuth } from '@/lib/firebase';
 import { fmt } from '@/lib/format';
@@ -112,11 +114,13 @@ export default function MeetingReviewPage() {
   const routines: Routine[] = family?.routines ?? [];
   const pointSystem = useMemo(() => readPointSystemConfig(family), [family]);
 
+  // 📊 PR5 — bumped when a proposal is approved elsewhere (a parent's phone)
+  // so the REAL numbers on the shared screen move during the meeting.
+  const [dataTick, setDataTick] = useState(0);
   useEffect(() => {
     if (!profile?.familyId) return;
     let cancelled = false;
-    setRatings(null);
-    setAwards(null);
+    if (dataTick === 0) { setRatings(null); setAwards(null); }
     Promise.all([
       getRatingsInDateRange(profile.familyId, range.from, range.to),
       getAwardsInDateRange(profile.familyId, range.from, range.to),
@@ -126,7 +130,9 @@ export default function MeetingReviewPage() {
       setAwards(a);
     });
     return () => { cancelled = true; };
-  }, [profile?.familyId, range.from, range.to]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.familyId, range.from, range.to, dataTick]);
+  useEffect(() => { setDataTick(0); }, [range.from, range.to]);
 
   const result = useMemo(() => {
     if (!ratings || !awards) return null;
@@ -167,6 +173,60 @@ export default function MeetingReviewPage() {
     } catch { /* the screen still works — controls just show "nothing yet" */ }
   }, [profile?.familyId, range.from, range.to]);
   useEffect(() => { setProposals({}); void loadProposals(); }, [loadProposals]);
+  // R18 — live states on the shared screen: ⏳ waiting → ✓ approved lands
+  // within ~15 s of a parent deciding on their own phone.
+  const decidedRef = useRef('');
+  useEffect(() => {
+    const t = setInterval(() => { if (typeof document === 'undefined' || document.visibilityState === 'visible') void loadProposals(); }, 15_000);
+    return () => clearInterval(t);
+  }, [loadProposals]);
+  useEffect(() => {
+    const sig = Object.values(proposals).filter((x) => x.status === 'approved' || x.status === 'adjusted').map((x) => x.slot).sort().join('|');
+    if (decidedRef.current && sig !== decidedRef.current) setDataTick((n) => n + 1);
+    decidedRef.current = sig || ' ';
+  }, [proposals]);
+
+  // 📊 The Impact pop-up (R17) — Last 7 days + This month, for the child(ren)
+  // receiving the award. A PROJECTION: it counts only the award(s) in hand
+  // and never touches the real board.
+  const [impact, setImpact] = useState<ImpactSheetData | null>(null);
+  const [impactLoading, setImpactLoading] = useState(false);
+  const impactOn = family?.meetingSetup?.awardImpactPopup !== false;
+  const showImpact = useCallback(async (mode: 'proposed' | 'done', made: MeetingAwardProposal[], byName?: string) => {
+    if (!impactOn || !profile?.familyId || made.length === 0) return;
+    const grants = made.map((m) => ({ childId: m.childId, points: mode === 'done' ? (m.finalPoints ?? m.points) : m.points }));
+    const subtitle = made.length === 1
+      ? `${awardTitle(made[0])} → ${made[0].childEmoji} ${made[0].childName.split(' ')[0]}`
+      : made.map((m) => awardTitle(m).split(' ')[0]).filter((v, i, a) => a.indexOf(v) === i).join(' ') + ` · ${made.length} awards`;
+    const medals = Object.fromEntries(made.filter((m) => m.type === 'star' && m.rank).map((m) => [m.childId, AWARD_MEDAL[m.rank!].emoji]));
+    setImpact({ mode, subtitle, byName, rows: [], medals });
+    setImpactLoading(true);
+    try {
+      const wk = computeWindowRange({ kind: 'last7' }, meetingDate);
+      const mo = computeWindowRange({ kind: 'mtd' }, meetingDate);
+      const [wr, wa, mr, ma] = await Promise.all([
+        getRatingsInDateRange(profile.familyId, wk.from, wk.to), getAwardsInDateRange(profile.familyId, wk.from, wk.to),
+        getRatingsInDateRange(profile.familyId, mo.from, mo.to), getAwardsInDateRange(profile.familyId, mo.from, mo.to),
+      ]);
+      // "done": the award is already in the data — take it back out so the
+      // pop-up can show was → now from a clean base.
+      const justMade = new Set(mode === 'done' ? made.map((m) => m.slot) : []);
+      const totals = (rs: DailyRating[], as: Award[]): KidTotals[] => children.map((c) => ({
+        childId: c.id, name: c.name, emoji: c.avatarEmoji,
+        routinePts: rs.filter((r) => r.childId === c.id).reduce((x, r) => x + (r.totalPoints || 0), 0),
+        bonusHp: as.filter((a) => a.childId === c.id && !(a.meetingSlot && justMade.has(a.meetingSlot))).reduce((x, a) => x + (a.points || 0), 0),
+      }));
+      const week = totals(wr, wa);
+      const month = totals(mr, ma);
+      const ppHP = pointSystem.routines.pointsPerHousePoint;
+      setImpact({
+        mode, subtitle, byName, medals,
+        rows: computeImpact({ grants, week, month, pointsPerHousePoint: ppHP }),
+        raceLine: made.length > 1 ? monthRaceLine(month, ppHP, grants) : undefined,
+      });
+    } catch { setImpact(null); }
+    finally { setImpactLoading(false); }
+  }, [impactOn, profile?.familyId, meetingDate, children, pointSystem.routines.pointsPerHousePoint]);
 
   const awardsCtx: AwardsCtx = useMemo(() => {
     const kidBlocked = isParent ? null
@@ -194,6 +254,8 @@ export default function MeetingReviewPage() {
         try {
           const done = await awardMeetingDirect({ familyId: profile.familyId, me: profile, key: windowKey, meetingDate, item: it, points, diamondMinPoints: pointSystem.diamondMinPoints });
           setProposals((prev) => ({ ...prev, [slot]: done }));
+          setDataTick((n) => n + 1);
+          void showImpact('done', [done], profile.displayName || undefined);
         } catch (e) { fail([slot], e); void loadProposals(); }
         finally { setBusySlot(null); }
       },
@@ -205,13 +267,14 @@ export default function MeetingReviewPage() {
         try {
           const r = await proposeMeetingAwards(profile.familyId, windowKey, meetingDate, items);
           setProposals((prev) => ({ ...prev, ...Object.fromEntries(r.proposals.map((x) => [x.slot, x])) }));
+          void showImpact('proposed', r.proposals);
           const refused = r.results.filter((x) => !x.ok);
           if (refused.length) setSlotErrors((prev) => ({ ...prev, ...Object.fromEntries(refused.map((x) => [x.slot, meetingAwardErrorText(x.error || 'failed')])) }));
         } catch (e) { fail(slots, e); void loadProposals(); }
         finally { setBusySlot(null); }
       },
     };
-  }, [isParent, family?.meetingSetup?.kidProposalsEnabled, windowKey, meetingDate, range.from, range.to, pointSystem.diamondMinPoints, busySlot, proposals, slotErrors, profile, loadProposals]);
+  }, [isParent, family?.meetingSetup?.kidProposalsEnabled, windowKey, meetingDate, range.from, range.to, pointSystem.diamondMinPoints, busySlot, proposals, slotErrors, profile, loadProposals, showImpact]);
 
   const loading = !result || !dayScores || !comments;
 
@@ -354,13 +417,23 @@ export default function MeetingReviewPage() {
 
       {guideOpen && <ReviewGuide onClose={() => setGuideOpen(false)} />}
 
+      {impact && <AwardImpactSheet data={impact} loading={impactLoading} onClose={() => setImpact(null)} />}
+
       {/* 🏆 A parent decides a kid's proposal right here on the meeting screen. */}
       {deciding && profile?.familyId && (
         <div className="fixed inset-0 z-[66] flex items-end lg:items-center justify-center bg-black/60 backdrop-blur-sm p-3 lg:p-6" role="dialog" aria-modal="true" aria-label="Decide this meeting award" onClick={() => setDeciding(null)}>
           <div className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <MeetingAwardDecision
               proposal={deciding} familyId={profile.familyId} me={profile} diamondMinPoints={pointSystem.diamondMinPoints}
-              onDone={() => { setDeciding(null); void loadProposals(); }}
+              onDone={(r) => {
+                const p = deciding;
+                setDeciding(null);
+                void loadProposals();
+                if (r.status !== 'declined') {
+                  setDataTick((n) => n + 1);
+                  void showImpact('done', [{ ...p, status: r.status, finalPoints: r.finalPoints }], profile.displayName || undefined);
+                }
+              }}
             />
             <button type="button" onClick={() => setDeciding(null)} className="block mx-auto mt-3 text-[12px] font-bold text-white/70 underline">Not now</button>
           </div>

@@ -48,6 +48,7 @@ Rules:
 - approve → celebrate what earned it.
 - adjust  → celebrate, and say in one calm clause why the points changed.
 - decline → kind, no scolding, and ALWAYS end with a clear way forward.
+  NEVER state a reason for declining unless the parent typed one — you do not know why. With no reason given: name the effort honestly, say this one isn't being given this time, and point to the next chance (next Sunday / next month).
 - If the parent typed words already, keep their meaning and make it read well.
 - Plain text only. No emojis unless the parent used them.
 
