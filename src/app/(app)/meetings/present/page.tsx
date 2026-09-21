@@ -44,6 +44,7 @@ import { giveAward } from '@/lib/firestore';
 import { leaderHandover, listLeaderNotes, draftLeaderReport, type LeaderNote } from '@/lib/leaderWeek';
 import { sendMessage } from '@/lib/messaging';
 import { auth as fbAuth } from '@/lib/firebase';
+import { pickNextLeader, spinNextLeader, nextLeaderErrorText, NextLeaderError } from '@/lib/meetingNextLeader';
 import {
   subscribeMeetingSubmissions, clearMeetingSubmissions, fetchMeetingSubmissionsViaGateway,
   appreciationTagsForLine, appreciationTagLabelForLine, isCurrentCycle, meetingCycleKey,
@@ -257,6 +258,7 @@ export default function MeetingPresenterPage() {
   // and the past-guest suggestions never had anything to suggest. Cleared
   // on finish, same lifecycle as stepIdx.
   const ROSTER_KEY = 'kaya:meeting-presenter:roster';
+  const LEDBY_KEY = 'kaya:meeting-presenter:ledBy';
   const [restoredRoster] = useState(() => {
     if (typeof window === 'undefined') return null;
     try {
@@ -551,6 +553,7 @@ export default function MeetingPresenterPage() {
   }, [family?.weekTheme, family?.meetingSetup?.schedule?.dayOfWeek]);
   const [themeRevealed, setThemeRevealed] = useState(false);
   const [themeAwarded, setThemeAwarded] = useState<Set<string>>(new Set());
+  const [themeError, setThemeError] = useState<string | null>(null);
 
   // 🎭 Deal tonight's roles over the PRESENT kids — seeded by date so the
   // deal is stable across re-renders; rotates week to week.
@@ -893,10 +896,28 @@ export default function MeetingPresenterPage() {
   // 👑 LW PR-L1 — tonight's leader as an ID too (kid childId when a kid
   // leads), so the handover at FINISH can credit the Host trait.
   const ledByRef = useRef<{ id: string; kind: 'parent' | 'kid' | 'helper' } | null>(null);
+  // 🎡 PR1 (2026-09-21) — the snapshot must SURVIVE the Points-Review
+  // remount. It used to re-seed from `family.nextMeetingLeader` on every
+  // mount, so once the wheel had picked NEXT week's leader a remount made
+  // them "tonight's leader" too — meetings were saved as led by the wrong
+  // person and the Host trait went to the wrong kid (20-Sep-2026 record).
+  // Same sessionStorage lifecycle as the roster: cleared on a good finish.
+  const [tonightLeaderId, setTonightLeaderId] = useState<string | null>(null);
   useEffect(() => {
     if (ledSeeded || !family) return;
-    setLedByName(family.nextMeetingLeader?.name || '');
-    ledByRef.current = family.nextMeetingLeader ? { id: family.nextMeetingLeader.id, kind: family.nextMeetingLeader.kind } : null;
+    let snap: { id: string; kind: 'parent' | 'kid' | 'helper'; name: string; date: string } | null = null;
+    try {
+      const raw = typeof window !== 'undefined' ? window.sessionStorage.getItem(LEDBY_KEY) : null;
+      const v = raw ? JSON.parse(raw) : null;
+      if (v && typeof v.id === 'string' && v.date === todayString()) snap = v;
+    } catch { /* private mode */ }
+    if (!snap && family.nextMeetingLeader) {
+      snap = { id: family.nextMeetingLeader.id, kind: family.nextMeetingLeader.kind, name: family.nextMeetingLeader.name, date: todayString() };
+      try { window.sessionStorage.setItem(LEDBY_KEY, JSON.stringify(snap)); } catch { /* private mode */ }
+    }
+    setLedByName(snap?.name || '');
+    ledByRef.current = snap ? { id: snap.id, kind: snap.kind } : null;
+    setTonightLeaderId(snap?.id || null);
     setLedSeeded(true);
   }, [family, ledSeeded]);
 
@@ -1282,6 +1303,7 @@ export default function MeetingPresenterPage() {
     if (typeof window !== 'undefined') {
       window.sessionStorage.removeItem('kaya:meeting-presenter:stepIdx');
       window.sessionStorage.removeItem(ROSTER_KEY);
+      window.sessionStorage.removeItem(LEDBY_KEY);
     }
     } catch (e) {
       // eslint-disable-next-line no-console
@@ -1435,22 +1457,45 @@ export default function MeetingPresenterPage() {
                       <div className="flex flex-wrap justify-center gap-1.5 mt-2">
                         {children.map((c) => (
                           <button key={c.id} type="button" disabled={themeAwarded.has(c.id)}
-                            onClick={() => {
+                            onClick={async () => {
                               if (!profile?.familyId) return;
+                              // 🎡 PR1 (R20) — award writes are parents-only in rules, so a
+                              // kid leader's tap used to turn green and save NOTHING. Kids
+                              // go through the finish gateway (same +1, same math); the
+                              // tick only stays if the point was really saved.
+                              setThemeError(null);
                               setThemeAwarded((prev) => new Set(prev).add(c.id));
-                              void giveAward(profile.familyId, {
-                                childId: c.id, kind: 'regular', points: 1,
-                                reason: '📖 Remembered the theme of the week',
-                                category: 'Family Meeting',
-                                awardedBy: profile.uid, awardedByName: profile.displayName || 'Parent',
-                                senderRole: 'parent',
-                              }).catch(() => {});
+                              let ok = true;
+                              try {
+                                if (profile.role === 'parent') {
+                                  await giveAward(profile.familyId, {
+                                    childId: c.id, kind: 'regular', points: 1,
+                                    reason: '📖 Remembered the theme of the week',
+                                    category: 'Family Meeting',
+                                    awardedBy: profile.uid, awardedByName: profile.displayName || 'Parent',
+                                    senderRole: 'parent',
+                                  });
+                                } else {
+                                  const token = await fbAuth.currentUser?.getIdToken();
+                                  const res = token ? await fetch('/api/meetings/finish', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                                    body: JSON.stringify({ familyId: profile.familyId, action: 'themePoint', childId: c.id, byName: profile.displayName || 'The leader' }),
+                                  }) : null;
+                                  ok = !!res?.ok;
+                                }
+                              } catch { ok = false; }
+                              if (!ok) {
+                                setThemeAwarded((prev) => { const n = new Set(prev); n.delete(c.id); return n; });
+                                setThemeError(`Could not save ${c.name.split(' ')[0]}'s +1 — check the connection and tap again.`);
+                              }
                             }}
                             className={`px-3 py-1.5 rounded-full text-[12px] font-black ${themeAwarded.has(c.id) ? 'bg-emerald-500/80 text-white' : 'bg-white/10 text-white/80 hover:bg-white/20'}`}>
                             {themeAwarded.has(c.id) ? `✓ ${c.name} +1` : `${c.name} remembered! +1`}
                           </button>
                         ))}
                       </div>
+                      {themeError && <p className="mt-2 text-[11px] text-rose-300">⚠️ {themeError}</p>}
                     </>
                   )}
                 </div>
@@ -1463,7 +1508,12 @@ export default function MeetingPresenterPage() {
                     queued={family?.nextMeetingLeader || null}
                     parents={householdParents}
                     childrenList={children}
-                    currentUserUid={profile.uid}
+                    isParent={profile.role === 'parent'}
+                    myChildId={profile.role === 'kid' ? (profile.childId || '') : ''}
+                    tonightLeaderId={tonightLeaderId}
+                    crownChildId={family?.houseLeader?.childId || null}
+                    sitOutOn={family?.meetingSetup?.wheelSitOut !== false}
+                    kidSpunTonight={family?.leaderWheel?.kidSpinDate === todayString()}
                   />
                   <div className="my-5 lg:my-7 h-px bg-white/10" aria-hidden />
                 </>
@@ -2480,18 +2530,48 @@ type LeaderPoolMember = {
   kind: 'parent' | 'kid' | 'helper';
 };
 
+type QueuedLeader = LeaderPoolMember & { pickedByName?: string; pickedAt?: number; via?: 'wheel' | 'pick' };
+
+// "20:14" — the presenter device's local clock, like every other time on
+// the meeting screens.
+function localDayOf(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function clockLabel(ms?: number): string {
+  if (!ms) return '';
+  const d = new Date(ms);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+// 🎡 PR1 (approved 2026-09-21) — picks + spins save through the
+// /api/meetings/next-leader gateway so they work from a KID'S login (the
+// family doc is parents-only in rules — the wheel used to spin, celebrate
+// and save nothing). Rules (design R1–R5): kids = wheel only, one spin a
+// night, the SERVER draws; parents keep chips + re-spin; tonight's leader
+// (and the crown-wearer) sit the spin out so the crown always moves.
 function LeaderPicker({
-  familyId, queued, parents, childrenList, currentUserUid,
+  familyId, queued, parents, childrenList, isParent, myChildId,
+  tonightLeaderId, crownChildId, sitOutOn, kidSpunTonight,
 }: {
   familyId: string;
-  queued: { id: string; name: string; emoji: string; kind: 'parent' | 'kid' | 'helper' } | null;
+  queued: QueuedLeader | null;
   parents: Array<{ uid: string; name: string; avatarEmoji?: string }>;
   childrenList: Array<{ id: string; name: string; avatarEmoji?: string }>;
-  currentUserUid: string;
+  isParent: boolean;
+  myChildId: string;
+  tonightLeaderId: string | null;
+  crownChildId: string | null;
+  sitOutOn: boolean;
+  kidSpunTonight: boolean;
 }) {
   const [wheelOpen, setWheelOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Optimistic mirror of the server's one-spin guard, so the button locks
+  // the moment the wheel lands (the family snapshot follows a beat later).
+  const [spunHere, setSpunHere] = useState(false);
 
   const pool: LeaderPoolMember[] = useMemo(() => [
     ...parents.map((p) => ({
@@ -2508,23 +2588,32 @@ function LeaderPicker({
     })),
   ], [parents, childrenList]);
 
+  // Who sits this spin out — mirrors the server rule exactly (the server
+  // has the final word and returns its own lists with the draw).
+  const sitOutIds = useMemo(() => {
+    if (!sitOutOn) return [] as string[];
+    const ids = new Set<string>();
+    if (tonightLeaderId) ids.add(tonightLeaderId);
+    if (crownChildId) ids.add(crownChildId);
+    const out = pool.filter((m) => ids.has(m.id)).map((m) => m.id);
+    return pool.length - out.length < 2 ? [] : out;
+  }, [sitOutOn, tonightLeaderId, crownChildId, pool]);
+
+  // Last week's pick IS tonight's leader — that's a stale queue, not a
+  // result. Only a pick made today (or of someone else) counts as "queued".
+  const pickedToday = !!queued?.pickedAt && localDayOf(queued.pickedAt) === todayString();
+  const showQueued = !!queued && (queued.id !== tonightLeaderId || pickedToday);
+  const kidLocked = !isParent && (kidSpunTonight || spunHere);
+  const iLeadTonight = !isParent && !!myChildId && myChildId === tonightLeaderId;
+
   const handlePick = async (member: LeaderPoolMember) => {
-    if (saving) return;
+    if (saving || !isParent) return;
     setSaving(true);
     setError(null);
     try {
-      await updateFamily(familyId, {
-        nextMeetingLeader: {
-          id: member.id,
-          name: member.name,
-          emoji: member.emoji,
-          kind: member.kind,
-          pickedBy: currentUserUid,
-          pickedAt: Date.now(),
-        },
-      });
-    } catch (e: any) {
-      setError(e?.message || 'Could not save the pick.');
+      await pickNextLeader(familyId, todayString(), member.id);
+    } catch (e) {
+      setError(nextLeaderErrorText(e instanceof NextLeaderError ? e.code : 'failed'));
     } finally {
       setSaving(false);
     }
@@ -2539,7 +2628,7 @@ function LeaderPicker({
             Next meeting leader
           </p>
           <p className="text-[13px] text-white/75">
-            {queued ? (
+            {showQueued && queued ? (
               <>
                 <span className="font-bold text-white">{queued.emoji} {queued.name}</span>
                 <span className="text-white/55"> is queued to lead next.</span>
@@ -2547,8 +2636,16 @@ function LeaderPicker({
                   ? <span className="text-kaya-gold-light"> 👑 Becomes Leader of the Week when you finish tonight.</span>
                   : <span className="text-white/55"> 👑 A parent can appoint a kid as Leader of the Week from Home.</span>}
               </>
-            ) : (
+            ) : isParent ? (
               <>Tap someone — or <span className="font-bold text-kaya-gold-light">spin the wheel</span> for a fair pick.</>
+            ) : (
+              <>
+                Spin the wheel for a fair pick
+                {sitOutIds.length > 0 && (
+                  <> — <span className="font-bold text-white">{iLeadTonight ? 'you\'re leading tonight, so you sit this one out.' : 'tonight\'s leader sits this one out.'}</span></>
+                )}
+                {sitOutIds.length === 0 && '.'}
+              </>
             )}
           </p>
         </div>
@@ -2560,17 +2657,19 @@ function LeaderPicker({
         <>
           <div className="flex flex-wrap gap-1.5 lg:gap-2 mb-3">
             {pool.map((m) => {
-              const isPicked = queued?.id === m.id;
+              const isPicked = showQueued && queued?.id === m.id;
               return (
                 <button
                   key={m.id}
                   type="button"
                   onClick={() => handlePick(m)}
-                  disabled={saving}
-                  className={`inline-flex items-center gap-1.5 h-9 lg:h-10 px-3 rounded-full text-xs lg:text-sm font-bold transition-colors disabled:opacity-50 ${
+                  disabled={saving || !isParent}
+                  aria-disabled={!isParent}
+                  title={isParent ? undefined : 'Kids use the wheel — it\'s the fair way'}
+                  className={`inline-flex items-center gap-1.5 h-9 lg:h-10 px-3 rounded-full text-xs lg:text-sm font-bold transition-colors ${
                     isPicked
                       ? 'bg-kaya-gold text-kaya-chocolate border-2 border-kaya-gold-light'
-                      : 'bg-white/10 hover:bg-white/15 text-white border-2 border-transparent'
+                      : `bg-white/10 text-white border-2 border-transparent ${isParent ? 'hover:bg-white/15 disabled:opacity-50' : 'opacity-50 cursor-default'}`
                   }`}
                 >
                   <span aria-hidden>{m.emoji}</span>
@@ -2583,16 +2682,29 @@ function LeaderPicker({
 
           <button
             type="button"
-            onClick={() => setWheelOpen(true)}
-            disabled={saving}
+            onClick={() => { setError(null); setWheelOpen(true); }}
+            disabled={saving || kidLocked}
             className="inline-flex items-center gap-2 h-10 px-4 rounded-full bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 border border-purple-400/40 text-xs lg:text-sm font-bold transition-colors disabled:opacity-50"
           >
-            🎡 <span>Spin the Wheel</span>
+            🎡 <span>{kidLocked ? 'Spun tonight ✓' : 'Spin the Wheel'}</span>
           </button>
 
-          <p className="mt-2 text-[10.5px] text-white/45">
-            Pool: parents + kids. Helpers and grandparents can be added later (parent-approved).
-          </p>
+          {showQueued && queued?.pickedByName ? (
+            <p className="mt-2 text-[10.5px] text-white/45">
+              {queued.via === 'wheel' ? '🎡 spun by' : 'picked by'} {queued.pickedByName.split(' ')[0]}
+              {queued.pickedAt ? ` · ${clockLabel(queued.pickedAt)}` : ''}
+              {!isParent && ' · a parent can change it from their own phone.'}
+            </p>
+          ) : !isParent ? (
+            <p className="mt-2 text-[10.5px] text-white/45">
+              🎡 Kids use the wheel — it&apos;s the fair way. A parent can also pick a name from their own phone.
+              <br />Pool: parents + kids.
+            </p>
+          ) : (
+            <p className="mt-2 text-[10.5px] text-white/45">
+              Pool: parents + kids. Helpers and grandparents can be added later (parent-approved).
+            </p>
+          )}
 
           {error && (
             <p className="mt-2 text-[11px] text-rose-300">⚠️ {error}</p>
@@ -2602,11 +2714,13 @@ function LeaderPicker({
 
       {wheelOpen && (
         <LeaderWheel
+          familyId={familyId}
           pool={pool}
+          sitOutIds={sitOutIds}
+          tonightLeaderId={tonightLeaderId}
+          isParent={isParent}
+          onSaved={() => { if (!isParent) setSpunHere(true); }}
           onClose={() => setWheelOpen(false)}
-          onLand={async (m) => {
-            await handlePick(m);
-          }}
         />
       )}
     </div>
@@ -2617,21 +2731,33 @@ function LeaderPicker({
 // Surprise touch from the v2 design proposal. A 1.6s deterministic spin
 // (rotation calculated so the chosen sector lands under the pointer),
 // then a confetti-light "🎉 {name}!" reveal. No canvas, no animation
-// library — single conic-gradient + transform on a transition.
-
+// library.
+//
+// 🎡 PR1 — the draw happens on the SERVER (a browser-side random could be
+// re-spun until "I win"); the wheel asks first, then animates to the
+// winner it was given. "✓ Saved" is only ever shown after a real save.
 function LeaderWheel({
-  pool, onLand, onClose,
+  familyId, pool, sitOutIds, tonightLeaderId, isParent, onSaved, onClose,
 }: {
+  familyId: string;
   pool: LeaderPoolMember[];
-  onLand: (m: LeaderPoolMember) => Promise<void> | void;
+  sitOutIds: string[];
+  tonightLeaderId: string | null;
+  isParent: boolean;
+  onSaved: () => void;
   onClose: () => void;
 }) {
   const SECTOR_COLOURS = ['#D4A017','#3FAF6C','#E36F6F','#9B5DE5','#3FAFD0','#B8860B','#FF6B6B','#0F1F44'];
-  const sectorDeg = 360 / Math.max(1, pool.length);
+  // Slices = who can actually win. Re-synced to the server's list when the
+  // draw comes back, so screen and server can never disagree.
+  const [sitOut, setSitOut] = useState<string[]>(sitOutIds);
+  const [eligible, setEligible] = useState<LeaderPoolMember[]>(() => pool.filter((m) => !sitOutIds.includes(m.id)));
+  const resting = useMemo(() => pool.filter((m) => sitOut.includes(m.id)), [pool, sitOut]);
+  const sectorDeg = 360 / Math.max(1, eligible.length);
   const conic = useMemo(() => {
-    if (pool.length === 0) return SECTOR_COLOURS[0];
+    if (eligible.length === 0) return SECTOR_COLOURS[0];
     const stops: string[] = [];
-    for (let i = 0; i < pool.length; i++) {
+    for (let i = 0; i < eligible.length; i++) {
       const colour = SECTOR_COLOURS[i % SECTOR_COLOURS.length];
       const from = (i * sectorDeg).toFixed(3);
       const to   = ((i + 1) * sectorDeg).toFixed(3);
@@ -2639,15 +2765,33 @@ function LeaderWheel({
     }
     return `conic-gradient(${stops.join(',')})`;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pool.length]);
+  }, [eligible.length]);
 
   const [rotation, setRotation] = useState(0);
-  const [phase, setPhase] = useState<'idle' | 'spinning' | 'landed'>('idle');
+  const [phase, setPhase] = useState<'idle' | 'drawing' | 'spinning' | 'landed'>('idle');
   const [winnerIdx, setWinnerIdx] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSpin = () => {
+  const handleSpin = async () => {
     if (phase !== 'idle' || pool.length === 0) return;
-    const idx = Math.floor(Math.random() * pool.length);
+    setError(null);
+    setPhase('drawing');
+    let list = eligible;
+    let idx = -1;
+    try {
+      const res = await spinNextLeader(familyId, todayString(), pool.map((m) => m.id), tonightLeaderId);
+      const fromServer = pool.filter((m) => res.eligibleIds.includes(m.id));
+      if (fromServer.length > 0) list = fromServer;
+      setEligible(list);
+      setSitOut(res.sitOutIds);
+      idx = list.findIndex((m) => m.id === res.leader.id);
+      onSaved();
+    } catch (e) {
+      setError(nextLeaderErrorText(e instanceof NextLeaderError ? e.code : 'failed'));
+      setPhase('idle');
+      return;
+    }
+    if (idx < 0) { setPhase('idle'); setError(nextLeaderErrorText('failed')); return; }
     // Pointer sits at the top (12 o'clock = 0°/360°). Sector i's
     // *centre* sits at `i * sectorDeg + sectorDeg/2` (measured
     // clockwise from 0°). To land it under the pointer we rotate the
@@ -2656,19 +2800,18 @@ function LeaderWheel({
     // angle of sector i becomes `(i*sectorDeg + sectorDeg/2 + R) mod 360`.
     // We want that === 0 → R ≡ -(i*sectorDeg + sectorDeg/2). Add
     // multiple full spins so it actually *spins*.
+    const deg = 360 / Math.max(1, list.length);
     const fullSpins = 5;
-    const targetDelta = - (idx * sectorDeg + sectorDeg / 2);
+    const targetDelta = - (idx * deg + deg / 2);
     const newRotation = rotation + fullSpins * 360 + ((targetDelta % 360) - (rotation % 360) + 720) % 360;
     setRotation(newRotation);
     setWinnerIdx(idx);
     setPhase('spinning');
-    setTimeout(async () => {
-      setPhase('landed');
-      await onLand(pool[idx]);
-    }, 1700);
+    setTimeout(() => setPhase('landed'), 1700);
   };
 
-  const winner = winnerIdx !== null ? pool[winnerIdx] : null;
+  const winner = winnerIdx !== null ? eligible[winnerIdx] : null;
+  const busy = phase === 'spinning' || phase === 'drawing';
 
   return (
     <div
@@ -2676,13 +2819,13 @@ function LeaderWheel({
       role="dialog"
       aria-modal="true"
       aria-label="Spin the Leader Wheel"
-      onClick={(e) => { if (e.target === e.currentTarget && phase !== 'spinning') onClose(); }}
+      onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}
     >
       <div className="relative w-full max-w-sm bg-kaya-chocolate text-white rounded-3xl border border-white/15 shadow-2xl p-6 text-center">
         <button
           type="button"
           onClick={onClose}
-          disabled={phase === 'spinning'}
+          disabled={busy}
           aria-label="Close wheel"
           className="absolute top-3 right-3 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white text-base flex items-center justify-center disabled:opacity-50"
         >
@@ -2693,7 +2836,7 @@ function LeaderWheel({
           🎡 Leader Wheel
         </p>
         <h3 className="font-display text-2xl font-black mt-1 mb-4">
-          {phase === 'landed' && winner ? `🎉 ${winner.name}!` : 'Spin for a fair pick'}
+          {phase === 'landed' && winner ? `🎉 ${winner.emoji} ${winner.name}!` : 'Spin for a fair pick'}
         </h3>
 
         {/* Wheel */}
@@ -2737,16 +2880,23 @@ function LeaderWheel({
           </div>
         </div>
 
-        {/* Pool legend */}
-        <div className="grid grid-cols-3 gap-1.5 mt-4 text-[10.5px] font-bold text-white/55">
-          {pool.map((m, i) => (
-            <div
+        {/* Pool legend — coloured like their slice; whoever sits this spin
+            out is shown greyed, never hidden. */}
+        <div className="flex flex-wrap justify-center gap-1.5 mt-4 text-[10.5px] font-bold">
+          {eligible.map((m, i) => (
+            <span
               key={m.id}
-              className={`${winnerIdx === i && phase === 'landed' ? 'text-kaya-gold' : ''} truncate`}
+              className={`px-2 py-0.5 rounded-full text-white truncate max-w-[150px] ${winnerIdx === i && phase === 'landed' ? 'ring-2 ring-kaya-gold-light' : ''}`}
+              style={{ background: SECTOR_COLOURS[i % SECTOR_COLOURS.length] }}
               title={m.name}
             >
-              {m.emoji} {m.name}
-            </div>
+              {m.emoji} {m.name.split(' ')[0]}
+            </span>
+          ))}
+          {resting.map((m) => (
+            <span key={m.id} className="px-2 py-0.5 rounded-full text-white/80 bg-white/20 opacity-75" title={m.name}>
+              {m.emoji} {m.name.split(' ')[0]} · {m.id === tonightLeaderId ? 'leading tonight' : '👑 this week\'s leader'}
+            </span>
           ))}
         </div>
 
@@ -2759,13 +2909,20 @@ function LeaderWheel({
             🎡 Spin!
           </button>
         )}
-        {phase === 'spinning' && (
-          <p className="mt-5 text-sm text-white/70 italic">Spinning…</p>
+        {busy && (
+          <p className="mt-5 text-sm text-white/70 italic">{phase === 'drawing' ? 'Drawing a name…' : 'Spinning…'}</p>
+        )}
+        {error && phase === 'idle' && (
+          <p className="mt-3 text-[12px] text-rose-300">⚠️ {error}</p>
         )}
         {phase === 'landed' && winner && (
-          <div className="mt-5">
-            <p className="text-sm text-white/80">
-              {winner.name} is leading next meeting!
+          <div className="mt-4">
+            <p className="text-sm text-white/80">leads next Sunday</p>
+            <p className="mt-2.5 inline-block px-3 py-1 rounded-full text-[11px] font-black bg-emerald-500/20 border border-emerald-400/50 text-emerald-200">
+              ✓ Saved{winner.kind === 'kid' ? ' · 👑 the crown moves when you finish tonight' : ''}
+            </p>
+            <p className="mt-2 text-[10.5px] text-white/50">
+              One spin per meeting for kids · a parent can change it.
             </p>
             <button
               type="button"

@@ -375,7 +375,44 @@ export async function POST(req: NextRequest) {
     return sealed;
   };
 
+  // 👑 R32 safety net (approved 2026-09-21) — "the leader from the spin IS
+  // the Leader of the Week, automatically". The crown normally moves at
+  // meeting FINISH; but when the family never taps Finish the wheel's pick
+  // sat in the queue and a parent had to move the crown by hand. Lazy, no
+  // cron (same idiom as the note sweep): on the next leader read, if a kid
+  // picked through the new gateway (`via`) more than 3h ago still isn't
+  // wearing the crown AND no leader term has started since that pick (so a
+  // parent's later End / appoint always wins), hand over now. Host trait is
+  // left "not applicable" — we can't know the meeting was led to the end.
+  const autoCrownFromWheel = async () => {
+    if (!config.enabled) return;
+    const pick = fam.nextMeetingLeader as (typeof fam.nextMeetingLeader & { pickedAt?: number; via?: string; pickedBy?: string }) | null | undefined;
+    if (!pick || pick.kind !== 'kid' || !pick.via || !pick.pickedAt) return;
+    if (fam.houseLeader?.childId === pick.id) return;
+    if (Date.now() - pick.pickedAt < 3 * 3600 * 1000) return;
+    const latest = await termsCol.orderBy('startAt', 'desc').limit(1).get();
+    const latestStart = latest.empty ? 0 : Number((latest.docs[0].data() as LeaderTerm).startAt || 0);
+    if (latestStart >= pick.pickedAt) return;
+    // One request wins the hand-over (parent Home polls while a kid's Home loads).
+    const won = await db.runTransaction(async (tx) => {
+      const f = (await tx.get(famRef)).data() as { leaderAutoCrown?: { pickedAt?: number } } | undefined;
+      if (f?.leaderAutoCrown?.pickedAt === pick.pickedAt) return false;
+      tx.set(famRef, { leaderAutoCrown: { pickedAt: pick.pickedAt, at: Date.now() } }, { merge: true });
+      return true;
+    });
+    if (!won) return;
+    const children = await loadChildren();
+    const child = children.find((c) => c.id === pick.id);
+    if (!child) return;
+    await closeCurrent({ endReason: 'replaced' }, children);
+    await openTerm(child, 'meeting', pick.pickedBy || uid, children);
+    Object.assign(fam, (await famRef.get()).data() || {});
+  };
+
   try {
+    if (action === 'notebook' || action === 'note-list' || action === 'term-list') {
+      await autoCrownFromWheel().catch(() => { /* best-effort — never block a read */ });
+    }
     switch (action) {
       // ── Meeting FINISH → handover (any family member who finished the meeting)
       case 'handover': {

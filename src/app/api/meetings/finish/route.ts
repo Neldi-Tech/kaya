@@ -16,6 +16,7 @@
 // Actions:
 //   { action: 'upsert', familyId, meeting }            → set meetings/weekly-<date>
 //   { action: 'patch',  familyId, meetingId, updates } → merge fields onto a meeting
+//   { action: 'themePoint', familyId, childId, byName } → kid-led "remembered the theme" +1
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminAuth, getAdminFirestore } from '@/lib/firebaseAdmin';
@@ -49,6 +50,7 @@ export async function POST(req: NextRequest) {
     weekTheme?: { text?: string; by?: string; weekOf?: string; setAt?: number };
     awards?: Array<{ childId?: string; roleName?: string }>;
     byName?: string;
+    childId?: string;
   };
   try { body = await req.json(); } catch { return NextResponse.json({ ok: false, error: 'bad-json' }, { status: 400 }); }
 
@@ -161,6 +163,41 @@ export async function POST(req: NextRequest) {
       if (ok) granted += 1;
     }
     return NextResponse.json({ ok: true, granted });
+  }
+
+  // 🧒 Kid-led (2026-09-21 · PR1 R20): "📖 remembered the theme of the week"
+  // +1 — the same parents-only award wall as the role rewards, but this one
+  // failed SILENTLY (green tick, nothing saved). Fixed +1, one per kid per
+  // meeting night (deterministic doc id → a double-tap can't double-pay).
+  if (body.action === 'themePoint') {
+    const childId = typeof body.childId === 'string' ? body.childId : '';
+    if (!childId) return NextResponse.json({ ok: false, error: 'bad-args' }, { status: 400 });
+    const byName = typeof body.byName === 'string' ? body.byName.slice(0, 60) : 'The leader';
+    const famRef = db.collection('families').doc(familyId);
+    const childRef = famRef.collection('children').doc(childId);
+    const day = new Date().toISOString().slice(0, 10);
+    const awardRef = famRef.collection('awards').doc(`theme-${day}-${childId}`);
+    const result = await db.runTransaction(async (tx) => {
+      const [kid, existing] = await Promise.all([tx.get(childRef), tx.get(awardRef)]);
+      if (!kid.exists) return 'not-found' as const;
+      if (existing.exists) return 'already' as const;
+      const c = kid.data() as { totalPoints?: number; weeklyPoints?: number; lifetimePoints?: number };
+      tx.set(awardRef, {
+        childId, kind: 'regular', points: 1,
+        reason: '📖 Remembered the theme of the week',
+        category: 'Family Meeting',
+        awardedBy: callerUid, awardedByName: byName, senderRole: 'leader',
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      tx.update(childRef, {
+        totalPoints: (c.totalPoints || 0) + 1,
+        weeklyPoints: (c.weeklyPoints || 0) + 1,
+        lifetimePoints: Math.max(c.lifetimePoints || 0, c.totalPoints || 0) + 1,
+      });
+      return 'granted' as const;
+    });
+    if (result === 'not-found') return NextResponse.json({ ok: false, error: 'not-found' }, { status: 404 });
+    return NextResponse.json({ ok: true, granted: result === 'granted' ? 1 : 0 });
   }
 
   return NextResponse.json({ ok: false, error: 'bad-action' }, { status: 400 });
