@@ -115,6 +115,11 @@ export function monthRaceLine(month: KidTotals[], ppHP: number, grants: Array<{ 
   const sorted = month.map((t) => ({ t, hp: hpOf(t, ppHP, g.get(t.childId) || 0) })).sort((a, b) => b.hp - a.hp);
   if (sorted.length < 2) return '';
   const gap = sorted[0].hp - sorted[1].hp;
-  if (gap === 0) return `Month race: ${first(sorted[0].t.name)} and ${first(sorted[1].t.name)} are level.`;
+  if (gap === 0) {
+    // Name EVERYONE sharing the lead — a three-way tie is not a two-horse race.
+    const level = sorted.filter((x) => x.hp === sorted[0].hp).map((x) => first(x.t.name));
+    const names = level.length === 2 ? level.join(' and ') : `${level.slice(0, -1).join(', ')} and ${level[level.length - 1]}`;
+    return `Month race: ${names} are level.`;
+  }
   return `Month race: ${first(sorted[1].t.name)} is ${gap <= 5 ? 'only ' : ''}${gap} behind ${first(sorted[0].t.name)}.`;
 }
