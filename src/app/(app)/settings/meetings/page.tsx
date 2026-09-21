@@ -116,6 +116,7 @@ export default function MeetingSetupPage() {
   const [noteOfWeekEnabled, setNoteOfWeekEnabled] = useState<boolean>(true);
   // 🎡 Wheel & 🙋 kid proposals (approved 2026-09-21) — each its own flag, default ON.
   const [wheelSitOut, setWheelSitOut] = useState<boolean>(true);
+  const [kidProposalsEnabled, setKidProposalsEnabled] = useState<boolean>(true);
   const [surpriseToggles, setSurpriseToggles] = useState<Record<string, boolean>>({});
   const [goldenTickets, setGoldenTickets] = useState<string[]>([]);
   const [ticketDraft, setTicketDraft] = useState('');
@@ -182,6 +183,7 @@ export default function MeetingSetupPage() {
     if (typeof s?.sundaySurpriseEnabled === 'boolean') setSundaySurpriseEnabled(s.sundaySurpriseEnabled);
     setNoteOfWeekEnabled(s?.noteOfWeekEnabled !== false);
     setWheelSitOut(s?.wheelSitOut !== false);
+    setKidProposalsEnabled(s?.kidProposalsEnabled !== false);
     if (s?.surprises) setSurpriseToggles(s.surprises);
     if (Array.isArray(s?.goldenTickets)) setGoldenTickets(s.goldenTickets);
     if (s?.prayers && s.prayers.length > 0) setPrayers(s.prayers);
@@ -313,6 +315,7 @@ export default function MeetingSetupPage() {
         sundaySurpriseEnabled,
         noteOfWeekEnabled,
         wheelSitOut,
+        kidProposalsEnabled,
         surprises: surpriseToggles,
         goldenTickets,
       },
@@ -1059,6 +1062,15 @@ export default function MeetingSetupPage() {
             <div className="flex-1 min-w-0">
               <p className="font-display font-extrabold text-sm text-kaya-chocolate">Tonight&apos;s leader sits out the wheel</p>
               <p className="text-[12.5px] text-kaya-chocolate/70 leading-snug mt-0.5">So the crown always moves to someone new.</p>
+            </div>
+          </label>
+          <label className="flex items-start gap-3 cursor-pointer rounded-kaya border border-kaya-warm-dark/70 bg-kaya-cream/50 p-4">
+            <input type="checkbox" checked={kidProposalsEnabled}
+              onChange={(e) => setKidProposalsEnabled(e.target.checked)}
+              className="mt-1 w-5 h-5 accent-kaya-gold cursor-pointer" />
+            <div className="flex-1 min-w-0">
+              <p className="font-display font-extrabold text-sm text-kaya-chocolate">Kids can propose meeting awards</p>
+              <p className="text-[12.5px] text-kaya-chocolate/70 leading-snug mt-0.5">Ladder · Belt · Star → parents approve. Off = kids see the buttons greyed with &ldquo;ask a parent&rdquo;.</p>
             </div>
           </label>
         </div>

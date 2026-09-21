@@ -676,6 +676,13 @@ export interface Family {
      *  week's journal notes, the family crowns one → Moments. Own flag,
      *  default ON (absent = on). */
     noteOfWeekEnabled?: boolean;
+    /** 🙋 Kids can propose the meeting awards (Ladder · Belt · Star) for a
+     *  parent to approve. Own flag, default ON (absent = on). Off = kids see
+     *  the buttons greyed with "ask a parent". */
+    kidProposalsEnabled?: boolean;
+    /** 📊 The "what it changes" pop-up after every meeting award (Last 7
+     *  days + This month). Own flag, default ON (absent = on). */
+    awardImpactPopup?: boolean;
     /** 🎡 Wheel sit-out (approved 2026-09-21): tonight's leader + the current
      *  crown-wearer are left out of the Leader Wheel so the crown always
      *  moves to someone new. Own flag, default ON (absent = on). */
@@ -1331,6 +1338,10 @@ export interface Award {
    *  written via /api/points/award-thanks (Admin). Parents see it in the
    *  📬 Feedback card + the 🔔 bell. */
   kidNote?: { text: string; byUid: string; byName: string; at: number };
+  /** 🙋 Sunday-meeting bonuses (2026-09-21) — the award's slot key
+   *  (`star__1__{child}__{from}__{to}`), shared with its proposal doc in
+   *  `meetingAwardProposals`. One slot = one award, ever. */
+  meetingSlot?: string;
 }
 
 // Family-configurable rules for the point system. Persisted partial on the

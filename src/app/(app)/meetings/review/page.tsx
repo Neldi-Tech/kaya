@@ -20,7 +20,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import {
   DailyRating, Award, Child, Routine,
   getRatingsInDateRange, getAwardsInDateRange,
-  giveAward, todayString, readPointSystemConfig,
+  todayString, readPointSystemConfig,
   PointSystemConfig,
 } from '@/lib/firestore';
 import {
@@ -31,6 +31,13 @@ import {
 } from '@/lib/meetingReview';
 import StarRulesCard from '@/components/meetings/StarRulesCard';
 import PointsStorySheet, { type MeaningTerm } from '@/components/meetings/PointsStorySheet';
+import MeetingAwardControl from '@/components/meetings/MeetingAwardControl';
+import MeetingAwardDecision from '@/components/meetings/MeetingAwardDecision';
+import {
+  listMeetingAwards, proposeMeetingAwards, awardMeetingDirect, MeetingAwardError,
+  type MeetingAwardProposal, type AwardItem,
+} from '@/lib/meetingAwards';
+import { meetingAwardSlot, meetingAwardPoints, meetingAwardErrorText, kidWindowAllowed, KID_WINDOW_HINT } from '@/lib/meetingAwards.shared';
 import { buildKidQuiz, quizCountForBads, type QuizQuestion } from '@/lib/meetingQuiz';
 import { auth as fbAuth } from '@/lib/firebase';
 import { fmt } from '@/lib/format';
@@ -142,19 +149,69 @@ export default function MeetingReviewPage() {
     return m;
   }, [children]);
 
-  const awardBonus = useCallback(async (child: Child, points: number, reason: string) => {
+  // 🙋 PR4 (approved 2026-09-21) — the Sunday-meeting bonuses. Parents award
+  // straight in (as always); a kid's tap becomes a PROPOSAL a parent decides.
+  // One slot = one award, ever: the state lives in `meetingAwardProposals`
+  // (gateway), so a tick survives refresh and a second device for BOTH paths.
+  const isParent = profile?.role === 'parent';
+  const [proposals, setProposals] = useState<Record<string, MeetingAwardProposal>>({});
+  const [busySlot, setBusySlot] = useState<string | null>(null);
+  const [slotErrors, setSlotErrors] = useState<Record<string, string>>({});
+  const [deciding, setDeciding] = useState<MeetingAwardProposal | null>(null);
+
+  const loadProposals = useCallback(async () => {
     if (!profile?.familyId) return;
-    const kind: 'regular' | 'diamond' = points >= pointSystem.diamondMinPoints ? 'diamond' : 'regular';
-    await giveAward(profile.familyId, {
-      childId: child.id,
-      kind,
-      points,
-      reason,
-      category: 'family-meeting',
-      awardedBy: profile.uid,
-      awardedByName: profile.displayName,
-    });
-  }, [profile?.familyId, profile?.uid, profile?.displayName, pointSystem.diamondMinPoints]);
+    try {
+      const r = await listMeetingAwards(profile.familyId, { from: range.from, to: range.to });
+      setProposals(Object.fromEntries(r.proposals.map((x) => [x.slot, x])));
+    } catch { /* the screen still works — controls just show "nothing yet" */ }
+  }, [profile?.familyId, range.from, range.to]);
+  useEffect(() => { setProposals({}); void loadProposals(); }, [loadProposals]);
+
+  const awardsCtx: AwardsCtx = useMemo(() => {
+    const kidBlocked = isParent ? null
+      : family?.meetingSetup?.kidProposalsEnabled === false ? 'Proposing is switched off — ask a parent to give this one.'
+        : !kidWindowAllowed(windowKey, meetingDate, todayString()) ? KID_WINDOW_HINT : null;
+    const fail = (slots: string[], e: unknown) => {
+      const text = meetingAwardErrorText(e instanceof MeetingAwardError ? e.code : 'failed');
+      setSlotErrors((prev) => ({ ...prev, ...Object.fromEntries(slots.map((x) => [x, text])) }));
+    };
+    const slotOf = (it: AwardItem) => meetingAwardSlot(it.type, it.rank, it.childId, range.from, range.to);
+    return {
+      isParent: !!isParent,
+      diamondMin: pointSystem.diamondMinPoints,
+      kidBlocked,
+      busySlot,
+      slotOf,
+      proposalFor: (it) => proposals[slotOf(it)],
+      errorFor: (it) => slotErrors[slotOf(it)] || null,
+      setPointsFor: (it) => meetingAwardPoints(it.type, it.rank, pointSystem.diamondMinPoints),
+      decide: setDeciding,
+      direct: async (it, points) => {
+        if (!profile?.familyId) return;
+        const slot = slotOf(it);
+        setBusySlot(slot); setSlotErrors((prev) => ({ ...prev, [slot]: '' }));
+        try {
+          const done = await awardMeetingDirect({ familyId: profile.familyId, me: profile, key: windowKey, meetingDate, item: it, points, diamondMinPoints: pointSystem.diamondMinPoints });
+          setProposals((prev) => ({ ...prev, [slot]: done }));
+        } catch (e) { fail([slot], e); void loadProposals(); }
+        finally { setBusySlot(null); }
+      },
+      propose: async (items) => {
+        if (!profile?.familyId || items.length === 0) return;
+        const slots = items.map(slotOf);
+        setBusySlot(slots.length > 1 ? 'bundle' : slots[0]);
+        setSlotErrors((prev) => ({ ...prev, ...Object.fromEntries(slots.map((x) => [x, ''])) }));
+        try {
+          const r = await proposeMeetingAwards(profile.familyId, windowKey, meetingDate, items);
+          setProposals((prev) => ({ ...prev, ...Object.fromEntries(r.proposals.map((x) => [x.slot, x])) }));
+          const refused = r.results.filter((x) => !x.ok);
+          if (refused.length) setSlotErrors((prev) => ({ ...prev, ...Object.fromEntries(refused.map((x) => [x.slot, meetingAwardErrorText(x.error || 'failed')])) }));
+        } catch (e) { fail(slots, e); void loadProposals(); }
+        finally { setBusySlot(null); }
+      },
+    };
+  }, [isParent, family?.meetingSetup?.kidProposalsEnabled, windowKey, meetingDate, range.from, range.to, pointSystem.diamondMinPoints, busySlot, proposals, slotErrors, profile, loadProposals]);
 
   const loading = !result || !dayScores || !comments;
 
@@ -263,7 +320,7 @@ export default function MeetingReviewPage() {
             range={range}
             childById={childById}
             pointSystem={pointSystem}
-            onAwardBonus={awardBonus}
+            awards={awardsCtx}
           />
         )}
 
@@ -273,7 +330,7 @@ export default function MeetingReviewPage() {
             children={children}
             childById={childById}
             pointSystem={pointSystem}
-            onAwardBonus={awardBonus}
+            awards={awardsCtx}
             rangeLabel={range.label}
           />
         )}
@@ -284,7 +341,7 @@ export default function MeetingReviewPage() {
             routines={routines}
             childById={childById}
             pointSystem={pointSystem}
-            onAwardBonus={awardBonus}
+            awards={awardsCtx}
             rangeLabel={range.label}
           />
         )}
@@ -296,8 +353,37 @@ export default function MeetingReviewPage() {
       </div>
 
       {guideOpen && <ReviewGuide onClose={() => setGuideOpen(false)} />}
+
+      {/* 🏆 A parent decides a kid's proposal right here on the meeting screen. */}
+      {deciding && profile?.familyId && (
+        <div className="fixed inset-0 z-[66] flex items-end lg:items-center justify-center bg-black/60 backdrop-blur-sm p-3 lg:p-6" role="dialog" aria-modal="true" aria-label="Decide this meeting award" onClick={() => setDeciding(null)}>
+          <div className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <MeetingAwardDecision
+              proposal={deciding} familyId={profile.familyId} me={profile} diamondMinPoints={pointSystem.diamondMinPoints}
+              onDone={() => { setDeciding(null); void loadProposals(); }}
+            />
+            <button type="button" onClick={() => setDeciding(null)} className="block mx-auto mt-3 text-[12px] font-bold text-white/70 underline">Not now</button>
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+// 🙋 What the three bonus tabs need to award / propose / show a slot's state.
+interface AwardsCtx {
+  isParent: boolean;
+  diamondMin: number;
+  /** null = a kid may propose here; otherwise the plain-words reason why not. */
+  kidBlocked: string | null;
+  busySlot: string | null;
+  slotOf: (it: AwardItem) => string;
+  proposalFor: (it: AwardItem) => MeetingAwardProposal | undefined;
+  errorFor: (it: AwardItem) => string | null;
+  setPointsFor: (it: AwardItem) => number;
+  direct: (it: AwardItem, points: number) => Promise<void>;
+  propose: (items: AwardItem[]) => Promise<void>;
+  decide: (p: MeetingAwardProposal) => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -1234,7 +1320,7 @@ function BehaviourTab({
 // ─────────────────────────────────────────────────────────────────────────
 
 function LadderTab({
-  children, routines, ratings, range, childById, pointSystem, onAwardBonus,
+  children, routines, ratings, range, childById, pointSystem, awards,
 }: {
   children: Child[];
   routines: Routine[];
@@ -1242,10 +1328,14 @@ function LadderTab({
   range: { from: string; to: string; days: string[]; label: string };
   childById: Map<string, Child>;
   pointSystem: PointSystemConfig;
-  onAwardBonus: (child: Child, points: number, reason: string) => Promise<void>;
+  awards: AwardsCtx;
 }) {
-  void pointSystem; // currently unused — bonus award row only on the Belt for now
-  void onAwardBonus;
+  void pointSystem;
+  void childById;
+  // 🪜 Ladder bonus (PR4 · R14) — nobody could give Ladder points from this
+  // screen before. The champion = most routines kept Excellent; exact ties
+  // EACH receive it. Parents give · kids propose — same control as the Belt.
+  const [ladderBonus, setLadderBonus] = useState(2);
   const ladderByKid = useMemo(() => {
     const m = new Map<string, LadderRow[]>();
     for (const c of children) {
@@ -1279,6 +1369,47 @@ function LadderTab({
       ) : maxComplete === 0 ? (
         <EmptyState>No completed ladder rungs this window. Routines need an Excellent on every rated day to count.</EmptyState>
       ) : (
+        <>
+        <div className="space-y-3 mb-4 lg:mb-5">
+          {children.filter((c) => (completeCounts.get(c.id) ?? 0) === maxComplete).map((champ) => {
+            const item: AwardItem = { type: 'ladder', childId: champ.id };
+            const others = [...completeCounts.entries()].filter(([id]) => id !== champ.id).sort((a, b) => b[1] - a[1]);
+            const nextBest = others[0]?.[1] ?? 0;
+            return (
+              <div key={champ.id} className="rounded-kaya-lg bg-gradient-to-br from-kaya-gold/20 via-kaya-gold/5 to-transparent border border-kaya-gold/60 p-4 lg:p-5">
+                <p className="text-[10px] uppercase tracking-[0.18em] font-extrabold text-kaya-gold-light">🪜 Ladder champion</p>
+                <div className="flex items-center gap-3 mt-2">
+                  <span className="text-3xl lg:text-4xl" aria-hidden>{champ.avatarEmoji}</span>
+                  <div className="min-w-0">
+                    <p className="font-display font-black text-base lg:text-lg leading-tight">{champ.name}</p>
+                    <p className="text-[11.5px] text-white/65 font-bold">
+                      {maxComplete} routine{maxComplete === 1 ? '' : 's'} kept Excellent{nextBest > 0 ? ` · next: ${nextBest}` : ''}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 text-center sm:text-left">
+                  <MeetingAwardControl
+                    size="card"
+                    proposal={awards.proposalFor(item)}
+                    isParent={awards.isParent}
+                    setPoints={awards.setPointsFor(item)}
+                    parentPoints={ladderBonus}
+                    onParentPoints={setLadderBonus}
+                    kidBlocked={awards.kidBlocked}
+                    busy={awards.busySlot === awards.slotOf(item)}
+                    onDirect={() => awards.direct(item, ladderBonus)}
+                    onPropose={() => awards.propose([item])}
+                    onDecide={awards.decide}
+                    directLabel="🪜 Give the Ladder bonus"
+                    proposeLabel="🙋 Propose the Ladder bonus"
+                    diamondMinPoints={awards.diamondMin}
+                    error={awards.errorFor(item)}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-5">
           {children.map((child) => {
             const rows = ladderByKid.get(child.id) ?? [];
@@ -1309,6 +1440,7 @@ function LadderTab({
             );
           })}
         </div>
+        </>
       )}
     </Reveal>
   );
@@ -1402,13 +1534,13 @@ function LadderCard({ row, lastDate }: { row: LadderRow; lastDate: string }) {
 // ─────────────────────────────────────────────────────────────────────────
 
 function BeltTab({
-  dayScores, routines, childById, pointSystem, onAwardBonus, rangeLabel,
+  dayScores, routines, childById, pointSystem, awards, rangeLabel,
 }: {
   dayScores: DayScore[];
   routines: Routine[];
   childById: Map<string, Child>;
   pointSystem: PointSystemConfig;
-  onAwardBonus: (child: Child, points: number, reason: string) => Promise<void>;
+  awards: AwardsCtx;
   rangeLabel: string;
 }) {
   // ⭐ SM3.1 (#3) — ONE podium per selected timeframe (no more a-star-every-
@@ -1416,9 +1548,8 @@ function BeltTab({
   // the step. Daily stars remain below as a history strip, not a ceremony.
   void routines;
   void pointSystem;
+  void rangeLabel;
   const [bonusByRank, setBonusByRank] = useState<Record<number, number>>({ 1: 3, 2: 2, 3: 1 });
-  const [awardedIds, setAwardedIds] = useState<Set<string>>(new Set());
-  const [awardingId, setAwardingId] = useState<string | null>(null);
 
   const { standings, activeDays, daysNeeded } = useMemo(
     () => computeStarStandings(dayScores), [dayScores],
@@ -1451,19 +1582,6 @@ function BeltTab({
     3: { emoji: '🥉', label: '3rd' },
   };
 
-  const award = async (s: StarStanding, rank: number) => {
-    const child = childById.get(s.childId);
-    if (!child) return;
-    setAwardingId(s.childId);
-    try {
-      const pts = Math.max(1, bonusByRank[rank] ?? 1);
-      await onAwardBonus(child, pts, `⭐ Star podium ${MEDAL[rank].emoji} ${MEDAL[rank].label} — ${rangeLabel}`);
-      setAwardedIds((prev) => new Set(prev).add(s.childId));
-    } finally {
-      setAwardingId(null);
-    }
-  };
-
   const podiumCol = (rank: number) => {
     const kids = byRank.get(rank) || [];
     if (kids.length === 0) return null;
@@ -1484,29 +1602,25 @@ function BeltTab({
                   score <span className="text-kaya-gold-light font-black">{s.score}</span>
                 </p>
                 <p className="text-[10px] text-white/50">{s.excellent}🌟 · {s.good}👍 · {s.bad}👎 · {s.daysRated}d</p>
-                {awardedIds.has(s.childId) ? (
-                  <p className="text-[11px] font-bold text-emerald-300 mt-1">✓ awarded</p>
-                ) : (
-                  <div className="flex items-center justify-center gap-1 mt-1">
-                    <input
-                      type="number"
-                      min={1}
-                      max={50}
-                      value={bonusByRank[rank] ?? 1}
-                      onChange={(e) => setBonusByRank((prev) => ({ ...prev, [rank]: Number(e.target.value) || 1 }))}
-                      className="w-12 h-7 rounded bg-white/10 border border-white/20 text-center text-[12px] font-bold text-white"
-                      aria-label={`Bonus points for ${MEDAL[rank].label}`}
+                {(() => {
+                  const item: AwardItem = { type: 'star', rank, childId: s.childId };
+                  return (
+                    <MeetingAwardControl
+                      size="podium"
+                      proposal={awards.proposalFor(item)}
+                      isParent={awards.isParent}
+                      setPoints={awards.setPointsFor(item)}
+                      parentPoints={bonusByRank[rank] ?? 1}
+                      onParentPoints={(n) => setBonusByRank((prev) => ({ ...prev, [rank]: n }))}
+                      kidBlocked={awards.kidBlocked}
+                      busy={awards.busySlot === awards.slotOf(item) || awards.busySlot === 'bundle'}
+                      onDirect={() => awards.direct(item, Math.max(1, bonusByRank[rank] ?? 1))}
+                      onPropose={() => awards.propose([item])}
+                      onDecide={awards.decide}
+                      error={awards.errorFor(item)}
                     />
-                    <button
-                      type="button"
-                      disabled={awardingId === s.childId}
-                      onClick={() => award(s, rank)}
-                      className="h-7 px-2.5 rounded bg-kaya-gold text-kaya-chocolate text-[11px] font-black disabled:opacity-50"
-                    >
-                      {awardingId === s.childId ? '…' : `+${bonusByRank[rank] ?? 1} →`}
-                    </button>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
             );
           })}
@@ -1543,6 +1657,32 @@ function BeltTab({
             {[2, 1, 3].map((r) => podiumCol(r))}
           </div>
         )}
+
+        {/* 🙋 Kids: the whole podium as ONE bundle → one push, one "Approve all". */}
+        {!awards.isParent && (() => {
+          const open: AwardItem[] = [];
+          for (const r of [1, 2, 3]) for (const st of byRank.get(r) || []) {
+            const it: AwardItem = { type: 'star', rank: r, childId: st.childId };
+            if (!awards.proposalFor(it)) open.push(it);
+          }
+          if (byRank.size === 0) return null;
+          return (
+            <div className="text-center mt-4">
+              {open.length >= 2 && (
+                <button
+                  type="button"
+                  disabled={!!awards.kidBlocked || awards.busySlot !== null}
+                  onClick={() => awards.propose(open)}
+                  className="h-10 px-5 rounded-xl text-white text-[13px] font-black disabled:opacity-45"
+                  style={{ background: 'linear-gradient(135deg,#6A4FD0,#9B7BEA)' }}
+                >
+                  {awards.busySlot === 'bundle' ? 'Sending…' : `🙋 Propose the whole podium · ${open.length} awards`}
+                </button>
+              )}
+              <p className="text-[11px] text-white/50 font-bold mt-2">Goes to a parent to approve. Amounts are your family&apos;s set points.</p>
+            </div>
+          );
+        })()}
 
         {nonQualifiers.length > 0 && (
           <p className="text-center text-[11.5px] text-white/45 mt-4">
@@ -1582,21 +1722,19 @@ function BeltTab({
 // ─────────────────────────────────────────────────────────────────────────
 
 function BeltChampionTab({
-  dayScores, children, childById, pointSystem, onAwardBonus, rangeLabel,
+  dayScores, children, childById, pointSystem, awards, rangeLabel,
 }: {
   dayScores: DayScore[];
   children: Child[];
   childById: Map<string, Child>;
   pointSystem: PointSystemConfig;
-  onAwardBonus: (child: Child, points: number, reason: string) => Promise<void>;
+  awards: AwardsCtx;
   rangeLabel: string;
 }) {
   void children; // currently unused — surfaced for future "everyone got 0" UX
   // Belt-bonus default is the family's Diamond floor (typically 5 pts)
   // because a perfect day is a Diamond-tier honour, not a "well done".
   const [bonus, setBonus] = useState(Math.max(5, pointSystem.diamondMinPoints));
-  const [awardedKeys, setAwardedKeys] = useState<Set<string>>(new Set());
-  const [awardingKey, setAwardingKey] = useState<string | null>(null);
 
   const champions = useMemo(() => beltChampions(dayScores), [dayScores]);
   const winners = useMemo(() => champions.filter((c) => c.isChampion), [champions]);
@@ -1640,18 +1778,7 @@ function BeltChampionTab({
                   rangeLabel={rangeLabel}
                   bonus={bonus}
                   onBonusChange={setBonus}
-                  awarded={awardedKeys.has(key)}
-                  awarding={awardingKey === key}
-                  diamondMinPoints={pointSystem.diamondMinPoints}
-                  onAward={async () => {
-                    setAwardingKey(key);
-                    try {
-                      await onAwardBonus(child, bonus, `Excellent Belt — ${w.count} perfect day${w.count === 1 ? '' : 's'} · ${rangeLabel}`);
-                      setAwardedKeys((prev) => new Set(prev).add(key));
-                    } finally {
-                      setAwardingKey(null);
-                    }
-                  }}
+                  awards={awards}
                 />
               );
             })}
@@ -1682,18 +1809,16 @@ function BeltChampionTab({
 }
 
 function BeltChampionCard({
-  champion, child, rangeLabel, bonus, onBonusChange, awarded, awarding, onAward, diamondMinPoints,
+  champion, child, rangeLabel, bonus, onBonusChange, awards,
 }: {
   champion: BeltChampion;
   child: Child;
   rangeLabel: string;
   bonus: number;
   onBonusChange: (n: number) => void;
-  awarded: boolean;
-  awarding: boolean;
-  onAward: () => Promise<void> | void;
-  diamondMinPoints: number;
+  awards: AwardsCtx;
 }) {
+  const item: AwardItem = { type: 'belt', childId: child.id };
   const days = champion.days;
   const recent = days.slice(0, 3);
   return (
@@ -1731,28 +1856,23 @@ function BeltChampionCard({
 
         <div className="mt-5 pt-4 border-t border-white/10">
           <p className="text-[10px] uppercase tracking-wider text-white/50 font-bold mb-2">Reward</p>
-          <div className="flex items-center justify-center gap-2 flex-wrap">
-            <label className="text-xs text-white/60">Bonus</label>
-            <input
-              type="number"
-              min={1}
-              max={50}
-              value={bonus}
-              onChange={(e) => onBonusChange(Math.max(1, Math.min(50, Number(e.target.value) || 0)))}
-              className="w-16 h-9 px-2 rounded-kaya-sm bg-white/10 border border-white/15 text-white text-center text-sm font-bold focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
-            />
-            <span className="text-xs text-white/60">pts</span>
-            <span className="text-[10px] text-white/40 ml-1">
-              {bonus >= diamondMinPoints ? '· Diamond' : '· Regular'}
-            </span>
-          </div>
-          <button
-            onClick={onAward}
-            disabled={awarded || awarding}
-            className="mt-3 inline-flex items-center gap-2 h-11 px-6 rounded-kaya-sm bg-kaya-gold hover:bg-kaya-gold-dark disabled:opacity-50 disabled:cursor-not-allowed text-kaya-chocolate font-display font-extrabold text-sm transition-colors"
-          >
-            {awarded ? '✓ Awarded' : awarding ? 'Awarding…' : '🏆 Give the Belt bonus'}
-          </button>
+          <MeetingAwardControl
+            size="card"
+            proposal={awards.proposalFor(item)}
+            isParent={awards.isParent}
+            setPoints={awards.setPointsFor(item)}
+            parentPoints={bonus}
+            onParentPoints={onBonusChange}
+            kidBlocked={awards.kidBlocked}
+            busy={awards.busySlot === awards.slotOf(item)}
+            onDirect={() => awards.direct(item, bonus)}
+            onPropose={() => awards.propose([item])}
+            onDecide={awards.decide}
+            directLabel="🏆 Give the Belt bonus"
+            proposeLabel="🙋 Propose the Belt bonus"
+            diamondMinPoints={awards.diamondMin}
+            error={awards.errorFor(item)}
+          />
         </div>
       </div>
     </div>

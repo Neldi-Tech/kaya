@@ -29,6 +29,8 @@ import type { GamePlay } from '@/lib/games';
 import { formatCents } from '@/components/pantry/format';
 import { updateUserProfile } from '@/lib/firestore';
 import { listLeaderNotes, type LeaderNote } from '@/lib/leaderWeek';
+import { listMeetingAwards, type MeetingAwardProposal } from '@/lib/meetingAwards';
+import { awardTitle } from '@/lib/meetingAwards.shared';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 
@@ -41,6 +43,7 @@ const CATEGORIES: Array<{ id: string; emoji: string; label: string }> = [
   { id: 'kidpoints', emoji: '🎮', label: 'Kid points' },
   // 👑 LW PR-L3 — the Leader of the Week's Notebook proposals (⭐/📝).
   { id: 'leader',    emoji: '👑', label: 'Leader notes' },
+  { id: 'meetingawards', emoji: '🏆', label: 'Meeting awards' },
   { id: 'kidfunds',  emoji: '🪙', label: 'Kid fund requests' },
   { id: 'redeems',   emoji: '🎁', label: 'Reward redeems' },
   { id: 'business',  emoji: '🌳', label: 'Kid business' },
@@ -98,6 +101,7 @@ export default function PendingApprovalsBanner() {
   const [purchaseOpen, setPurchaseOpen] = useState<PurchaseRequest[]>([]);
   const [gamePlays, setGamePlays] = useState<GamePlay[]>([]);
   const [leaderNotes, setLeaderNotes] = useState<LeaderNote[]>([]);
+  const [meetingAwards, setMeetingAwards] = useState<MeetingAwardProposal[]>([]);
   useEffect(() => {
     if (!family) return;
     const unsub = subscribeToOpenRequests(family.id, setPurchaseOpen);
@@ -112,6 +116,11 @@ export default function PendingApprovalsBanner() {
     const tick = () => {
       listLeaderNotes(family.id, { status: 'pending' })
         .then((r) => { if (alive) setLeaderNotes(r.notes); })
+        .catch(() => {});
+      // 🏆 Meeting awards the kids proposed at the Sunday meeting — same
+      // gateway idiom, same poll.
+      listMeetingAwards(family.id, { pending: true })
+        .then((r) => { if (alive) setMeetingAwards(r.proposals.filter((x) => !x.direct && x.status === 'pending')); })
         .catch(() => {});
     };
     tick();
@@ -229,9 +238,21 @@ export default function PendingApprovalsBanner() {
         href: '/parent/leader',
       });
     }
+    for (const m of meetingAwards) {
+      out.push({
+        key: `m:${m.id}`,
+        category: 'meetingawards',
+        chipEmoji: '🏆',
+        chipLabel: 'Meeting award',
+        title: `${awardTitle(m)} → ${(m.childName || '').split(' ')[0]} · +${m.points}`,
+        subtitle: `Proposed by ${(m.proposedByName || 'the leader').split(' ')[0]} · ${m.rangeLabel}`,
+        createdAtMs: m.createdAt || 0,
+        href: '/meetings/awards',
+      });
+    }
     out.sort((a, b) => b.createdAtMs - a.createdAtMs);
     return out;
-  }, [purchaseOpen, hivePending, gamePlays, leaderNotes, children, currency]);
+  }, [purchaseOpen, hivePending, gamePlays, leaderNotes, meetingAwards, children, currency]);
 
   if (rows.length === 0) return null;
 
