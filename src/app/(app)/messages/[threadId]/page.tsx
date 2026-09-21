@@ -17,6 +17,7 @@ import { notifyNewMessage } from '@/lib/notify';
 import { uploadMessagePhoto, uploadMessageVideo, uploadMessageDocument, uploadMessageVoice } from '@/lib/messagingUpload';
 import { pickVoiceRecorderMime, ensureUniversalVoice } from '@/lib/audio/voiceUniversal';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
+import VoiceBubble from '@/components/messages/VoiceBubble';
 import DocActionSheet from '@/components/DocActionSheet';
 import DocViewer from '@/components/DocViewer';
 import { downloadImage } from '@/lib/downloadImage';
@@ -326,13 +327,9 @@ export default function MessageThreadPage() {
       );
     }
     if (a.kind === 'video') return <video src={a.url} controls playsInline className="rounded-[12px] max-w-[240px] bg-black" />;
-    if (a.kind === 'voice') return (
-      <div className="flex items-center gap-2">
-        <span className="text-base shrink-0">🎤</span>
-        <audio src={a.url} controls className="h-9 w-[190px]" />
-        {a.durationSec ? <span className={`text-[10.5px] shrink-0 ${mine ? 'text-white/70' : 'text-kaya-sand'}`}>{mmss(a.durationSec)}</span> : null}
-      </div>
-    );
+    // Voice 2.0 (V4) — one Kaya player on every phone instead of the raw
+    // browser controls; V5 handles unplayable legacy WebM notes kindly.
+    if (a.kind === 'voice') return <VoiceBubble url={a.url} durationSec={a.durationSec} mine={mine} />;
     // Tap a doc → "Open with Kaya / Download" mini-sheet. Open routes
     // to the full-screen inline DocViewer (PDFs render inline, images
     // shown object-contain); Download fetches the bytes and saves the
