@@ -82,9 +82,10 @@ export function awardTitle(p: Pick<MeetingAwardProposal, 'type' | 'rank'>): stri
 }
 
 // ── Which windows a KID may propose from (Q4 · F6) ───────────────────
-// The two ceremonies only: weekly (Last 7 days) and monthly (This month, or
-// the month just ended — reviewed at the first meeting of the next one).
-// Stops the same Star being claimed on 7d + 14d + lifetime.
+// EXACTLY the two ceremonies Elia approved: weekly = "Last 7 days", monthly
+// = "This month". Nothing else — not Last 14 days, not Lifetime, and not the
+// Months ▾ picker either: "Sep 2026" is a DIFFERENT slot from "This month"
+// for the very same month, which would let one Star be claimed twice.
 
 function addDaysStr(s: string, n: number): string {
   const d = new Date(`${s}T00:00:00.000Z`);
@@ -95,14 +96,7 @@ function addDaysStr(s: string, n: number): string {
 export function kidWindowAllowed(key: WindowKey, meetingDate: string, todayStr: string): boolean {
   // The meeting date must be "now" (±1 day absorbs time zones) — no proposing for a night long gone.
   if (meetingDate < addDaysStr(todayStr, -1) || meetingDate > addDaysStr(todayStr, 1)) return false;
-  if (key.kind === 'last7' || key.kind === 'mtd') return true;
-  if (key.kind === 'month') {
-    const [y, m] = meetingDate.split('-').map(Number);
-    const cur = y * 12 + (m - 1);
-    const asked = key.year * 12 + (key.month - 1);
-    return asked === cur || asked === cur - 1;
-  }
-  return false;
+  return key.kind === 'last7' || key.kind === 'mtd';
 }
 
 export const KID_WINDOW_HINT = 'Kids can propose on “Last 7 days” or “This month” — the two ceremonies.';

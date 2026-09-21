@@ -5,7 +5,8 @@
 // Every award a kid proposed at the Sunday meeting waits here until a parent
 // decides — it never expires. One card each: the evidence Kaya re-checked,
 // the family's set amount on a stepper, a RichNote with ✨ Draft with AI,
-// Approve / Decline — plus "Approve all N waiting" with one shared note.
+// Approve / Decline — plus "Approve all N waiting" inside the first card (S14),
+// using that card's note for every one.
 // Kids who open the page see what is waiting (read-only).
 
 import { useCallback, useEffect, useState } from 'react';
@@ -14,7 +15,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { readPointSystemConfig } from '@/lib/firestore';
 import { Page, PageHeader } from '@/components/layout/Page';
-import RichNote, { RichNoteText } from '@/components/ui/RichNote';
+import { RichNoteText } from '@/components/ui/RichNote';
 import MeetingAwardDecision from '@/components/meetings/MeetingAwardDecision';
 import { listMeetingAwards, decideMeetingAward, MeetingAwardError, type MeetingAwardProposal } from '@/lib/meetingAwards';
 import { awardTitle, meetingAwardErrorText } from '@/lib/meetingAwards.shared';
@@ -26,7 +27,6 @@ export default function MeetingAwardsInboxPage() {
   const diamondMin = readPointSystemConfig(family).diamondMinPoints;
   const [waiting, setWaiting] = useState<MeetingAwardProposal[] | null>(null);
   const [done, setDone] = useState<Array<{ p: MeetingAwardProposal; status: string; finalPoints: number; note: string }>>([]);
-  const [allNote, setAllNote] = useState('');
   const [allBusy, setAllBusy] = useState(false);
   const [err, setErr] = useState('');
 
@@ -42,9 +42,8 @@ export default function MeetingAwardsInboxPage() {
   }, [profile?.familyId]);
   useEffect(() => { void load(); }, [load]);
 
-  const approveAll = async () => {
+  const approveAll = async (allNote: string) => {
     if (!profile?.familyId || !waiting || allBusy) return;
-    if (allNote.trim().split(/\s+/).filter(Boolean).length < 2) { setErr(meetingAwardErrorText('note-required')); return; }
     setAllBusy(true); setErr('');
     for (const p of waiting.filter((x) => x.status === 'pending')) {
       try {
@@ -60,6 +59,7 @@ export default function MeetingAwardsInboxPage() {
   };
 
   const pendingCount = (waiting || []).filter((x) => x.status === 'pending').length;
+  const firstPendingId = (waiting || []).find((x) => x.status === 'pending')?.id;
 
   return (
     <Page width="narrow" className="pb-24">
@@ -82,22 +82,12 @@ export default function MeetingAwardsInboxPage() {
         </div>
       )}
 
-      {isParent && pendingCount > 1 && (
-        <div className="rounded-2xl border border-[#EFD9A0] bg-[#FFF7E5] p-4 mb-4">
-          <p className="font-display font-black text-[14px] text-kaya-chocolate">Approve all {pendingCount} waiting</p>
-          <p className="text-[12px] text-kaya-sand font-bold mb-2">One note goes to everyone — at the family&apos;s set amounts.</p>
-          <RichNote value={allNote} onChange={setAllNote} tone="light" rows={2} maxLength={600} placeholder="A note for the kids — they read it on the meeting screen" ariaLabel="Note for all the awards" />
-          <button type="button" onClick={approveAll} disabled={allBusy} className="mt-2.5 h-10 px-4 rounded-full bg-[#1F2A44] text-white font-black text-[13px] disabled:opacity-50">
-            {allBusy ? 'Approving…' : `✓ Approve all ${pendingCount} waiting`}
-          </button>
-        </div>
-      )}
-
       <div className="space-y-3">
         {(waiting || []).map((p) => (isParent && p.status === 'pending' && profile?.familyId ? (
           <MeetingAwardDecision
             key={p.id} proposal={p} familyId={profile.familyId} me={profile} diamondMinPoints={diamondMin}
             onDone={(r) => { setDone((d) => [...d, { p, status: r.status, finalPoints: r.finalPoints, note: r.note }]); setWaiting((w) => (w || []).filter((x) => x.id !== p.id)); }}
+            approveAll={p.id === firstPendingId ? { count: pendingCount, busy: allBusy, run: approveAll } : undefined}
           />
         ) : (
           <div key={p.id} className="rounded-2xl bg-white border border-kaya-warm-dark p-4">
