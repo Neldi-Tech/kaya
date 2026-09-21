@@ -15,6 +15,7 @@ import {
 } from '@/lib/messaging';
 import { notifyNewMessage } from '@/lib/notify';
 import { uploadMessagePhoto, uploadMessageVideo, uploadMessageDocument, uploadMessageVoice } from '@/lib/messagingUpload';
+import { pickVoiceRecorderMime, ensureUniversalVoice } from '@/lib/audio/voiceUniversal';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 import DocActionSheet from '@/components/DocActionSheet';
 import DocViewer from '@/components/DocViewer';
@@ -220,7 +221,11 @@ export default function MessageThreadPage() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
-      const mr = new MediaRecorder(stream);
+      // Voice 2.0 (V1) — pick the format on purpose: MP4/AAC where the
+      // browser can record it (all iPhones, Chrome 126+); the browser default
+      // (Android = WebM/Opus) broke on iPhone receivers.
+      const preferredMime = pickVoiceRecorderMime();
+      const mr = preferredMime ? new MediaRecorder(stream, { mimeType: preferredMime }) : new MediaRecorder(stream);
       chunksRef.current = []; cancelledRef.current = false;
       mr.ondataavailable = (e) => { if (e.data.size) chunksRef.current.push(e.data); };
       mr.onstop = async () => {
@@ -231,12 +236,18 @@ export default function MessageThreadPage() {
         chunksRef.current = [];
         setUploading(true);
         try {
-          const att = await uploadMessageVoice(familyId!, threadId, blob, dur);
+          // Voice 2.0 (V2) — whatever was recorded, what UPLOADS is universal
+          // (M4A stays; WebM/Ogg convert to mono 16 kHz WAV on this phone),
+          // so the receiver's phone can always play it, with a real duration.
+          const uni = await ensureUniversalVoice(blob);
+          const att = await uploadMessageVoice(familyId!, threadId, uni.blob, dur);
           if (att.url) setPending((p) => [...p, att]);
         } catch (e: any) { setError(e?.message || 'Could not save the voice note.'); }
         finally { setUploading(false); }
       };
-      mr.start();
+      // Voice 2.0 (V3) — 1-second slices: an interrupted recording still
+      // yields the audio captured so far instead of losing everything.
+      mr.start(1000);
       recorderRef.current = mr;
       recStartRef.current = Date.now();
       setRecSeconds(0); setRecording(true);

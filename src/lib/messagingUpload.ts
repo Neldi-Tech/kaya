@@ -101,7 +101,11 @@ export async function uploadMessageDocument(familyId: string, threadId: string, 
 export async function uploadMessageVoice(familyId: string, threadId: string, blob: Blob, durationSec: number): Promise<Attachment> {
   if (isGuestActive()) return { kind: 'voice', url: '' };
   if (blob.size > MAX_VOICE) throw new Error('Voice note is too long.');
-  const ext = blob.type.includes('mp4') ? 'm4a' : blob.type.includes('ogg') ? 'ogg' : 'webm';
+  // Voice 2.0 — notes now arrive as M4A (native) or WAV (converted); WebM/Ogg
+  // only from very old clients that predate the universal-format fix.
+  const ext = blob.type.includes('mp4') ? 'm4a'
+    : blob.type.includes('wav') ? 'wav'
+    : blob.type.includes('ogg') ? 'ogg' : 'webm';
   const ref = storageRef(storage, attPath(familyId, threadId, newId(), ext));
   await safeUploadBytes(ref, blob, { contentType: blob.type || 'audio/webm' });
   return { kind: 'voice', url: await getDownloadURL(ref), mime: blob.type, sizeBytes: blob.size, durationSec: Math.round(durationSec) };
