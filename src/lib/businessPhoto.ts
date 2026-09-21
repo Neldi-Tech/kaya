@@ -61,6 +61,25 @@ export async function uploadBusinessPhoto(familyId: string, businessId: string, 
   return getDownloadURL(ref);
 }
 
+// ── 📴 Kaya Offline (O1) — the Photo Outbox splits capture from upload ──
+
+/** Downscale NOW (offline-safe — pure canvas work) so the outbox stores the
+ *  small ~1280px JPEG, not a 10 MB camera original. */
+export async function prepareBusinessPhotoBlob(file: Blob): Promise<Blob> {
+  return processPhoto(file);
+}
+
+/** Upload an already-downscaled outbox photo under its DETERMINISTIC id —
+ *  a retry overwrites the same object, so syncing can never duplicate. */
+export async function uploadPreparedBusinessPhoto(
+  familyId: string, businessId: string, photoId: string, blob: Blob,
+): Promise<string> {
+  if (isGuestActive()) return '';
+  const ref = storageRef(storage, photosPath(familyId, businessId, photoId));
+  await safeUploadBytes(ref, blob, { contentType: 'image/jpeg' });
+  return getDownloadURL(ref);
+}
+
 const MAX_VIDEO_BYTES = 50 * 1024 * 1024; // matches storage.rules
 
 const videoPath = (familyId: string, businessId: string, id: string, ext: string) =>

@@ -15,7 +15,10 @@ import {
   updateBusinessItem, saveStockTake, todayKey, stockTakeStreak,
   readBusinessConfig, requestStockTakeHp, flagStockTakeHp, keepsStock,
 } from '@/lib/business';
-import { uploadBusinessPhoto, uploadBusinessVideo } from '@/lib/businessPhoto';
+import { uploadBusinessVideo, prepareBusinessPhotoBlob } from '@/lib/businessPhoto';
+import { enqueueBusinessPhoto, syncOutbox } from '@/lib/offlineOutbox';
+import { awaitQueuedWrite } from '@/lib/offlineWrite';
+import { OfflineBanner, OutboxChip } from '@/components/offline/OfflineKit';
 import { auth } from '@/lib/firebase';
 import { useCelebrate } from '@/components/celebrate/CelebrationProvider';
 import StockTakeHistory from '@/components/business/StockTakeHistory';
@@ -132,24 +135,40 @@ export default function StockTakePage() {
     }
     setError(''); setSaving(true);
     try {
-      // Apply count changes.
+      // 📴 Kaya Offline (O1 · R4) — capture and upload are now two moments.
+      // 1 · Photos downscale NOW (pure canvas work, offline-safe) and go to
+      //     the on-device outbox; the sync engine flies them up by itself.
+      //     A full outbox stops here cleanly — nothing half-saved.
+      let queuedPhotos = 0;
+      for (const m of media) {
+        if (m.kind !== 'photo') continue;
+        try {
+          const blob = await prepareBusinessPhotoBlob(m.file);
+          await enqueueBusinessPhoto(familyId, businessId, today, blob);
+          queuedPhotos++;
+        } catch (e: any) { setError(e?.message || 'Could not save a photo on this phone.'); setSaving(false); return; }
+      }
+      // 2 · Video clips stay online-only (D2 — a 50 MB clip would eat the
+      //     phone). No internet → the day still saves; the clip is skipped
+      //     with an honest note instead of blocking everything (old bug).
+      const uploaded: StockMedia[] = [];
+      let videoNotice = '';
+      for (const m of media) {
+        if (m.kind !== 'video') continue;
+        try {
+          const url = await uploadBusinessVideo(familyId, businessId, m.file);
+          if (url) uploaded.push({ url, kind: 'video' });
+        } catch { videoNotice = 'The video clip needs internet — it was skipped, everything else saved. 🎬'; }
+      }
+      // 3 · Apply count changes. awaitQueuedWrite: offline, the writes are
+      //     already queued on-device — the kid's save never spins forever.
       let changed = 0;
       for (const it of live) {
         const nq = qty[it.id];
         if (nq !== undefined && nq !== it.qty) {
-          await updateBusinessItem(familyId, businessId, it.id, { qty: nq });
+          await awaitQueuedWrite(updateBusinessItem(familyId, businessId, it.id, { qty: nq }));
           changed++;
         }
-      }
-      // Upload all media (photos downscale; video uploads as-is).
-      const uploaded: StockMedia[] = [];
-      for (const m of media) {
-        try {
-          const url = m.kind === 'video'
-            ? await uploadBusinessVideo(familyId, businessId, m.file)
-            : await uploadBusinessPhoto(familyId, businessId, m.file);
-          if (url) uploaded.push({ url, kind: m.kind });
-        } catch (e: any) { setError(e?.message || 'Could not upload a clip.'); setSaving(false); return; }
       }
       // Snapshot every live item's count as of this take, so the parent
       // approval + history can show the full list (not just how many changed).
@@ -159,10 +178,16 @@ export default function StockTakePage() {
         qty: qty[it.id] ?? it.qty,
         unitLabel: it.unitLabel || undefined,
       }));
-      await saveStockTake(familyId, businessId, {
+      // 4 · The day's record saves FIRST — streak, HP and celebration happen
+      //     on the spot; queued photos land into media[] as they upload.
+      await awaitQueuedWrite(saveStockTake(familyId, businessId, {
         date: today, ownerId: business.ownerId, itemsTouched: changed,
         note: note.trim() || undefined, media: uploaded, counts,
-      }, profile.uid);
+        pendingMedia: queuedPhotos,
+      }, profile.uid));
+      if (videoNotice) setError(videoNotice);
+      // 5 · Online? The outbox drains right now (same UX as before O1).
+      void syncOutbox();
 
       // Instant-cadence House Points: grant (auto) or ask a parent (review) for
       // today's point — once per day. Best-effort: never block the stock-take.
@@ -172,8 +197,9 @@ export default function StockTakePage() {
       if (hp.cadence === 'instant' && hp.perDayHp > 0 && !(prior?.hpGranted || prior?.hpRequested)) {
         const bizRef = { id: businessId, ownerId: business.ownerId, name: business.name, emoji: business.emoji };
         const askParent = async () => {
-          await requestStockTakeHp(familyId, bizRef, hp.perDayHp, today, profile!.uid);
-          await flagStockTakeHp(familyId, businessId, today, { hpRequested: true });
+          // 📴 O1 — these queue on-device offline; never spin the save.
+          await awaitQueuedWrite(requestStockTakeHp(familyId, bizRef, hp.perDayHp, today, profile!.uid));
+          await awaitQueuedWrite(flagStockTakeHp(familyId, businessId, today, { hpRequested: true }));
         };
         try {
           if (hp.mode === 'auto') {
@@ -252,6 +278,10 @@ export default function StockTakePage() {
           </div>
         </div>
       </div>
+
+      {/* 📴 O1 — honest offline status (R5). */}
+      <OfflineBanner className="mb-3" />
+      {familyId && <OutboxChip familyId={familyId} businessId={businessId} className="mb-3" />}
 
       <PageSplit rail={rail} railMobile="first" sticky={false}>
       {!canAct ? (

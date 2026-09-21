@@ -40,6 +40,13 @@ export default function AICoachCard({
   const aiLevel = useKidAiLevel(kidId).level;
 
   const ask = async () => {
+    // 📴 Kaya Offline (O1 · R7) — the coach needs internet; say so honestly.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setMessage('Kaya AI needs internet — your work still saves on this phone. 📴');
+      setSuggestions([]);
+      setState('done');
+      return;
+    }
     setState('loading');
     try {
       const r = await fetch('/api/business-coach', {

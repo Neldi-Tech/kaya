@@ -1926,6 +1926,47 @@ export async function depositToTreasury(
   });
 }
 
+/** 📴 Kaya Offline (O1) — compose a Treasury deposit into a WriteBatch.
+ *
+ *  Why this exists: {@link depositToTreasury} is a runTransaction, and
+ *  transactions NEED the server — a kid logging a sale with no internet
+ *  would fail (or hang) at the money sweep. A WriteBatch queues offline as
+ *  ONE atomic unit and commits atomically on reconnect, and `increment()`
+ *  is server-side atomic, so this is safe under concurrency without the
+ *  read. logSale uses it so a sale books ledger + Pot + statement row in a
+ *  single commit — online or offline. The tx-row shape mirrors
+ *  depositToTreasury exactly (the 📜 Statement reconciles by construction).
+ *
+ *  Note: increment-on-merge assumes the wallet doc exists (ensureWallet
+ *  creates it on first Hive load — every business-owning kid has one). */
+export function addTreasuryDepositToBatch(
+  batch: ReturnType<typeof writeBatch>,
+  familyId: string,
+  kidId: string,
+  amountCents: number,
+  category: TxCategory,
+  description: string,
+  uid: string,
+  refId?: string,
+): void {
+  if (!Number.isInteger(amountCents) || amountCents <= 0) throw new Error('Amount must be positive cents.');
+  const wRef = walletPath(familyId, kidId);
+  const txRef = doc(txCol(familyId, kidId));
+  const now = serverTimestamp();
+  batch.set(wRef, {
+    treasuryCents: increment(amountCents),
+    totalLifetimeEarnedCents: increment(amountCents),
+    updatedAt: now,
+  }, { merge: true });
+  batch.set(txRef, {
+    layer: 'treasury', direction: 'in', amount: amountCents, category,
+    description: description.trim() || category, status: 'completed',
+    createdBy: uid, approvedBy: uid,
+    createdAt: now, completedAt: now,
+    ...(refId ? { refId } : {}),
+  });
+}
+
 // ── Goals ─────────────────────────────────────────────────────────
 
 export async function addGoal(
