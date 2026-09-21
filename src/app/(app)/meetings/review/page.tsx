@@ -27,9 +27,10 @@ import {
   computeReview, computeWindowRange, computeDayScores,
   computeLadderRows, extractComments, recentMonths, beltChampions,
   computeStarStandings, starPodiumRanks, dailyStarWinners,
-  WindowKey, KidReviewStats, DayScore, LadderRow, CommentEntry, BeltChampion, StarStanding,
+  WindowKey, WindowRange, KidReviewStats, DayScore, LadderRow, CommentEntry, BeltChampion, StarStanding,
 } from '@/lib/meetingReview';
 import StarRulesCard from '@/components/meetings/StarRulesCard';
+import PointsStorySheet, { type MeaningTerm } from '@/components/meetings/PointsStorySheet';
 import { buildKidQuiz, quizCountForBads, type QuizQuestion } from '@/lib/meetingQuiz';
 import { auth as fbAuth } from '@/lib/firebase';
 import { fmt } from '@/lib/format';
@@ -232,7 +233,15 @@ export default function MeetingReviewPage() {
         {loading && <LoadingState />}
 
         {!loading && tab === 'points' && (
-          <PointsTab leaderboard={result!.leaderboard} childById={childById} pointSystem={pointSystem} />
+          <PointsTab
+            leaderboard={result!.leaderboard}
+            childById={childById}
+            pointSystem={pointSystem}
+            routines={routines}
+            ratings={ratings!}
+            awards={awards!}
+            range={range}
+          />
         )}
 
         {!loading && tab === 'behaviour' && (
@@ -360,6 +369,22 @@ function ReviewGuide({ onClose }: { onClose: () => void }) {
             <p className="text-white/85 mt-2">
               An <span className="text-emerald-200 font-extrabold">★ All-Excellent</span> badge appears when every
               rated day in the window is green — that&apos;s a ladder rung won.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-white/15 bg-white/[0.04] p-4">
+            <p className="font-display text-lg font-black flex items-center gap-2">💎 The words on the Points cards</p>
+            <p className="text-white/85 mt-1">
+              <b>⭐ Routine points</b> — earned every day from the morning and evening routine ratings. Your family&apos;s
+              rate turns them into House Points (e.g. 200 routine pts = 1 HP).
+            </p>
+            <p className="text-white/85 mt-2">
+              <b>🎁 Bonus HP</b> — House Points given on top: awards from a parent, 💎 Diamonds, 👑 Leader&apos;s notes,
+              🎭 meeting roles and the Ladder / Belt / Star bonuses. They count 1 for 1; points taken away show in red.
+            </p>
+            <p className="text-white/85 mt-2">
+              <b>🪜 Kept Excellent</b> — routines that stayed Excellent on <b>every day they were rated</b>. One Good or
+              Bad breaks that routine&apos;s streak; days with no rating don&apos;t count against you. <b>Tap any card for the full story.</b>
             </p>
           </div>
 
@@ -535,11 +560,22 @@ function PointsTab({
   leaderboard,
   childById,
   pointSystem,
+  routines,
+  ratings,
+  awards,
+  range,
 }: {
   leaderboard: KidReviewStats[];
   childById: Map<string, Child>;
   pointSystem: PointSystemConfig;
+  routines: Routine[];
+  ratings: DailyRating[];
+  awards: Award[];
+  range: WindowRange;
 }) {
+  // 📖 PR3 (approved 2026-09-21) — tap a card → the Points Story pops up over
+  // the page; tap a dotted word → its meaning, with that kid's own numbers.
+  const [story, setStory] = useState<{ childId: string; meaning: MeaningTerm | null } | null>(null);
   if (leaderboard.length === 0) {
     return <EmptyState>No kids on this family yet.</EmptyState>;
   }
@@ -556,7 +592,8 @@ function PointsTab({
   const topHP = ranked[0] ? housePointsOf(ranked[0]) : 0;
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 lg:gap-4">
+    <>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 lg:gap-4">
       {ranked.map((s, i) => {
         const child = childById.get(s.childId);
         if (!child) return null;
@@ -568,20 +605,41 @@ function PointsTab({
         // from. Leads with the raw routine total (the number kids see
         // accumulating day-to-day), then how that converts to HP, then
         // bonus HP, then qualitative counts.
-        const bits: string[] = [];
-        if (s.pointsFromRatings) bits.push(`${fmt(s.pointsFromRatings)} routine pts → ${fmt(hpFromRoutine)} HP`);
-        if (s.pointsFromAwards) bits.push(`${fmt(s.pointsFromAwards)} bonus HP`);
-        if (s.ladderRoutineIds.length) bits.push(`${s.ladderRoutineIds.length} kept Excellent`);
-        if (s.beltDays.length) bits.push(`${s.beltDays.length} Excellent day${s.beltDays.length === 1 ? '' : 's'}`);
-        const commentary = bits.join(' · ') || 'no points this window yet';
+        // The three terms are tappable (dotted underline) → a meaning pop-up
+        // with THIS kid's numbers; the card itself opens the full story.
+        const term = (key: MeaningTerm, label: string) => (
+          <span
+            key={key}
+            role="button"
+            tabIndex={0}
+            onClick={(e) => { e.stopPropagation(); setStory({ childId: s.childId, meaning: key }); }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setStory({ childId: s.childId, meaning: key }); } }}
+            className="border-b-[1.5px] border-dotted border-kaya-gold-light/80 text-[#FBE3A0] font-extrabold cursor-pointer"
+          >
+            {label}
+          </span>
+        );
+        const bits: React.ReactNode[] = [];
+        if (s.pointsFromRatings) bits.push(<span key="r">{term('routine', `${fmt(s.pointsFromRatings)} routine pts`)} → {fmt(hpFromRoutine)} HP</span>);
+        if (s.pointsFromAwards) bits.push(term('bonus', `${fmt(s.pointsFromAwards)} bonus HP`));
+        if (s.ladderRoutineIds.length) bits.push(term('kept', `${s.ladderRoutineIds.length} routine${s.ladderRoutineIds.length === 1 ? '' : 's'} kept Excellent`));
+        if (s.beltDays.length) bits.push(<span key="b">{s.beltDays.length} Excellent day{s.beltDays.length === 1 ? '' : 's'}</span>);
+        const commentary = bits.length === 0
+          ? 'no points this window yet'
+          : bits.map((b, bi) => <span key={bi}>{bi > 0 ? ' · ' : ''}{b}</span>);
 
         return (
           <div
             key={s.childId}
-            className={`relative rounded-kaya-lg p-4 sm:p-5 lg:p-6 border text-center ${
+            role="button"
+            tabIndex={0}
+            aria-label={`Open ${child.name}'s points story`}
+            onClick={() => setStory({ childId: s.childId, meaning: null })}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setStory({ childId: s.childId, meaning: null }); } }}
+            className={`relative rounded-kaya-lg p-4 sm:p-5 lg:p-6 border text-center cursor-pointer transition-colors ${
               isTop
-                ? 'bg-gradient-to-br from-kaya-gold/25 via-kaya-gold/10 to-transparent border-kaya-gold/60'
-                : 'bg-white/5 border-white/10'
+                ? 'bg-gradient-to-br from-kaya-gold/25 via-kaya-gold/10 to-transparent border-kaya-gold/60 hover:border-kaya-gold'
+                : 'bg-white/5 border-white/10 hover:bg-white/[0.08]'
             }`}
           >
             {/* Top strip: rank + avatar + name */}
@@ -608,10 +666,38 @@ function PointsTab({
             <p className="mt-3 text-[11.5px] lg:text-[12.5px] text-white/65 leading-snug">
               {commentary}
             </p>
+            <p className="mt-3 text-[10.5px] lg:text-[11.5px] font-black text-kaya-gold-light bg-kaya-gold/15 border border-kaya-gold/35 rounded-full py-1">
+              📖 Tap for the story ›
+            </p>
           </div>
         );
       })}
-    </div>
+      </div>
+      {/* One legend line — the same three meanings, in a breath. */}
+      <p className="mt-3 lg:mt-4 rounded-xl border border-dashed border-kaya-gold-light/45 px-3 py-2 text-[11px] lg:text-[12px] text-white/75 font-bold leading-relaxed">
+        ⓘ <b className="text-kaya-gold-light">Routine pts</b> = earned from daily routine ratings · <b className="text-kaya-gold-light">Bonus HP</b> = awards given on top · <b className="text-kaya-gold-light">Kept Excellent</b> = routines that stayed Excellent every day. <b className="text-kaya-gold-light">Tap any word.</b>
+      </p>
+      {story && (() => {
+        const idx = ranked.findIndex((k) => k.childId === story.childId);
+        const kid = childById.get(story.childId);
+        if (!kid || idx < 0) return null;
+        return (
+          <PointsStorySheet
+            key={`${story.childId}:${story.meaning || 'story'}`}
+            child={kid}
+            rank={idx + 1}
+            of={ranked.length}
+            routines={routines}
+            ratings={ratings}
+            awards={awards}
+            range={range}
+            pointsPerHousePoint={ppHP}
+            initialMeaning={story.meaning}
+            onClose={() => setStory(null)}
+          />
+        );
+      })()}
+    </>
   );
 }
 

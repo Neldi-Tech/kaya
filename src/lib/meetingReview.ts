@@ -606,3 +606,180 @@ export function dailyStarWinners(
     .sort((a, b) => a.date.localeCompare(b.date))
     .map((d) => ({ date: d.date, childId: d.childId, excellentCount: d.excellentCount }));
 }
+
+// ── 📖 Points Story (Sunday Meeting upgrade · PR3 · approved 2026-09-21) ──
+//
+// Tap a kid's card on the Points tab → the MEANING, then the STORY: every
+// rating + award behind the big number, grouped by day, adding up to it
+// exactly. Built from the SAME arrays + the SAME formula the card uses
+// (HP = floor(routine pts ÷ rate) + bonus), so it reconciles by
+// construction — no new reads, no second source of truth.
+
+export interface StoryPeriod {
+  period: 'morning' | 'evening';
+  points: number;
+  rated: number;
+  excellent: number;
+  good: number;
+  bad: number;
+  skip: number;
+  ratedByName: string;
+  /** The rater's overall comment for the period. */
+  comment: string;
+  /** Routines that were NOT Excellent (with the rater's note when there is one). */
+  notExcellent: Array<{ label: string; icon: string; value: RatingValueLite; note: string }>;
+  /** Notes left on Excellent routines — wins get context too. */
+  praise: Array<{ label: string; icon: string; note: string }>;
+  /** The kid's own reflections on this period's routines. */
+  reflections: Array<{ label: string; text: string }>;
+}
+type RatingValueLite = 'excellent' | 'good' | 'bad' | 'skip';
+
+export interface StoryAward {
+  id: string;
+  points: number;
+  reason: string;
+  category: string;
+  kind: string;
+  byName: string;
+  /** epoch ms (0 when the doc has no timestamp yet). */
+  at: number;
+}
+
+export interface StoryDay {
+  date: string;            // YYYY-MM-DD (local)
+  routinePts: number;
+  bonusHp: number;
+  perfect: boolean;        // a Belt day — every rated routine Excellent
+  periods: StoryPeriod[];
+  awards: StoryAward[];
+}
+
+export interface PointsStory {
+  routinePts: number;
+  ppHP: number;
+  hpFromRoutine: number;
+  leftover: number;
+  bonusHp: number;
+  awardCount: number;
+  hp: number;
+  days: StoryDay[];        // newest first, only days with something on them
+  /** Day totals add back up to the headline figures. */
+  reconciles: boolean;
+}
+
+function localDayKey(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function awardMillis(a: Award): number {
+  const c = a.createdAt as unknown as { toMillis?: () => number; seconds?: number } | undefined;
+  if (c && typeof c.toMillis === 'function') return c.toMillis();
+  if (c && typeof c.seconds === 'number') return c.seconds * 1000;
+  return 0;
+}
+
+export function computePointsStory(
+  child: Child,
+  routines: Routine[],
+  ratings: DailyRating[],
+  awards: Award[],
+  range: WindowRange,
+  pointsPerHousePoint: number,
+): PointsStory {
+  const ppHP = Math.max(1, pointsPerHousePoint);
+  const kidRatings = ratings.filter((r) => r.childId === child.id);
+  const kidAwards = awards.filter((a) => a.childId === child.id);
+  const routineById = new Map(routines.map((r) => [r.id, r]));
+
+  const byDay = new Map<string, StoryDay>();
+  const dayOf = (date: string): StoryDay => {
+    let d = byDay.get(date);
+    if (!d) { d = { date, routinePts: 0, bonusHp: 0, perfect: false, periods: [], awards: [] }; byDay.set(date, d); }
+    return d;
+  };
+
+  for (const r of kidRatings) {
+    const d = dayOf(r.date);
+    const p: StoryPeriod = {
+      period: r.period, points: r.totalPoints || 0, rated: 0, excellent: 0, good: 0, bad: 0, skip: 0,
+      ratedByName: r.ratedByName || '', comment: (r.comment || '').trim(), notExcellent: [], praise: [], reflections: [],
+    };
+    for (const [rid, v] of Object.entries(r.ratings || {})) {
+      const routine = routineById.get(rid);
+      const label = routine?.label || 'Routine';
+      const icon = routine?.icon || '•';
+      const note = (r.ratingNotes?.[rid] || '').trim();
+      if (v === 'skip') { p.skip += 1; continue; }
+      p.rated += 1;
+      if (v === 'excellent') { p.excellent += 1; if (note) p.praise.push({ label, icon, note }); }
+      else if (v === 'good') { p.good += 1; p.notExcellent.push({ label, icon, value: 'good', note }); }
+      else if (v === 'bad') { p.bad += 1; p.notExcellent.push({ label, icon, value: 'bad', note }); }
+    }
+    for (const [rid, ref] of Object.entries(r.reflections || {})) {
+      if (ref && ref.text) p.reflections.push({ label: routineById.get(rid)?.label || 'Routine', text: ref.text });
+    }
+    d.periods.push(p);
+    d.routinePts += p.points;
+  }
+  for (const a of kidAwards) {
+    const at = awardMillis(a);
+    const d = dayOf(at ? localDayKey(at) : range.to);
+    d.awards.push({
+      id: a.id, points: a.points || 0, reason: a.reason || '', category: a.category || '',
+      kind: a.kind || (a.points < 0 ? 'reducing' : 'regular'), byName: a.awardedByName || '', at,
+    });
+    d.bonusHp += a.points || 0;
+  }
+  const clean = new Set(beltDays(child, ratings, range.days));
+  for (const d of byDay.values()) {
+    d.perfect = clean.has(d.date);
+    d.periods.sort((x, y) => (x.period === y.period ? 0 : x.period === 'morning' ? -1 : 1));
+    d.awards.sort((x, y) => x.at - y.at);
+  }
+
+  const routinePts = kidRatings.reduce((s, r) => s + (r.totalPoints || 0), 0);
+  const bonusHp = kidAwards.reduce((s, a) => s + (a.points || 0), 0);
+  const hpFromRoutine = Math.floor(routinePts / ppHP);
+  const days = Array.from(byDay.values()).sort((a, b) => (a.date < b.date ? 1 : -1));
+  return {
+    routinePts, ppHP, hpFromRoutine, leftover: routinePts - hpFromRoutine * ppHP,
+    bonusHp, awardCount: kidAwards.length, hp: hpFromRoutine + bonusHp, days,
+    reconciles: days.reduce((s, d) => s + d.routinePts, 0) === routinePts && days.reduce((s, d) => s + d.bonusHp, 0) === bonusHp,
+  };
+}
+
+// 🪜 "N routines kept Excellent" — the SAME rule as `ladderRoutineIds` (any
+// non-Excellent rating, skips included, breaks a routine), so `kept.length`
+// always equals the number on the card. Plus the coaching list: routines
+// that slipped exactly once — which one, which day, what it was rated.
+
+export interface KeptRoutine { routineId: string; label: string; icon: string; period: 'morning' | 'evening'; excellentDays: number }
+export interface SlippedRoutine extends KeptRoutine { slip: { date: string; value: RatingValueLite; note: string } }
+
+export function computeKeptBreakdown(child: Child, routines: Routine[], ratings: DailyRating[]): {
+  kept: KeptRoutine[]; slippedOnce: SlippedRoutine[]; activeRated: number;
+} {
+  const kidRatings = ratings.filter((r) => r.childId === child.id);
+  const kept: KeptRoutine[] = [];
+  const slippedOnce: SlippedRoutine[] = [];
+  let activeRated = 0;
+  for (const routine of routines.filter((r) => r.active)) {
+    let excellentDays = 0;
+    const slips: Array<{ date: string; value: RatingValueLite; note: string }> = [];
+    for (const doc of kidRatings) {
+      if (doc.period !== routine.period) continue;
+      const v = doc.ratings?.[routine.id];
+      if (v === undefined) continue;
+      if (v === 'excellent') excellentDays += 1;
+      else slips.push({ date: doc.date, value: v as RatingValueLite, note: (doc.ratingNotes?.[routine.id] || '').trim() });
+    }
+    if (excellentDays + slips.length === 0) continue;
+    activeRated += 1;
+    const base = { routineId: routine.id, label: routine.label, icon: routine.icon, period: routine.period, excellentDays };
+    if (excellentDays > 0 && slips.length === 0) kept.push(base);
+    else if (excellentDays > 0 && slips.length === 1) slippedOnce.push({ ...base, slip: slips[0] });
+  }
+  return { kept, slippedOnce, activeRated };
+}

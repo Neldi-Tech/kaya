@@ -101,7 +101,7 @@ function SoftRing({ runKey }: { runKey: string }) {
       aria-label={`${left} seconds left — a guide only`}
       title="A guide — take the time you need"
     >
-      <span className="w-[30px] h-[30px] rounded-full grid place-items-center bg-kaya-chocolate">0:{String(left).padStart(2, '0')}</span>
+      <span className="w-[30px] h-[30px] rounded-full grid place-items-center bg-kaya-chocolate">{Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}</span>
     </div>
   );
 }
