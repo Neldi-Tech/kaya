@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { useFamily } from '@/contexts/FamilyContext';
 import { updateFamily, updateChild } from '@/lib/firestore';
 import { readLeaderConfig, DEFAULT_LEADER_CONFIG, NOTE_EXPIRY_OPTIONS, type LeaderConfig } from '@/lib/leaderWeek.shared';
+import LeaderPledgeSheet from './LeaderPledgeSheet';
 import { ageOf } from '@/lib/participation';
 
 function Toggle({ on, onChange, label, help }: { on: boolean; onChange: (v: boolean) => void; label: string; help?: string }) {
@@ -36,6 +37,7 @@ export default function LeaderSettingsSection() {
   const { family, children, refresh } = useFamily();
   const [cfg, setCfg] = useState<LeaderConfig>(DEFAULT_LEADER_CONFIG);
   const [dutyDraft, setDutyDraft] = useState('');
+  const [pledgeOpen, setPledgeOpen] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -139,8 +141,8 @@ export default function LeaderSettingsSection() {
 
       <div className="border-t border-kaya-warm-dark/60 my-2" />
       <div className="py-2">
-        <p className="font-display font-extrabold text-[14px] text-kaya-chocolate">Our family adds (guide) · up to 3</p>
-        <p className="text-[12px] text-kaya-sand mb-2">Extra duties shown in the “What it means to be leader” guide, e.g. “feed Simba in the morning”.</p>
+        <p className="font-display font-extrabold text-[14px] text-kaya-chocolate">Our family adds (guide + pledge) · up to 3</p>
+        <p className="text-[12px] text-kaya-sand mb-2">Extra duties shown in the “What it means to be leader” guide — and read out under “Our family adds” in the Leader’s Pledge — e.g. “feed Simba in the morning”.</p>
         <div className="flex flex-wrap gap-2 mb-2">
           {cfg.customDuties.map((d) => (
             <span key={d} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-black bg-kaya-warm text-kaya-chocolate">
@@ -156,7 +158,24 @@ export default function LeaderSettingsSection() {
           </div>
         )}
       </div>
+      {/* 🤝 Passing the Crown (approved 2026-09-21 · S25) */}
+      <div id="handover" className="border-t border-kaya-warm-dark/60 my-2" />
+      <div className="py-2">
+        <p className="font-display font-extrabold text-[14px] text-kaya-chocolate">🤝 Passing the Crown</p>
+        <p className="text-[12px] text-kaya-sand mb-1">The hand-over at the close of the Sunday meeting: the outgoing leader&apos;s speech, the new leader&apos;s pledge and first words, then the crown passes.</p>
+      </div>
+      <Toggle on={cfg.handoverEnabled} onChange={(v) => write({ handoverEnabled: v })} label="Hand-over ceremony" help="Adds the step whenever a next leader has been picked." />
+      <Toggle on={cfg.handoverRequired} onChange={(v) => write({ handoverRequired: v })} label="Speeches must be said" help="Next stays locked until both are marked said. Skipping asks for a reason." />
+      <Toggle on={cfg.handoverBlessing} onChange={(v) => write({ handoverBlessing: v })} label="Parent’s blessing" help="One prompted sentence after the pledge." />
+      <div className="py-2">
+        <p className="font-display font-extrabold text-[14px] text-kaya-chocolate">The pledge</p>
+        <p className="text-[12px] text-kaya-sand">
+          5 principles (fixed — they match the 5 traits) + “Our family adds”: your custom duties, edited just above.{' '}
+          <button type="button" onClick={() => setPledgeOpen(true)} className="font-black text-kaya-gold-dark underline">Preview the pledge ›</button>
+        </p>
+      </div>
       <p className="text-[11px] text-kaya-sand mt-2">Changes here save immediately.</p>
+      <LeaderPledgeSheet open={pledgeOpen} onClose={() => setPledgeOpen(false)} leaderName="" customDuties={cfg.customDuties} mode="preview" />
     </section>
   );
 }

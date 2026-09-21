@@ -11,9 +11,10 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { readLeaderConfig, termDayNumber, termWeekNumber } from '@/lib/leaderWeek.shared';
-import { loadNotebook, type NotebookBundle } from '@/lib/leaderWeek';
+import { loadNotebook, takeLeaderPledge, type NotebookBundle } from '@/lib/leaderWeek';
 import LeaderCrownChip from './LeaderCrownChip';
 import LeaderGuideSheet from './LeaderGuideSheet';
+import LeaderPledgeSheet from './LeaderPledgeSheet';
 
 const GOLD = '#B8860B';
 
@@ -22,6 +23,7 @@ export default function KidLeaderStrip({ className = '' }: { className?: string 
   const { family } = useFamily();
   const [bundle, setBundle] = useState<NotebookBundle | null>(null);
   const [guide, setGuide] = useState(false);
+  const [pledge, setPledge] = useState(false);
   const hl = family?.houseLeader || null;
   const cfg = readLeaderConfig(family);
   const isLeader = !!(hl && profile?.role === 'kid' && profile.childId === hl.childId);
@@ -41,6 +43,18 @@ export default function KidLeaderStrip({ className = '' }: { className?: string 
       if (!localStorage.getItem(key)) { localStorage.setItem(key, '1'); setGuide(true); }
     } catch { /* ignore */ }
   }, [isLeader, hl, profile?.childId]);
+
+  // 📜 The pledge WAITS here for a leader who didn't take it in the meeting
+  // (absent on the night, or appointed by a parent) — opens once per term.
+  const pledgedAt = bundle?.term?.pledgedAt || 0;
+  const pledgeWaiting = !!bundle?.term && !pledgedAt && cfg.handoverEnabled;
+  useEffect(() => {
+    if (!isLeader || !pledgeWaiting || !hl) return;
+    try {
+      const key = `kayaLeaderPledgeAsked:${hl.termId}`;
+      if (!localStorage.getItem(key)) { localStorage.setItem(key, '1'); setPledge(true); }
+    } catch { /* ignore */ }
+  }, [isLeader, pledgeWaiting, hl]);
 
   if (!hl || !cfg.enabled) return null;
   if (!isLeader) return <LeaderCrownChip className={className} />;
@@ -72,6 +86,16 @@ export default function KidLeaderStrip({ className = '' }: { className?: string 
           <span className="hidden sm:inline-block text-[11px] font-black px-2.5 py-1 rounded-full shrink-0" style={{ background: '#FFF1C9', color: '#8A6800' }}>Take a note →</span>
           <span className="sm:hidden text-[14px] font-black" style={{ color: '#8A6800' }} aria-hidden>→</span>
         </Link>
+        {cfg.handoverEnabled && bundle?.term && (
+          <button type="button" onClick={() => setPledge(true)} className="mt-2 w-full text-left flex items-center gap-3 rounded-xl bg-white border px-3 py-2.5" style={{ borderColor: '#E9C867' }}>
+            <span className="w-9 h-9 rounded-xl grid place-items-center text-lg" style={{ background: '#FFF1C9' }}>📜</span>
+            <span className="flex-1 min-w-0">
+              <span className="block text-[13px] font-black text-kaya-chocolate">My pledge · {5 + cfg.customDuties.length} promises{pledgeWaiting ? <span className="ml-1.5 inline-block text-[10px] font-black text-white rounded-full px-1.5" style={{ background: '#D64550' }}>waiting</span> : null}</span>
+              <span className="block text-[11px] font-bold text-kaya-sand truncate">{pledgeWaiting ? 'Take your pledge — read it out loud, then promise' : '“I will lead by example — my own routines come first…”'}</span>
+            </span>
+            <span className="text-[11px] font-black shrink-0" style={{ color: '#8A6800' }}>{pledgeWaiting ? 'Take it →' : 'Tap to read all ›'}</span>
+          </button>
+        )}
         {bundle?.mission && (
           <div className="mt-2 rounded-xl bg-white border px-3 py-2" style={{ borderColor: '#E9C867' }}>
             <p className="text-[12px] font-black text-kaya-chocolate">🎯 Your mission: {bundle.mission.label}</p>
@@ -87,6 +111,18 @@ export default function KidLeaderStrip({ className = '' }: { className?: string 
         {bundle?.whisper && <p className="text-[11.5px] font-bold text-[#6b5a2a] mt-2">👀 Kaya whisper: {bundle.whisper}</p>}
       </div>
       <LeaderGuideSheet open={guide} onClose={() => setGuide(false)} isLeader leaderName={hl.name} />
+      <LeaderPledgeSheet
+        open={pledge && !guide}
+        onClose={() => setPledge(false)}
+        leaderName={hl.name}
+        customDuties={cfg.customDuties}
+        mode={pledgeWaiting ? 'take' : 'read'}
+        onTake={async () => {
+          if (!profile?.familyId) return;
+          const r = await takeLeaderPledge(profile.familyId);
+          setBundle((b) => (b && b.term ? { ...b, term: { ...b.term, pledgedAt: r.pledgedAt } } : b));
+        }}
+      />
     </div>
   );
 }

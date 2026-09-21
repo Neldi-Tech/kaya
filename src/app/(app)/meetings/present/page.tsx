@@ -41,7 +41,9 @@ import { computeWindowRange, computeReview, computeDayScores } from '@/lib/meeti
 import SundaySurpriseStep, { type SurpriseRecord } from '@/components/meetings/SundaySurpriseStep';
 import NoteOfWeekStep, { type NoteOfWeekRecord } from '@/components/meetings/NoteOfWeekStep';
 import { giveAward } from '@/lib/firestore';
-import { leaderHandover, listLeaderNotes, draftLeaderReport, type LeaderNote } from '@/lib/leaderWeek';
+import { leaderHandover, listLeaderNotes, draftLeaderReport, loadHandoverBrief, type LeaderNote, type HandoverBrief } from '@/lib/leaderWeek';
+import { readLeaderConfig, LEADER_PLEDGE } from '@/lib/leaderWeek.shared';
+import HandoverStep, { EMPTY_HANDOVER, handoverVariant, handoverComplete, buildMeetingHandover, type HandoverState, type HandoverPerson } from '@/components/meetings/HandoverStep';
 import { sendMessage } from '@/lib/messaging';
 import { auth as fbAuth } from '@/lib/firebase';
 import { pickNextLeader, spinNextLeader, nextLeaderErrorText, NextLeaderError } from '@/lib/meetingNextLeader';
@@ -84,6 +86,7 @@ const STEPS = [
   { id: 'openfloor',     title: 'Open Floor',         emoji: '🗣️', sub: 'Topics anyone raised — discuss together; the leader keeps the notes.' },
   { id: 'noteofweek',    title: 'Note of the Week',   emoji: '🌟', sub: 'Kaya nominates the week\'s best journal notes — the family crowns one.' },
   { id: 'reflection',    title: 'Closing Reflection', emoji: '✨', sub: 'Pick one — or all — of story, song, or family prayer.' },
+  { id: 'handover',      title: 'Passing the Crown',  emoji: '🤝', sub: 'One leader hands over. One leader steps up.' },
   { id: 'surprise',      title: 'Sunday Surprise',    emoji: '🎁', sub: 'One shared moment to end the night — tonight\'s pick is a surprise.' },
 ] as const;
 
@@ -135,6 +138,8 @@ export default function MeetingPresenterPage() {
     const openingWordOn = family?.meetingSetup?.openingWordEnabled !== false;
     // 🎁 Sunday Surprise (SM3.1 · #7) — own flag too, same migration logic.
     const surpriseOn = family?.meetingSetup?.sundaySurpriseEnabled !== false;
+    const lwCfg = readLeaderConfig(family);
+    const handoverOn = lwCfg.enabled && lwCfg.handoverEnabled;
     const enabledSet = new Set(enabled || []);
     const filteredRest = rest.filter((s) => {
       if (s.id === 'openingword') return openingWordOn;
@@ -144,6 +149,9 @@ export default function MeetingPresenterPage() {
       // 🌟 Note of the Week (Timeline 2.0) — own flag, default ON.
       if (s.id === 'noteofweek') return family?.meetingSetup?.noteOfWeekEnabled !== false;
       if (s.id === 'surprise') return surpriseOn;
+      // 🤝 Passing the Crown (2026-09-21) — own flags (Leader of the Week on
+      // + the ceremony switch), default ON; never part of saved agendaSteps.
+      if (s.id === 'handover') return handoverOn;
       if (!enabled || enabled.length === 0) return true;
       return enabledSet.has(s.id);
     });
@@ -178,9 +186,10 @@ export default function MeetingPresenterPage() {
         ? [...tailOrder.slice(0, ri), 'noteofweek', ...tailOrder.slice(ri)]
         : [...tailOrder, 'noteofweek'];
     }
-    const head = withCustom.filter((st) => !REORDERABLE.includes(st.id) && st.id !== 'surprise');
+    const head = withCustom.filter((st) => !REORDERABLE.includes(st.id) && st.id !== 'surprise' && st.id !== 'handover');
     const tail = tailOrder.map((id) => withCustom.find((st) => st.id === id)).filter((st): st is StepDef => !!st);
-    const last = withCustom.filter((st) => st.id === 'surprise');
+    // The close of the night, pinned: 🤝 hand-over → 🎁 Surprise → the gate.
+    const last = [...withCustom.filter((st) => st.id === 'handover'), ...withCustom.filter((st) => st.id === 'surprise')];
     const base = [openStep, ...head, ...tail, ...last];
     // Apply per-step display-name overrides. `title` falls back to the
     // canonical default when the parent hasn't customised it.
@@ -188,7 +197,7 @@ export default function MeetingPresenterPage() {
       const custom = (labels[s.id] || '').trim();
       return custom ? { ...s, title: custom } : s;
     });
-  }, [family?.meetingSetup?.agendaSteps, family?.meetingSetup?.stepLabels, family?.meetingSetup?.openingWordEnabled, family?.meetingSetup?.sundaySurpriseEnabled, family?.meetingSetup?.openFloorEnabled, family?.meetingSetup?.agendaOrder, family?.meetingSetup?.customStep, family?.meetingSetup?.catchUpCornerEnabled, family?.meetingSetup?.noteOfWeekEnabled]);
+  }, [family?.meetingSetup?.agendaSteps, family?.meetingSetup?.stepLabels, family?.meetingSetup?.openingWordEnabled, family?.meetingSetup?.sundaySurpriseEnabled, family?.meetingSetup?.openFloorEnabled, family?.meetingSetup?.agendaOrder, family?.meetingSetup?.customStep, family?.meetingSetup?.catchUpCornerEnabled, family?.meetingSetup?.noteOfWeekEnabled, family?.leaderConfig]);
 
   // Step index — persisted in sessionStorage so navigating away (e.g.
   // "Open Points Review" → /meetings/review → browser Back) returns
@@ -259,6 +268,22 @@ export default function MeetingPresenterPage() {
   // on finish, same lifecycle as stepIdx.
   const ROSTER_KEY = 'kaya:meeting-presenter:roster';
   const LEDBY_KEY = 'kaya:meeting-presenter:ledBy';
+  const HANDOVER_KEY = 'kaya:meeting-presenter:handover';
+  // 🤝 Passing the Crown — the ceremony's state lives here (not in the
+  // step) and in sessionStorage: speeches said before a Points-Review
+  // round-trip must still be said after it.
+  const [handover, setHandover] = useState<HandoverState>(() => {
+    if (typeof window === 'undefined') return EMPTY_HANDOVER;
+    try {
+      const raw = window.sessionStorage.getItem(HANDOVER_KEY);
+      const v = raw ? JSON.parse(raw) : null;
+      return v && v.date === todayString() && v.state ? { ...EMPTY_HANDOVER, ...v.state } : EMPTY_HANDOVER;
+    } catch { return EMPTY_HANDOVER; }
+  });
+  useEffect(() => {
+    try { window.sessionStorage.setItem(HANDOVER_KEY, JSON.stringify({ date: todayString(), state: handover })); } catch { /* private mode */ }
+  }, [handover]);
+  const [handoverBrief, setHandoverBrief] = useState<HandoverBrief | null>(null);
   const [restoredRoster] = useState(() => {
     if (typeof window === 'undefined') return null;
     try {
@@ -730,7 +755,6 @@ export default function MeetingPresenterPage() {
     ...householdParents.filter((pp) => parentAttendees.has(pp.uid)).map((pp) => pp.name.split(' ')[0]),
   ]), [children, householdParents, attendees, parentAttendees]);
 
-
   // Roster of everyone expected to prep — kids + present parents. Used by
   // StepSubmissions to compute "who's still to add" for each section.
   // id = childId for kids, uid for parents (matches submission keying).
@@ -921,6 +945,42 @@ export default function MeetingPresenterPage() {
     setLedSeeded(true);
   }, [family, ledSeeded]);
 
+  // 🤝 Passing the Crown — who hands over to whom tonight.
+  //   crown    = who wears the 👑 now (the outgoing speaker, F12)
+  //   tonight  = tonight's meeting leader (closing word when no crown)
+  //   incoming = the next leader, but only a pick made TODAY — last week's
+  //              queue is tonight's leader, not a result.
+  const leaderCfg = useMemo(() => readLeaderConfig(family), [family]);
+  const handoverPeople = useMemo(() => {
+    const person = (id: string | null | undefined): HandoverPerson | null => {
+      if (!id) return null;
+      const kid = allChildren.find((c) => c.id === id);
+      if (kid) return { id, name: kid.name, emoji: kid.avatarEmoji || '🧒', kind: 'kid' };
+      const par = householdParents.find((pp) => pp.uid === id);
+      return par ? { id, name: par.name, emoji: par.avatarEmoji || '👤', kind: 'parent' } : null;
+    };
+    const hl = family?.houseLeader;
+    const crown: HandoverPerson | null = hl ? { id: hl.childId, name: hl.name, emoji: hl.emoji || '🧒', kind: 'kid' } : null;
+    const q = family?.nextMeetingLeader;
+    const pickedToday = !!q?.pickedAt && localDayOf(q.pickedAt) === todayString();
+    const incoming: HandoverPerson | null = q && pickedToday ? { id: q.id, name: q.name, emoji: q.emoji, kind: q.kind } : null;
+    const incomingPresent = !incoming ? false : incoming.kind === 'kid' ? attendees.has(incoming.id) : parentAttendees.has(incoming.id);
+    const little = !!handoverBrief?.incoming && handoverBrief.incoming.childId === incoming?.id && handoverBrief.incoming.little;
+    const variant = handoverVariant({ crown, incoming, incomingPresent, little });
+    const speaker = variant === 'renewal' ? null : (crown || person(tonightLeaderId));
+    return { crown, tonight: person(tonightLeaderId), incoming, incomingPresent, variant, speaker };
+  }, [family?.houseLeader, family?.nextMeetingLeader, allChildren, householdParents, attendees, parentAttendees, tonightLeaderId, handoverBrief]);
+  const handoverDone = handoverComplete(handover, handoverPeople.variant, !!handoverPeople.speaker, !!handoverPeople.incoming);
+  const handoverLocks = step?.id === 'handover' && leaderCfg.handoverRequired && !handoverDone;
+  // The brief (counts only) — fetched when the ceremony opens, and again
+  // when the wheel changes who is coming in.
+  useEffect(() => {
+    if (step?.id !== 'handover' || !profile?.familyId) return;
+    let alive = true;
+    loadHandoverBrief(profile.familyId).then((b) => { if (alive) setHandoverBrief(b); }).catch(() => { /* the step works without it */ });
+    return () => { alive = false; };
+  }, [step?.id, profile?.familyId, family?.nextMeetingLeader?.id, family?.houseLeader?.termId]);
+
   // ── Save handler ─────────────────────────────────────────────────
   // Two writes happen on finish:
   //   1. Patches to each historical meeting whose `goalsDone` was
@@ -1108,6 +1168,15 @@ export default function MeetingPresenterPage() {
         const winner = voteOptions.reduce((best, o) => ((voteCounts[o] || 0) > (voteCounts[best] || 0) ? o : best), voteOptions[0]);
         return { vote: { question: voteQuestion.trim() || 'Family vote', winner, counts: voteCounts } };
       })() : {}),
+      ...(() => {
+        // 🤝 Passing the Crown — who handed over to whom, what was said.
+        if (!(leaderCfg.enabled && leaderCfg.handoverEnabled)) return {};
+        const h = buildMeetingHandover({
+          state: handover, variant: handoverPeople.variant, speaker: handoverPeople.speaker,
+          incoming: handoverPeople.incoming, pledgeOf: LEADER_PLEDGE.length + leaderCfg.customDuties.length,
+        });
+        return h ? { handover: h } : {};
+      })(),
       createdBy: profile.uid,
     };
     // Idempotent: one weekly doc per day (`weekly-<date>`), so a "tap
@@ -1125,6 +1194,14 @@ export default function MeetingPresenterPage() {
       openingWordDone,
       themeSet: !!weekThemeText.trim(),
       rolesDealt: roleEntries.length > 0,
+      // 🤝 Q11 — a farewell speech that was really said counts for 🎤 Host.
+      handoverSpeechSaid: !handover.skipped && handover.outSaid,
+    }, {
+      // The advice line lands on the closing term; a pledge fully taken in
+      // the meeting stamps the new leader's term (else it waits on Home).
+      ...(!handover.skipped && handover.advice.trim() ? { advice: handover.advice.trim() } : {}),
+      pledged: !handover.skipped && handoverPeople.incoming?.kind === 'kid' && handoverPeople.incomingPresent
+        && handover.pledged.length >= LEADER_PLEDGE.length + leaderCfg.customDuties.length,
     }).catch(() => { /* quiet */ });
 
     // 🏅 BDG PR3 — one meeting counted for every kid marked present tonight
@@ -1304,6 +1381,7 @@ export default function MeetingPresenterPage() {
       window.sessionStorage.removeItem('kaya:meeting-presenter:stepIdx');
       window.sessionStorage.removeItem(ROSTER_KEY);
       window.sessionStorage.removeItem(LEDBY_KEY);
+      window.sessionStorage.removeItem(HANDOVER_KEY);
     }
     } catch (e) {
       // eslint-disable-next-line no-console
@@ -1335,9 +1413,12 @@ export default function MeetingPresenterPage() {
   // busy night. Reflection still requires at least one mode picked
   // before Finish so the saved record makes sense.
   const canAdvance = useMemo(() => {
+    // 🤝 When the hand-over is the LAST step (Surprise off) the gate waits
+    // for the speeches too — same rule as Next.
+    if (step.id === 'handover') return !handoverLocks;
     if (step.id !== 'reflection') return true;
     return reflectionModes.length > 0;
-  }, [step.id, reflectionModes]);
+  }, [step.id, reflectionModes, handoverLocks]);
 
   // Helper: toggle done state for a specific meeting+kid goal.
   const toggleHistoricalGoalDone = (meetingId: string, kidId: string, done: boolean) => {
@@ -1514,6 +1595,7 @@ export default function MeetingPresenterPage() {
                     crownChildId={family?.houseLeader?.childId || null}
                     sitOutOn={family?.meetingSetup?.wheelSitOut !== false}
                     kidSpunTonight={family?.leaderWheel?.kidSpinDate === todayString()}
+                    handoverFrom={leaderCfg.enabled && leaderCfg.handoverEnabled ? ((handoverPeople.crown || handoverPeople.tonight)?.name.split(' ')[0] || '') : null}
                   />
                   <div className="my-5 lg:my-7 h-px bg-white/10" aria-hidden />
                 </>
@@ -1707,6 +1789,39 @@ export default function MeetingPresenterPage() {
                   record={noteOfWeekRecord}
                   onRecord={setNoteOfWeekRecord}
                   sw={false}
+                />
+              )}
+
+              {/* 🤝 Passing the Crown (2026-09-21) — the hand-over ceremony. */}
+              {step.id === 'handover' && profile?.familyId && (
+                <HandoverStep
+                  familyId={profile.familyId}
+                  crown={handoverPeople.crown}
+                  tonightLeader={handoverPeople.tonight}
+                  incoming={handoverPeople.incoming}
+                  incomingPresent={handoverPeople.incomingPresent}
+                  cfg={leaderCfg}
+                  brief={handoverBrief}
+                  parents={householdParents.filter((p) => parentAttendees.has(p.uid)).map((p) => ({ uid: p.uid, name: p.name }))}
+                  state={handover}
+                  onChange={setHandover}
+                  hasSurprise={!isLastStep}
+                  onContinue={() => { if (!isLastStep) setStepIdx(safeStepIdx + 1); }}
+                  pickSlot={(
+                    <LeaderPicker
+                      familyId={profile.familyId}
+                      queued={family?.nextMeetingLeader || null}
+                      parents={householdParents}
+                      childrenList={children}
+                      isParent={profile.role === 'parent'}
+                      myChildId={profile.role === 'kid' ? (profile.childId || '') : ''}
+                      tonightLeaderId={tonightLeaderId}
+                      crownChildId={family?.houseLeader?.childId || null}
+                      sitOutOn={family?.meetingSetup?.wheelSitOut !== false}
+                      kidSpunTonight={family?.leaderWheel?.kidSpinDate === todayString()}
+                      handoverFrom={null}
+                    />
+                  )}
                 />
               )}
 
@@ -1927,9 +2042,10 @@ export default function MeetingPresenterPage() {
               <button
                 type="button"
                 onClick={() => setStepIdx(safeStepIdx + 1)}
-                disabled={step?.id === 'openingword' && openingWordRequired && !openingWordDone}
+                disabled={(step?.id === 'openingword' && openingWordRequired && !openingWordDone) || handoverLocks}
                 title={step?.id === 'openingword' && openingWordRequired && !openingWordDone
-                  ? 'Mark the Opening Word done to continue (set in Meeting settings)' : undefined}
+                  ? 'Mark the Opening Word done to continue (set in Meeting settings)'
+                  : handoverLocks ? 'Both hand-over speeches must be marked said — or tap “Skip tonight…” (set in Meeting settings)' : undefined}
                 className="h-12 lg:h-14 px-6 lg:px-8 rounded-kaya bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-extrabold text-sm lg:text-base transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 Next →
@@ -2553,7 +2669,7 @@ function clockLabel(ms?: number): string {
 // (and the crown-wearer) sit the spin out so the crown always moves.
 function LeaderPicker({
   familyId, queued, parents, childrenList, isParent, myChildId,
-  tonightLeaderId, crownChildId, sitOutOn, kidSpunTonight,
+  tonightLeaderId, crownChildId, sitOutOn, kidSpunTonight, handoverFrom,
 }: {
   familyId: string;
   queued: QueuedLeader | null;
@@ -2565,6 +2681,8 @@ function LeaderPicker({
   crownChildId: string | null;
   sitOutOn: boolean;
   kidSpunTonight: boolean;
+  /** 🤝 R21 — first name of who hands over tonight ('' = nobody yet); null = ceremony off. */
+  handoverFrom: string | null;
 }) {
   const [wheelOpen, setWheelOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -2719,6 +2837,7 @@ function LeaderPicker({
           sitOutIds={sitOutIds}
           tonightLeaderId={tonightLeaderId}
           isParent={isParent}
+          handoverFrom={handoverFrom}
           onSaved={() => { if (!isParent) setSpunHere(true); }}
           onClose={() => setWheelOpen(false)}
         />
@@ -2737,13 +2856,14 @@ function LeaderPicker({
 // re-spun until "I win"); the wheel asks first, then animates to the
 // winner it was given. "✓ Saved" is only ever shown after a real save.
 function LeaderWheel({
-  familyId, pool, sitOutIds, tonightLeaderId, isParent, onSaved, onClose,
+  familyId, pool, sitOutIds, tonightLeaderId, isParent, handoverFrom, onSaved, onClose,
 }: {
   familyId: string;
   pool: LeaderPoolMember[];
   sitOutIds: string[];
   tonightLeaderId: string | null;
   isParent: boolean;
+  handoverFrom: string | null;
   onSaved: () => void;
   onClose: () => void;
 }) {
@@ -2921,6 +3041,11 @@ function LeaderWheel({
             <p className="mt-2.5 inline-block px-3 py-1 rounded-full text-[11px] font-black bg-emerald-500/20 border border-emerald-400/50 text-emerald-200">
               ✓ Saved{winner.kind === 'kid' ? ' · 👑 the crown moves when you finish tonight' : ''}
             </p>
+            {handoverFrom !== null && (
+              <p className="mt-2 inline-block px-3 py-1 rounded-full text-[11px] font-black bg-kaya-gold/20 border border-kaya-gold/55 text-[#FBE3A0]">
+                🤝 Tonight&apos;s close: Passing the Crown — {handoverFrom && handoverFrom !== winner.name.split(' ')[0] ? `${handoverFrom} & ` : ''}{winner.name.split(' ')[0]}, get your words ready
+              </p>
+            )}
             <p className="mt-2 text-[10.5px] text-white/50">
               One spin per meeting for kids · a parent can change it.
             </p>

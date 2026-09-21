@@ -1425,6 +1425,10 @@ export interface Meeting {
     kids: Array<{ childId: string; name: string; hp: number; excellentDays: number; stars: number; belt?: boolean }>;
     redeemed?: Array<{ name: string; reward: string; points: number }>;
   };
+  /** 🤝 Passing the Crown (2026-09-21) — tonight's hand-over ceremony:
+   *  who handed over to whom, which speeches were said, the advice line,
+   *  or the honest reason it was skipped. Finish-only, like the doc. */
+  handover?: import('./leaderWeek.shared').MeetingHandover;
   /** SM3.1 (#2) — 🙏 Opening Word: how the leader opened the night.
    *  Stamped when the leader marks the opening done; absent when the
    *  step was skipped (or disabled). Shows in the meeting report. */

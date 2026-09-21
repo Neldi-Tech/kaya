@@ -30,7 +30,8 @@ export const maxDuration = 30;
 type Action =
   | 'handover' | 'appoint' | 'end-term'
   | 'notebook' | 'note-create' | 'note-list' | 'note-claim' | 'note-finalize' | 'note-release' | 'note-seen' | 'note-revive'
-  | 'term-list' | 'advice-set' | 'term-celebrated';
+  | 'term-list' | 'advice-set' | 'term-celebrated'
+  | 'handover-brief' | 'pledge';
 
 const TZ = 'Africa/Dar_es_Salaam';
 
@@ -208,7 +209,7 @@ export async function POST(req: NextRequest) {
   const sealTerm = async (
     termRef: DocumentReference,
     term: LeaderTerm,
-    facts: { endReason: 'meeting' | 'parent' | 'replaced'; ledChildId?: string | null; openingWordDone?: boolean; themeSet?: boolean; rolesDealt?: boolean; endedBy: string },
+    facts: { endReason: 'meeting' | 'parent' | 'replaced'; ledChildId?: string | null; openingWordDone?: boolean; themeSet?: boolean; rolesDealt?: boolean; handoverSpeechSaid?: boolean; endedBy: string },
     children: ChildLite[],
   ): Promise<LeaderTerm> => {
     const now = Date.now();
@@ -254,6 +255,7 @@ export async function POST(req: NextRequest) {
     const hostApplicable = facts.endReason === 'meeting' && term.source === 'meeting';
     const factsForTraits = {
       ledMeeting, openingWordDone: !!facts.openingWordDone, themeSet: !!facts.themeSet, rolesDealt: !!facts.rolesDealt, badDays,
+      handoverSpeechSaid: !!facts.handoverSpeechSaid,
     };
     const traits = computeTraits(factsForTraits, counts, hostApplicable);
     const style = styleFor(traits);
@@ -297,6 +299,7 @@ export async function POST(req: NextRequest) {
     const sealed: Partial<LeaderTerm> = {
       endAt: now, sealedAt: now, endedBy: facts.endedBy, endReason: facts.endReason,
       ledMeeting, openingWordDone: factsForTraits.openingWordDone, themeSet: factsForTraits.themeSet, rolesDealt: factsForTraits.rolesDealt, badDays,
+      ...(factsForTraits.handoverSpeechSaid ? { handoverSpeechSaid: true } : {}),
       counts, traits, style, honest,
       ...(term.mission ? { mission: { ...term.mission, progress: mp.progress, target: mp.target, done: mp.done } } : {}),
       ...(bonusAwardId ? { bonusPoints: config.termBonusPoints, bonusAwardId } : {}),
@@ -360,7 +363,7 @@ export async function POST(req: NextRequest) {
 
   // Close the current term (if any) and clear the crown.
   const closeCurrent = async (
-    facts: { endReason: 'meeting' | 'parent' | 'replaced'; ledChildId?: string | null; openingWordDone?: boolean; themeSet?: boolean; rolesDealt?: boolean },
+    facts: { endReason: 'meeting' | 'parent' | 'replaced'; ledChildId?: string | null; openingWordDone?: boolean; themeSet?: boolean; rolesDealt?: boolean; handoverSpeechSaid?: boolean },
     children: ChildLite[],
   ): Promise<LeaderTerm | null> => {
     const hl = fam.houseLeader;
@@ -417,21 +420,32 @@ export async function POST(req: NextRequest) {
       // ── Meeting FINISH → handover (any family member who finished the meeting)
       case 'handover': {
         if (!config.enabled) return NextResponse.json({ ok: true, skipped: 'disabled' });
-        const facts = (body.facts || {}) as { ledChildId?: string | null; openingWordDone?: boolean; themeSet?: boolean; rolesDealt?: boolean };
+        const facts = (body.facts || {}) as { ledChildId?: string | null; openingWordDone?: boolean; themeSet?: boolean; rolesDealt?: boolean; handoverSpeechSaid?: boolean };
+        // 🤝 Passing the Crown — the ceremony's results ride the hand-over
+        // call (any family member may have run the presenter, so the
+        // outgoing leader's advice can't go through the leader-only
+        // `advice-set`): the advice line lands on the CLOSING term, the
+        // pledge stamp on the OPENING one.
+        const ceremony = (body.ceremony || {}) as { advice?: unknown; pledged?: unknown };
+        const advice = typeof ceremony.advice === 'string' ? ceremony.advice.trim().slice(0, 200) : '';
+        const pledged = ceremony.pledged === true;
         const children = await loadChildren();
         const pick = fam.nextMeetingLeader;
         const hl = fam.houseLeader;
         // Idempotency: a second finish on the same night (double-tap /
         // retry) must not re-close + re-open.
         if (hl && Date.now() - hl.startAt < 6 * 3600 * 1000 && pick?.kind === 'kid' && pick.id === hl.childId) {
+          if (pledged) await termsCol.doc(hl.termId).set({ pledgedAt: Date.now() }, { merge: true }).catch(() => {});
           return NextResponse.json({ ok: true, skipped: 'already-handed-over', houseLeader: hl });
         }
+        if (advice && hl?.termId) await termsCol.doc(hl.termId).set({ advice }, { merge: true }).catch(() => {});
         const closed = await closeCurrent({ endReason: 'meeting', ...facts }, children);
         if (pick?.kind === 'kid') {
           const child = children.find((c) => c.id === pick.id);
           if (child) {
             const term = await openTerm(child, 'meeting', uid, children);
-            return NextResponse.json({ ok: true, closed, opened: term });
+            if (pledged) await termsCol.doc(term.id).set({ pledgedAt: Date.now() }, { merge: true }).catch(() => {});
+            return NextResponse.json({ ok: true, closed, opened: { ...term, ...(pledged ? { pledgedAt: Date.now() } : {}) } });
           }
         }
         // Adult picked → parents get the "appoint" card.
@@ -717,6 +731,67 @@ export async function POST(req: NextRequest) {
           for (const k of Object.values(byKid)) k.avg = null;
         }
         return NextResponse.json({ ok: true, terms, lifetime: Object.values(byKid) });
+      }
+
+      // 🤝 What the hand-over step shows on the shared screen — COUNTS only
+      // (note contents stay private until a parent looks). Any family
+      // member: whoever runs the presenter needs it.
+      case 'handover-brief': {
+        const hl = fam.houseLeader;
+        const children = await loadChildren();
+        let outgoing: Record<string, unknown> | null = null;
+        if (hl?.termId) {
+          const tSnap = await termsCol.doc(hl.termId).get();
+          if (tSnap.exists) {
+            const term = { id: tSnap.id, ...(tSnap.data() as Omit<LeaderTerm, 'id'>) };
+            const notes = await termNotes(term.id);
+            const live = notes.filter((n) => n.status !== 'declined' && n.status !== 'expired');
+            const decided = notes.filter((n) => n.status === 'approved' || n.status === 'adjusted');
+            const siblings = children.filter((c) => c.id !== hl.childId).length;
+            const mp = term.mission ? missionProgress(term, notes) : null;
+            outgoing = {
+              childId: hl.childId, name: hl.name, emoji: hl.emoji, termId: hl.termId,
+              notes: live.length, approved: decided.length,
+              siblingsNoticed: new Set(live.filter((n) => n.targetChildId !== hl.childId).map((n) => n.targetChildId)).size,
+              siblings,
+              mission: term.mission ? { label: term.mission.label, done: !!mp?.done } : null,
+              advice: term.advice || '',
+            };
+          }
+        }
+        const nextId = fam.nextMeetingLeader?.kind === 'kid' ? fam.nextMeetingLeader.id : '';
+        let incoming: Record<string, unknown> | null = null;
+        if (nextId) {
+          const mine = (await allTerms()).filter((t) => t.childId === nextId && t.endAt);
+          const avg = averageTraits(mine);
+          let strongest: string | null = null;
+          if (avg && config.kidSeesTraits) {
+            let best: keyof LeaderTraits | null = null;
+            for (const k of ['inspiring', 'firm', 'fair', 'consistent', 'host'] as const) {
+              const v = avg[k];
+              if (typeof v === 'number' && v > 0 && (best === null || v > Number(avg[best] ?? 0))) best = k;
+            }
+            strongest = best;
+          }
+          const kid = children.find((c) => c.id === nextId);
+          const age = kid ? ageOf(kid.birthday) : null;
+          incoming = { childId: nextId, led: mine.length, strongest, little: age !== null && age < config.notebookMinAge };
+        }
+        return NextResponse.json({ ok: true, outgoing, incoming });
+      }
+
+      // 📜 The pledge taken on the leader's own Home (absent on the night, or
+      // appointed by a parent). The leader themself, or a parent beside them.
+      case 'pledge': {
+        const hl = fam.houseLeader;
+        if (!hl?.termId) return NextResponse.json({ error: 'not-found' }, { status: 404 });
+        if (!isParent && myChildId !== hl.childId) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+        const tRef = termsCol.doc(hl.termId);
+        const cur = (await tRef.get()).data() as LeaderTerm | undefined;
+        if (cur?.pledgedAt) return NextResponse.json({ ok: true, pledgedAt: cur.pledgedAt, already: true });
+        const pledgedAt = Date.now();
+        await tRef.set({ pledgedAt }, { merge: true });
+        return NextResponse.json({ ok: true, pledgedAt });
       }
 
       case 'advice-set': {

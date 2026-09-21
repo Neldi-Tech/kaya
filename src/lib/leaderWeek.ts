@@ -69,8 +69,27 @@ export const listLeaderTerms = (familyId: string, childId?: string) =>
 export const appointLeader = (familyId: string, childId: string) =>
   leaderApi<{ ok: true; opened?: LeaderTerm; closed?: LeaderTerm | null }>('appoint', { familyId, childId });
 export const endLeaderTerm = (familyId: string) => leaderApi<{ ok: true; closed: LeaderTerm | null }>('end-term', { familyId });
-export const leaderHandover = (familyId: string, facts: { ledChildId?: string | null; openingWordDone?: boolean; themeSet?: boolean; rolesDealt?: boolean }) =>
-  leaderApi<{ ok: true; opened?: LeaderTerm | null; closed?: LeaderTerm | null; appointPending?: boolean }>('handover', { familyId, facts });
+export const leaderHandover = (
+  familyId: string,
+  facts: { ledChildId?: string | null; openingWordDone?: boolean; themeSet?: boolean; rolesDealt?: boolean; handoverSpeechSaid?: boolean },
+  /** 🤝 Passing the Crown — the advice line (→ closing term) + pledge stamp (→ opening term). */
+  ceremony?: { advice?: string; pledged?: boolean },
+) =>
+  leaderApi<{ ok: true; opened?: LeaderTerm | null; closed?: LeaderTerm | null; appointPending?: boolean }>('handover', { familyId, facts, ...(ceremony ? { ceremony } : {}) });
+
+/** 🤝 What the hand-over step shows — counts only, for whoever runs the presenter. */
+export interface HandoverBrief {
+  ok: true;
+  outgoing: null | {
+    childId: string; name: string; emoji: string; termId: string;
+    notes: number; approved: number; siblingsNoticed: number; siblings: number;
+    mission: { label: string; done: boolean } | null; advice: string;
+  };
+  incoming: null | { childId: string; led: number; strongest: import('./leaderWeek.shared').LeaderTraitKey | null; little: boolean };
+}
+export const loadHandoverBrief = (familyId: string) => leaderApi<HandoverBrief>('handover-brief', { familyId });
+/** 📜 The pledge taken from the leader's Home (absent on the night / appointed). */
+export const takeLeaderPledge = (familyId: string) => leaderApi<{ ok: true; pledgedAt: number }>('pledge', { familyId });
 export const setLeaderAdvice = (familyId: string, termId: string, p: { advice?: string; report?: string }) =>
   leaderApi<{ ok: true }>('advice-set', { familyId, termId, ...p });
 export const markTermCelebrated = (familyId: string, termId: string) => leaderApi<{ ok: true }>('term-celebrated', { familyId, termId });
