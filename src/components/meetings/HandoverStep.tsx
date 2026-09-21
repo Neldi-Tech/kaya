@@ -240,12 +240,20 @@ export default function HandoverStep({
             </div>
           </div>
           <div className="mt-4 space-y-1.5">
-            {phases.filter((p) => p !== 'intro' && p !== 'words').map((p, i) => {
+            {/* 'words' rides with the pledge row — except a grown-up, who has no pledge. */}
+            {phases.filter((p) => p !== 'intro' && (p !== 'words' || variant === 'adult')).map((p, i) => {
+              // Only promise what tonight's variant really shows (no blessing /
+              // first job for an absent leader or a grown-up).
+              const crownSub = variant === 'absent' ? `the pledge waits on ${first(inc.name)}’s Home screen`
+                : variant === 'adult' ? 'a parent appoints a kid from Home'
+                  : `${cfg.handoverBlessing ? 'a parent’s blessing · ' : ''}${hasSurprise ? 'first job as leader' : 'then we close'}`;
               const row = p === 'out'
                 ? { t: crown ? 'Outgoing leader’s speech' : 'Tonight’s leader — a closing word', s: 'my week · my lesson · my advice', d: '~1 min' }
                 : p === 'pledge'
                   ? { t: variant === 'renewal' ? 'The pledge, re-taken + a renewal speech' : 'Incoming leader’s speech', s: variant === 'little' ? 'a parent reads the Pledge · “I promise!”' : 'the Leader’s Pledge + my own words', d: '~1 min' }
-                  : { t: 'The crown passes', s: `${cfg.handoverBlessing ? 'a parent’s blessing · ' : ''}${hasSurprise ? 'first job as leader' : 'then we close'}`, d: '~30 s' };
+                  : p === 'words'
+                    ? { t: `${first(inc.name)} — a short word`, s: '“I’ll lead next Sunday” · one hope for the week', d: '~30 s' }
+                    : { t: 'The crown passes', s: crownSub, d: '~30 s' };
               return (
                 <div key={p} className="flex items-center gap-2.5 rounded-xl bg-white/[0.06] border border-white/10 px-3 py-2">
                   <span className="w-6 h-6 rounded-full bg-kaya-gold text-kaya-chocolate grid place-items-center text-[11px] font-black shrink-0">{i + 1}</span>
@@ -281,13 +289,14 @@ export default function HandoverStep({
             </div>
             <SoftRing runKey="out" />
           </div>
-          {b && (
+          {b && (b.notes > 0 || b.approved > 0 || !!b.mission || tonightLeader?.id === speaker.id) && (
             <>
               <p className={LBL}>Your week as leader</p>
               <div className="flex flex-wrap gap-1.5">
-                <Fact>📒 {b.notes} note{b.notes === 1 ? '' : 's'}</Fact>
-                <Fact>✅ {b.approved} approved</Fact>
-                {b.siblings > 0 && <Fact>👀 noticed {b.siblingsNoticed >= b.siblings ? `all ${b.siblings}` : `${b.siblingsNoticed} of ${b.siblings}`} sibling{b.siblings === 1 ? '' : 's'}</Fact>}
+                {/* Only what is TRUE AND KIND to say out loud — never a row of zeros. */}
+                {b.notes > 0 && <Fact>📒 {b.notes} note{b.notes === 1 ? '' : 's'}</Fact>}
+                {b.approved > 0 && <Fact>✅ {b.approved} approved</Fact>}
+                {b.siblings > 0 && b.siblingsNoticed > 0 && <Fact>👀 noticed {b.siblingsNoticed >= b.siblings ? `all ${b.siblings}` : `${b.siblingsNoticed} of ${b.siblings}`} sibling{b.siblings === 1 ? '' : 's'}</Fact>}
                 {b.mission && <Fact>🎯 mission {b.mission.done ? 'done' : 'in progress'}</Fact>}
                 {tonightLeader?.id === speaker.id && <Fact>🎤 led tonight</Fact>}
               </div>
@@ -318,7 +327,7 @@ export default function HandoverStep({
           <div className="flex items-center gap-3">
             <span className="text-3xl" aria-hidden>{inc.emoji}</span>
             <div className="min-w-0">
-              <p className="font-display font-black text-[15px] leading-tight">{first(inc.name)} takes the pledge</p>
+              <p className="font-display font-black text-[15px] leading-tight">{first(inc.name)} {variant === 'renewal' ? 're-takes' : 'takes'} the pledge</p>
               <p className="text-[11px] text-white/60 font-bold">
                 {variant === 'little' ? 'A parent reads each line — answer “I promise!” — tap it when it’s said' : 'Read each line out loud — tap it when it’s said'}
               </p>
@@ -388,7 +397,9 @@ export default function HandoverStep({
           <PhaseNav onBack={() => go(-1)} onNext={() => go(1)} nextLabel="The crown passes →" nextGold />
           {cfg.handoverRequired && (
             <>
-              <p className="text-center text-[10.5px] text-white/50 mt-2">Next unlocks only when both speeches are marked said.</p>
+              <p className="text-center text-[10.5px] text-white/50 mt-2">
+                {variant === 'renewal' || !speaker ? 'Next unlocks when the speech is marked said.' : 'Next unlocks only when both speeches are marked said.'}
+              </p>
               <button type="button" onClick={() => setSkipOpen(true)} className="block mx-auto mt-1 text-[11px] font-bold text-white/50 underline">Skip tonight…</button>
             </>
           )}

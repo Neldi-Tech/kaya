@@ -762,7 +762,11 @@ export async function POST(req: NextRequest) {
         const nextId = fam.nextMeetingLeader?.kind === 'kid' ? fam.nextMeetingLeader.id : '';
         let incoming: Record<string, unknown> | null = null;
         if (nextId) {
-          const mine = (await allTerms()).filter((t) => t.childId === nextId && t.endAt);
+          // `led` counts every time they have worn the crown — INCLUDING a term
+          // still open (same leader again must never read "first time").
+          // The strongest trait only exists for weeks that were sealed.
+          const everyTerm = (await allTerms()).filter((t) => t.childId === nextId);
+          const mine = everyTerm.filter((t) => t.endAt);
           const avg = averageTraits(mine);
           let strongest: string | null = null;
           if (avg && config.kidSeesTraits) {
@@ -775,7 +779,7 @@ export async function POST(req: NextRequest) {
           }
           const kid = children.find((c) => c.id === nextId);
           const age = kid ? ageOf(kid.birthday) : null;
-          incoming = { childId: nextId, led: mine.length, strongest, little: age !== null && age < config.notebookMinAge };
+          incoming = { childId: nextId, led: everyTerm.length, strongest, little: age !== null && age < config.notebookMinAge };
         }
         return NextResponse.json({ ok: true, outgoing, incoming });
       }
