@@ -11,7 +11,7 @@
 // If the brand or domain changes, update the config here and bump
 // VERSION below to force clients off the old worker.
 
-const VERSION = 'kaya-sw-v3';
+const VERSION = 'kaya-sw-v4'; // v4 — 📴 Kaya Offline (O3): the app opens with no internet
 
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
@@ -71,17 +71,92 @@ self.addEventListener('notificationclick', (event) => {
   })());
 });
 
-// PWA installability bits — kept from the previous /sw.js. A
-// registered fetch listener (even one that doesn't respondWith) is
-// what makes Chrome treat the app as installable.
-self.addEventListener('install', () => {
-  self.skipWaiting();
+// ── 📴 Kaya Offline (O3, approved 22-Sep-2026) ────────────────────
+// The app now OPENS with no internet: build assets cache-first (they're
+// content-hashed, immutable), page navigations network-first (deploys stay
+// fresh online) with cache → friendly offline page as fallbacks. APIs and
+// cross-origin (Firebase/Google) requests are never touched — Firestore's
+// own offline cache and the photo outbox own that layer.
+
+const SHELL_CACHE = 'kaya-shell-v1';
+const OFFLINE_URL = '/offline.html';
+
+self.addEventListener('install', (event) => {
+  event.waitUntil((async () => {
+    try {
+      const cache = await caches.open(SHELL_CACHE);
+      await Promise.allSettled([
+        cache.add(OFFLINE_URL),
+        cache.add('/manifest.json'),
+        cache.add('/icon-192.png'),
+      ]);
+    } catch (e) { /* precache is best-effort */ }
+    self.skipWaiting();
+  })());
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil((async () => {
+    // Drop older shell caches when SHELL_CACHE's version bumps.
+    const keys = await caches.keys();
+    await Promise.all(keys
+      .filter((k) => k.indexOf('kaya-shell-') === 0 && k !== SHELL_CACHE)
+      .map((k) => caches.delete(k)));
+    await self.clients.claim();
+  })());
 });
 
-self.addEventListener('fetch', () => {
-  // Pass-through: no respondWith() means the browser handles it normally.
+self.addEventListener('fetch', (event) => {
+  const req = event.request;
+  if (req.method !== 'GET') return;
+  let url;
+  try { url = new URL(req.url); } catch (e) { return; }
+  if (url.origin !== self.location.origin) return;   // Firebase/Google — untouched
+  if (url.pathname.indexOf('/api/') === 0) return;   // never cache APIs (incl. /api/version)
+
+  // Immutable hashed build assets: cache-first.
+  if (url.pathname.indexOf('/_next/static/') === 0) {
+    event.respondWith((async () => {
+      const hit = await caches.match(req);
+      if (hit) return hit;
+      const res = await fetch(req);
+      if (res.ok) { const c = await caches.open(SHELL_CACHE); c.put(req, res.clone()); }
+      return res;
+    })());
+    return;
+  }
+
+  // Page navigations: network-first so a deploy is picked up immediately
+  // when online; offline falls back to the cached page, then the app root,
+  // then the friendly offline page.
+  if (req.mode === 'navigate') {
+    event.respondWith((async () => {
+      try {
+        const res = await fetch(req);
+        if (res.ok) { const c = await caches.open(SHELL_CACHE); c.put(req, res.clone()); }
+        return res;
+      } catch (e) {
+        const hit = await caches.match(req, { ignoreSearch: true });
+        if (hit) return hit;
+        const root = await caches.match('/');
+        if (root) return root;
+        const off = await caches.match(OFFLINE_URL);
+        return off || Response.error();
+      }
+    })());
+    return;
+  }
+
+  // Everything else same-origin (fonts, icons, manifest): network-first
+  // with cache fallback.
+  event.respondWith((async () => {
+    try {
+      const res = await fetch(req);
+      if (res.ok) { const c = await caches.open(SHELL_CACHE); c.put(req, res.clone()); }
+      return res;
+    } catch (e) {
+      const hit = await caches.match(req);
+      return hit || Response.error();
+    }
+  })());
 });
