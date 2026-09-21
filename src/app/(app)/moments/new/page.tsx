@@ -21,6 +21,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
   reservePost, finalizePost, uploadProcessedPhoto, uploadProcessedVideo, deletePost,
+} from '@/lib/moments';
+import { enqueuePost, syncOutbox } from '@/lib/offlineOutbox';
+import {
   recordEventTagUse, EventTag, PhotoRef, Post,
 } from '@/lib/moments';
 import {
@@ -84,6 +87,8 @@ export default function ComposeMomentPage() {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [error, setError] = useState('');
+  // 📴 O2 — the post was saved to the on-device outbox (no internet).
+  const [queuedOffline, setQueuedOffline] = useState(false);
 
   // ── Composer extras ────────────────────────────────────────────
   const captionRef = useRef<HTMLTextAreaElement>(null);
@@ -132,6 +137,23 @@ export default function ComposeMomentPage() {
       <div className="mx-auto max-w-md w-full px-4 pt-12 lg:pt-16 text-center">
         <p className="text-5xl mb-3">📸</p>
         <p className="text-kaya-sand text-sm">Posting Moments is disabled in the demo. Sign up to start your family feed.</p>
+      </div>
+    );
+  }
+
+  if (queuedOffline) {
+    return (
+      <div className="mx-auto max-w-md w-full px-4 pt-12 lg:pt-16 text-center">
+        <p className="text-5xl mb-3">📤</p>
+        <p className="font-bold text-[15px] text-kaya-chocolate">Saved to your outbox!</p>
+        <p className="text-kaya-sand text-sm mt-1.5 leading-relaxed">
+          No internet right now — your Moment is safe on this phone and will post
+          itself the moment internet returns. 🐝
+        </p>
+        <button type="button" onClick={() => { void syncOutbox(); router.replace('/moments'); }}
+          className="mt-5 h-11 px-6 rounded-kaya bg-kaya-gold text-kaya-chocolate font-black text-[13.5px]">
+          Back to Moments
+        </button>
       </div>
     );
   }
@@ -276,9 +298,47 @@ export default function ComposeMomentPage() {
 
   const canSubmit = drafts.length > 0 && !processing && !uploading;
 
+  // 📴 O2 — package the composer state for the on-device outbox: the whole
+  // post (processed blobs + caption + tags) waits and posts itself when
+  // internet returns, through the normal reserve → upload → finalize path.
+  const queuePostOffline = async () => {
+    if (!profile?.familyId) return;
+    const finalCaption = caption.trim();
+    const finalMentionedUids = mentionedUids.filter((uid) => {
+      const m = members.find((x) => x.uid === uid);
+      return !!m && finalCaption.includes(`@${m.displayName}`);
+    });
+    await enqueuePost(profile.familyId, {
+      authorUid: profile.uid,
+      authorName: profile.displayName,
+      authorAvatar: profile.avatarPhoto,
+      caption: finalCaption,
+      kidTags,
+      mentionedUids: finalMentionedUids,
+      eventTag,
+      visibility: 'family',
+    }, drafts.map((d) => ({
+      kind: d.kind,
+      processed: {
+        thumbBlob: d.processed.thumbBlob, feedBlob: d.processed.feedBlob, fullBlob: d.processed.fullBlob,
+        width: d.processed.width, height: d.processed.height,
+      },
+      ...(d.videoBlob ? { videoBlob: d.videoBlob, videoType: d.videoType || 'video/mp4', durationSec: d.durationSec || 0 } : {}),
+    })));
+    drafts.forEach((d) => URL.revokeObjectURL(d.previewUrl));
+    setQueuedOffline(true);
+  };
+
   const submit = async () => {
     if (!profile?.familyId || !canSubmit) return;
     setError('');
+
+    // 📴 O2 — no internet? The post waits on this phone and sends itself.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      try { await queuePostOffline(); } catch (e: any) { setError(e?.message || 'Could not save the post on this phone.'); }
+      return;
+    }
+
     setUploading(true);
     setProgress({ done: 0, total: drafts.length });
 
@@ -334,6 +394,14 @@ export default function ComposeMomentPage() {
       drafts.forEach((d) => URL.revokeObjectURL(d.previewUrl));
       router.replace(`/moments/${postId}`);
     } catch (e: any) {
+      // 📴 O2 — connection dropped mid-upload: the outbox takes over.
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        try {
+          await queuePostOffline();
+          setUploading(false);
+          return;
+        } catch { /* fall through to the plain error */ }
+      }
       setError(e?.message || 'Upload failed. Tap Submit to retry.');
       // Best-effort cleanup of any photos that did make it up.
       try {

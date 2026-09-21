@@ -8,7 +8,7 @@ import { useParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
-  Message, MessageThread, Attachment, ThreadMember,
+  Message, MessageThread, Attachment, AttachmentKind, ThreadMember,
   subscribeThread, subscribeMessages, sendMessage, markThreadRead, selfMember, threadHeader,
   seenByUids, readAtFor, otherMember, setTyping, typingNames, subscribePresence, lastSeenText, isOnline,
   messagePreview, setThreadTitle, messageableMembers, addThreadMember, removeThreadMember,
@@ -16,6 +16,8 @@ import {
 import { notifyNewMessage } from '@/lib/notify';
 import { uploadMessagePhoto, uploadMessageVideo, uploadMessageDocument, uploadMessageVoice } from '@/lib/messagingUpload';
 import { pickVoiceRecorderMime, ensureUniversalVoice } from '@/lib/audio/voiceUniversal';
+import { enqueueMessage, countQueuedMessages, subscribeOutbox, syncOutbox } from '@/lib/offlineOutbox';
+import { awaitQueuedWrite } from '@/lib/offlineWrite';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 import VoiceBubble from '@/components/messages/VoiceBubble';
 import DocActionSheet from '@/components/DocActionSheet';
@@ -44,6 +46,24 @@ const mmss = (s?: number): string => {
 };
 const MAX_VOICE_SECONDS = 120;
 
+// 📴 O2 — attachments now stage LOCALLY (no upload at attach time): instant,
+// offline-safe, and nothing orphans in Storage when a message is never sent.
+// Upload happens at SEND; with no internet the whole message waits in the
+// on-device outbox and sends itself later.
+interface PendingItem {
+  id: string;
+  kind: AttachmentKind;
+  blob: Blob;
+  name?: string;
+  sizeBytes: number;
+  durationSec?: number;
+  previewUrl: string;  // objectURL for photo thumbnails; '' for the rest
+}
+const pid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+const PENDING_MAX: Record<AttachmentKind, number> = {
+  photo: 25 * 1024 * 1024, video: 50 * 1024 * 1024, voice: 25 * 1024 * 1024, document: 25 * 1024 * 1024,
+};
+
 export default function MessageThreadPage() {
   const params = useParams();
   const threadId = String(params?.threadId || '');
@@ -56,8 +76,8 @@ export default function MessageThreadPage() {
   const [thread, setThread] = useState<MessageThread | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState('');
-  const [pending, setPending] = useState<Attachment[]>([]);
-  const [uploading, setUploading] = useState(false);
+  const [pending, setPending] = useState<PendingItem[]>([]);
+  const [queuedHere, setQueuedHere] = useState(0); // 📴 O2 — outbox messages for THIS thread
   const [sending, setSending] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
   // 2026-05-27 — new camera-first attach paths. Open the same component in
@@ -101,6 +121,16 @@ export default function MessageThreadPage() {
     const u1 = subscribeThread(familyId, threadId, setThread);   // live `reads` → receipts
     const u2 = subscribeMessages(familyId, threadId, setMessages);
     return () => { u1(); u2(); };
+  }, [familyId, threadId]);
+
+  // 📴 O2 — live count of this thread's outbox messages (the ⏳ chip).
+  useEffect(() => {
+    if (!familyId || !threadId) return;
+    let alive = true;
+    return subscribeOutbox(() => {
+      void countQueuedMessages(familyId, threadId).then((n) => { if (alive) setQueuedHere(n); });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [familyId, threadId]);
 
   // Mark read whenever the latest message isn't mine (respecting my receipt choice).
@@ -196,18 +226,25 @@ export default function MessageThreadPage() {
   // Family roster minus members already in the thread = the add-picker list.
   const candidates = allFamilyMembers.filter((m) => !(thread?.memberUids ?? []).includes(m.uid));
 
-  const addFiles = async (files: FileList | File[] | null, up: (f: File) => Promise<Attachment>) => {
+  // 📴 O2 — attaching is instant + offline-safe: files stage locally and
+  // upload at send time (or wait in the outbox with no internet).
+  const stageFiles = (files: FileList | File[] | null, kind: AttachmentKind) => {
     setAttachOpen(false);
-    if (!files || (Array.isArray(files) ? files.length === 0 : files.length === 0) || !familyId) return;
-    setError(''); setUploading(true);
-    try {
-      const out: Attachment[] = [];
-      const arr: File[] = Array.isArray(files) ? files : Array.from(files);
-      for (const f of arr) out.push(await up(f));
-      setPending((p) => [...p, ...out.filter((a) => a.url)]);
-    } catch (e: any) {
-      setError(e?.message || 'Could not attach that file.');
-    } finally { setUploading(false); }
+    if (!files) return;
+    setError('');
+    const arr: File[] = Array.isArray(files) ? files : Array.from(files);
+    const ok: PendingItem[] = [];
+    for (const f of arr) {
+      if (f.size > PENDING_MAX[kind]) {
+        setError(kind === 'video' ? 'Video is too big — keep it under ~50 MB.' : 'That file is too large — keep it under 25 MB.');
+        continue;
+      }
+      ok.push({
+        id: pid(), kind, blob: f, name: f.name, sizeBytes: f.size,
+        previewUrl: kind === 'photo' ? URL.createObjectURL(f) : '',
+      });
+    }
+    if (ok.length) setPending((p) => [...p, ...ok]);
   };
 
   // ── Voice notes (MediaRecorder) ──
@@ -235,16 +272,17 @@ export default function MessageThreadPage() {
         const dur = Math.max(1, Math.round((Date.now() - recStartRef.current) / 1000));
         const blob = new Blob(chunksRef.current, { type: mr.mimeType || 'audio/webm' });
         chunksRef.current = [];
-        setUploading(true);
         try {
           // Voice 2.0 (V2) — whatever was recorded, what UPLOADS is universal
           // (M4A stays; WebM/Ogg convert to mono 16 kHz WAV on this phone),
           // so the receiver's phone can always play it, with a real duration.
+          // 📴 O2 — the note stages locally; it uploads at send (or queues).
           const uni = await ensureUniversalVoice(blob);
-          const att = await uploadMessageVoice(familyId!, threadId, uni.blob, dur);
-          if (att.url) setPending((p) => [...p, att]);
+          setPending((p) => [...p, {
+            id: pid(), kind: 'voice', blob: uni.blob, sizeBytes: uni.blob.size,
+            durationSec: dur, previewUrl: '',
+          }]);
         } catch (e: any) { setError(e?.message || 'Could not save the voice note.'); }
-        finally { setUploading(false); }
       };
       // Voice 2.0 (V3) — 1-second slices: an interrupted recording still
       // yields the audio captured so far instead of losing everything.
@@ -268,24 +306,71 @@ export default function MessageThreadPage() {
   const send = async () => {
     if (!familyId || !me || sending) return;
     if (!text.trim() && pending.length === 0) return;
-    const sentText = text; const sentAttachments = pending;
+    const sentText = text; const items = pending;
     setSending(true); setError('');
-    try {
-      await sendMessage(familyId, threadId, { text, attachments: pending }, me);
+    const recipientUids = (thread?.memberUids || []).filter((u) => u !== uid);
+    const clearComposer = () => {
       setText(''); setPending([]);
       typingSentRef.current = 0;
       if (myShareTyping) setTyping(familyId, threadId, uid, false).catch(() => {});
-      // Notify the other members — in-app bell + push (best-effort).
-      if (thread) {
-        notifyNewMessage({
-          familyId, threadId,
-          recipientUids: (thread.memberUids || []).filter((u) => u !== uid),
-          senderName: me.name,
-          preview: messagePreview(sentText, sentAttachments),
-          isGroup: thread.kind === 'group',
-          groupTitle: thread.title,
-        }).catch(() => {});
+    };
+    const doNotify = (attachments: Attachment[]) => {
+      if (!thread) return;
+      notifyNewMessage({
+        familyId, threadId,
+        recipientUids,
+        senderName: me.name,
+        preview: messagePreview(sentText, attachments),
+        isGroup: thread.kind === 'group',
+        groupTitle: thread.title,
+      }).catch(() => {});
+    };
+    // 📴 O2 — a message with attachments that can't upload right now waits,
+    // whole, in the on-device outbox and sends itself when internet returns.
+    const queueIt = async () => {
+      await enqueueMessage({
+        familyId, threadId, text: sentText,
+        items: items.map((p) => ({
+          kind: p.kind, blob: p.blob,
+          ...(p.name ? { name: p.name } : {}),
+          ...(p.durationSec ? { durationSec: p.durationSec } : {}),
+        })),
+        sender: me, recipientUids,
+        isGroup: thread?.kind === 'group',
+        ...(thread?.title ? { groupTitle: thread.title } : {}),
+      });
+    };
+    try {
+      if (items.length === 0) {
+        // Text-only rides Firestore's own offline queue (O1) — it shows in
+        // the thread from cache immediately; awaitQueuedWrite keeps the send
+        // button from spinning forever with no internet.
+        await awaitQueuedWrite(sendMessage(familyId, threadId, { text: sentText, attachments: [] }, me));
+        clearComposer();
+        doNotify([]);
+      } else if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        await queueIt();
+        clearComposer();
+      } else {
+        try {
+          const attachments: Attachment[] = [];
+          for (const p of items) {
+            const f = p.blob instanceof File ? p.blob : new File([p.blob], p.name || 'file', { type: p.blob.type });
+            if (p.kind === 'photo') attachments.push(await uploadMessagePhoto(familyId, threadId, f));
+            else if (p.kind === 'video') attachments.push(await uploadMessageVideo(familyId, threadId, f));
+            else if (p.kind === 'voice') attachments.push(await uploadMessageVoice(familyId, threadId, p.blob, p.durationSec || 1));
+            else attachments.push(await uploadMessageDocument(familyId, threadId, f));
+          }
+          await awaitQueuedWrite(sendMessage(familyId, threadId, { text: sentText, attachments: attachments.filter((a) => a.url) }, me));
+          clearComposer();
+          doNotify(attachments);
+        } catch {
+          // Network dropped mid-upload — the outbox takes over.
+          await queueIt();
+          clearComposer();
+        }
       }
+      void syncOutbox();
     } catch (e: any) {
       setError(e?.message || 'Could not send.');
     } finally { setSending(false); }
@@ -517,23 +602,31 @@ export default function MessageThreadPage() {
         <div ref={bottomRef} />
       </div>
 
-      {/* Pending attachments */}
-      {(pending.length > 0 || uploading) && (
+      {/* 📴 O2 — messages waiting in the outbox for this thread. */}
+      {queuedHere > 0 && (
+        <div className="py-2 border-t border-kaya-warm-dark/40 mt-2">
+          <span className="inline-flex items-center gap-1.5 bg-[#FFF4E0] border border-hive-honey-soft text-hive-honey-dk rounded-hive-pill px-3 py-1.5 text-[11.5px] font-nunito font-black">
+            ⏳ {queuedHere} message{queuedHere === 1 ? '' : 's'} waiting for internet — will send by itself 📤
+          </span>
+        </div>
+      )}
+
+      {/* Pending attachments (staged locally — upload happens at send) */}
+      {pending.length > 0 && (
         <div className="flex flex-wrap gap-2 py-2 border-t border-kaya-warm-dark/40 mt-2">
-          {pending.map((a, i) => (
-            <div key={i} className="relative">
-              {a.kind === 'photo'
+          {pending.map((a) => (
+            <div key={a.id} className="relative">
+              {a.kind === 'photo' && a.previewUrl
                 // eslint-disable-next-line @next/next/no-img-element
-                ? <img src={a.url} alt="" className="w-14 h-14 rounded-kaya-sm object-cover border border-kaya-warm-dark/40" />
+                ? <img src={a.previewUrl} alt="" className="w-14 h-14 rounded-kaya-sm object-cover border border-kaya-warm-dark/40" />
                 : <div className="w-14 h-14 rounded-kaya-sm bg-kaya-warm border border-kaya-warm-dark/40 flex flex-col items-center justify-center text-xl leading-none">
                     {a.kind === 'video' ? '🎬' : a.kind === 'voice' ? '🎤' : '📄'}
                     {a.kind === 'voice' && a.durationSec ? <span className="text-[9px] font-bold text-kaya-sand mt-0.5">{mmss(a.durationSec)}</span> : null}
                   </div>}
-              <button type="button" onClick={() => setPending((p) => p.filter((_, j) => j !== i))}
+              <button type="button" onClick={() => setPending((p) => p.filter((x) => x.id !== a.id))}
                 className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-hive-rose text-white text-[11px] flex items-center justify-center border-2 border-white">✕</button>
             </div>
           ))}
-          {uploading && <div className="w-14 h-14 rounded-kaya-sm bg-kaya-warm flex items-center justify-center text-[10px] text-kaya-sand">…</div>}
         </div>
       )}
 
@@ -577,7 +670,7 @@ export default function MessageThreadPage() {
           // Re-use the same addFiles path so attachments queue + send like
           // every other photo. Each captured page becomes its own message
           // attachment in v1; PDF assembly follows in a later PR.
-          await addFiles(files, (f) => uploadMessagePhoto(familyId, threadId, f));
+          stageFiles(files, 'photo');
         }}
       />
 
@@ -621,9 +714,9 @@ export default function MessageThreadPage() {
           className="w-11 h-11 rounded-full bg-kaya-chocolate text-white text-lg flex items-center justify-center shrink-0 disabled:opacity-40 hover:brightness-110 transition">➤</button>
       </div>
 
-      <input ref={photoRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => addFiles(e.target.files, (f) => uploadMessagePhoto(familyId!, threadId, f))} />
-      <input ref={videoRef} type="file" accept="video/*" className="hidden" onChange={(e) => addFiles(e.target.files, (f) => uploadMessageVideo(familyId!, threadId, f))} />
-      <input ref={docRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,application/pdf" className="hidden" onChange={(e) => addFiles(e.target.files, (f) => uploadMessageDocument(familyId!, threadId, f))} />
+      <input ref={photoRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => stageFiles(e.target.files, 'photo')} />
+      <input ref={videoRef} type="file" accept="video/*" className="hidden" onChange={(e) => stageFiles(e.target.files, 'video')} />
+      <input ref={docRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,application/pdf" className="hidden" onChange={(e) => stageFiles(e.target.files, 'document')} />
 
       {zoom && (
         <div onClick={() => setZoom(null)} className="fixed inset-0 z-[100] bg-black/85 flex items-center justify-center p-4 cursor-zoom-out">
