@@ -42,6 +42,17 @@ export interface LeaderConfig {
    * after the note was sent (or brought back).
    */
   noteExpiry: LeaderNoteExpiry;
+  /**
+   * 🤝 Passing the Crown (approved 2026-09-21) — the hand-over ceremony at
+   * the close of the Sunday meeting: outgoing leader's speech → incoming
+   * leader's speech (the Pledge) → the crown passes. Each behaviour is its
+   * own switch, all default ON.
+   */
+  handoverEnabled: boolean;
+  /** Next stays locked until both speeches are marked said (skip asks why). */
+  handoverRequired: boolean;
+  /** One prompted sentence from a parent after the pledge. */
+  handoverBlessing: boolean;
 }
 
 export type LeaderNoteExpiry = 'never' | 'term-end' | '7d' | '14d';
@@ -70,6 +81,9 @@ export const DEFAULT_LEADER_CONFIG: LeaderConfig = {
   missionsOn: true,
   coachNudgesOn: true,
   noteExpiry: 'never',
+  handoverEnabled: true,
+  handoverRequired: true,
+  handoverBlessing: true,
 };
 
 export function readLeaderConfig(family: { leaderConfig?: Partial<LeaderConfig> } | null | undefined): LeaderConfig {
@@ -88,6 +102,9 @@ export function readLeaderConfig(family: { leaderConfig?: Partial<LeaderConfig> 
     missionsOn: typeof s.missionsOn === 'boolean' ? s.missionsOn : DEFAULT_LEADER_CONFIG.missionsOn,
     coachNudgesOn: typeof s.coachNudgesOn === 'boolean' ? s.coachNudgesOn : DEFAULT_LEADER_CONFIG.coachNudgesOn,
     noteExpiry: s.noteExpiry === 'term-end' || s.noteExpiry === '7d' || s.noteExpiry === '14d' ? s.noteExpiry : DEFAULT_LEADER_CONFIG.noteExpiry,
+    handoverEnabled: typeof s.handoverEnabled === 'boolean' ? s.handoverEnabled : DEFAULT_LEADER_CONFIG.handoverEnabled,
+    handoverRequired: typeof s.handoverRequired === 'boolean' ? s.handoverRequired : DEFAULT_LEADER_CONFIG.handoverRequired,
+    handoverBlessing: typeof s.handoverBlessing === 'boolean' ? s.handoverBlessing : DEFAULT_LEADER_CONFIG.handoverBlessing,
   };
 }
 
@@ -143,6 +160,12 @@ export interface LeaderTerm {
   openingWordDone?: boolean;
   themeSet?: boolean;
   rolesDealt?: boolean;
+  /** 🤝 The outgoing leader's farewell speech was said at the hand-over
+   *  (approved Q11: +1 🎤 Host, the cap of 5 stays). */
+  handoverSpeechSaid?: boolean;
+  /** 📜 When this leader took the Leader's Pledge — in the meeting, or on
+   *  their Home when they were absent / appointed by a parent. */
+  pledgedAt?: number;
   /** Leader's own 🔴 days during the term (daily ratings) — 0 → +1 Consistent. */
   badDays?: number;
   // Sealed at close:
@@ -219,7 +242,7 @@ function bucket(n: number, steps: number[]): number {
   return Math.min(5, score);
 }
 
-export function computeTraits(term: Pick<LeaderTerm, 'ledMeeting' | 'openingWordDone' | 'themeSet' | 'rolesDealt' | 'badDays'>, c: LeaderTermCounts, hostApplicable: boolean): LeaderTraits {
+export function computeTraits(term: Pick<LeaderTerm, 'ledMeeting' | 'openingWordDone' | 'themeSet' | 'rolesDealt' | 'badDays' | 'handoverSpeechSaid'>, c: LeaderTermCounts, hostApplicable: boolean): LeaderTraits {
   const inspiring = bucket(c.shoutOuts, [1, 2, 4, 6, 9]);
   // Firm: 0→0 · 1→2 · 2→3 · 3+→4 · +1 if none declined (max 5)
   let firm = c.headsUps === 0 ? 0 : c.headsUps === 1 ? 2 : c.headsUps === 2 ? 3 : 4;
@@ -239,6 +262,8 @@ export function computeTraits(term: Pick<LeaderTerm, 'ledMeeting' | 'openingWord
     host = term.ledMeeting ? 3 : 0;
     if (term.ledMeeting && term.openingWordDone) host += 1;
     if (term.ledMeeting && (term.themeSet || term.rolesDealt)) host += 1;
+    // 🤝 Q11 — the farewell speech counts; the cap of 5 stays, so nothing inflates.
+    if (term.ledMeeting && term.handoverSpeechSaid) host += 1;
     host = Math.min(5, host);
   }
   return { inspiring, firm, fair, consistent, host };
@@ -249,7 +274,7 @@ export const TRAIT_META: Record<LeaderTraitKey, { emoji: string; label: string; 
   firm: { emoji: '🧭', label: 'Firm', style: 'Firm Coach', explain: 'Heads-ups that helped (approved by parents) — capped at 3.' },
   fair: { emoji: '⚖️', label: 'Fair', style: 'Fair Guide', explain: 'Did every sibling get noticed, and did parents agree with the notes?' },
   consistent: { emoji: '🔥', label: 'Consistent', style: 'Steady Hand', explain: 'Days with a note, plus leading by example (no red days).' },
-  host: { emoji: '🎤', label: 'Host', style: 'Great Host', explain: 'Led the Sunday meeting to the end, opening word, theme or roles.' },
+  host: { emoji: '🎤', label: 'Host', style: 'Great Host', explain: 'Led the Sunday meeting to the end, opening word, theme or roles, hand-over speech.' },
 };
 
 export const TRAIT_ORDER: LeaderTraitKey[] = ['inspiring', 'firm', 'fair', 'consistent', 'host'];
@@ -427,4 +452,87 @@ export function guideBlocks(opts: { isLeader: boolean; leaderName: string; custo
   ];
   if (opts.customDuties.length) blocks.push({ title: 'Our family adds', lines: opts.customDuties.map((d) => `• ${d}`) });
   return blocks;
+}
+
+// ── 🤝 Passing the Crown — the Leader's Pledge + speech starters ─────
+// (approved 2026-09-21, R24–R26.) FIVE principles, ONE per leadership trait
+// — the new leader promises exactly what the radar later recognises. They
+// are fixed (so the radar stays meaningful); the family's own voice goes in
+// "Our family adds" = the same `customDuties` the guide already shows. One
+// source, so the pledge, the guide and the traits can never disagree.
+
+export interface PledgeLine { emoji: string; text: string; trait: LeaderTraitKey }
+
+export const LEADER_PLEDGE: ReadonlyArray<PledgeLine> = [
+  { emoji: '🌟', text: 'I will lead by example — my own routines come first.', trait: 'consistent' },
+  { emoji: '👀', text: 'I will look for the good in everyone, every day.', trait: 'inspiring' },
+  { emoji: '⚖️', text: 'I will be fair and honest — the same rules for everyone, even me.', trait: 'fair' },
+  { emoji: '🤝', text: 'I will help, not boss — a heads-up is to lift someone up, never to get them in trouble.', trait: 'firm' },
+  { emoji: '🎤', text: 'I will lead next Sunday\'s meeting from the opening word to the very end.', trait: 'host' },
+];
+
+/** What the whole family answers after the pledge. */
+export const PLEDGE_RESPONSE = 'We will help you lead!';
+
+/** Outgoing leader — three sentence-starters (never a blank page). */
+export function outgoingStarters(nextFirstName: string): string[] {
+  return [
+    '🌟 "The moment I\'m proudest of as leader…"',
+    '🪞 "One thing I would do better next time…"',
+    `🎁 "${nextFirstName || 'New leader'}, my advice to you is…"`,
+  ];
+}
+
+/** Incoming leader — their own words after the pledge. */
+export function incomingStarters(prevFirstName: string): string[] {
+  return [
+    '🏠 "This week I want our home to…"',
+    '🤝 "I\'ll need your help with…"',
+    ...(prevFirstName ? [`🙏 "Thank you, ${prevFirstName}, for…"`] : []),
+  ];
+}
+
+/** Same leader again — one renewal speech. */
+export const RENEWAL_STARTERS = ['🔁 "What I\'ll keep doing…"', '🪞 "What I\'ll do better this time…"'];
+
+/** Little leader (can't read yet) — one starter; a parent reads the pledge. */
+export const LITTLE_STARTER = '🧸 "This week I will…"';
+
+export const BLESSING_PROMPT = 'One thing I already see in you that will make you a good leader…';
+
+export const HANDOVER_SKIP_REASONS: ReadonlyArray<[string, string]> = [
+  ['not-here', 'Someone isn\'t here'],
+  ['too-late', 'It\'s too late tonight'],
+  ['too-little', 'Too little for speeches'],
+  ['other', 'Another reason'],
+];
+
+/** The hand-over record stamped on tonight's meeting (finish-only doc). */
+export interface MeetingHandover {
+  outgoing?: { id: string; name: string; emoji?: string; said: boolean };
+  incoming?: { id: string; name: string; emoji?: string; kind: 'kid' | 'parent' | 'helper'; said: boolean; pledged: number; pledgeOf: number };
+  variant: 'standard' | 'renewal' | 'absent' | 'little' | 'adult' | 'no-crown';
+  advice?: string;
+  blessingBy?: string;
+  skipped?: { reason: string; label: string };
+}
+
+/** One honest line for the Meeting Report (S26). */
+export function handoverReportLines(h: MeetingHandover): { head: string; detail: string; advice?: string } {
+  const out = h.outgoing ? `${h.outgoing.emoji || ''} ${h.outgoing.name.split(' ')[0]}`.trim() : '';
+  const inn = h.incoming ? `${h.incoming.emoji || ''} ${h.incoming.name.split(' ')[0]}`.trim() : '';
+  const head = out && inn && h.variant !== 'renewal' ? `${out} → ${inn}` : (inn || out || '—');
+  if (h.skipped) {
+    const waits = h.incoming?.kind === 'kid' ? ` · pledge waiting on ${h.incoming.name.split(' ')[0]}'s Home` : '';
+    return { head, detail: `skipped — ${h.skipped.label.toLowerCase()}${waits}` };
+  }
+  const bits: string[] = [];
+  if (h.outgoing && h.variant !== 'renewal') bits.push(`${h.outgoing.said ? '✓' : '—'} Outgoing speech said`);
+  if (h.incoming) {
+    if (h.variant === 'absent') bits.push(`pledge waiting on ${h.incoming.name.split(' ')[0]}'s Home`);
+    else if (h.variant !== 'adult') bits.push(`${h.incoming.pledged >= h.incoming.pledgeOf ? '✓' : '—'} Pledge taken (${h.incoming.pledged} of ${h.incoming.pledgeOf})`);
+    if (h.variant !== 'absent') bits.push(`${h.incoming.said ? '✓' : '—'} ${h.variant === 'renewal' ? 'Renewal speech said' : 'Incoming speech said'}`);
+  }
+  if (h.blessingBy) bits.push(`💛 Blessing by ${h.blessingBy.split(' ')[0]}`);
+  return { head, detail: bits.join(' · '), ...(h.advice ? { advice: h.advice } : {}) };
 }

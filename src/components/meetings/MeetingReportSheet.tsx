@@ -8,6 +8,7 @@
 // meeting doc has, so old meetings simply show fewer sections.
 
 import { useEffect, useMemo, useState } from 'react';
+import { handoverReportLines } from '@/lib/leaderWeek.shared';
 import { auth } from '@/lib/firebase';
 import { getFamilyMembers, type Meeting, type Child } from '@/lib/firestore';
 import { fetchCupboard, cupboardWeekStats, meetingLineFor, liveItems } from '@/lib/sparks/cupboard';
@@ -129,6 +130,17 @@ export default function MeetingReportSheet({ meeting, childrenList, familyId, on
             {kids.length === 0 && parents.length === 0 && guests.length === 0 && <p className="text-kaya-sand">Not recorded.</p>}
           </Section>
 
+          {meeting.handover && (() => {
+            // 🤝 Passing the Crown — one honest line (a skip is visible too).
+            const h = handoverReportLines(meeting.handover);
+            return (
+              <Section title="🤝 Hand-over">
+                <p className="text-[13px] text-kaya-chocolate"><span className="font-bold">{h.head}</span></p>
+                <p className="text-[12.5px] text-kaya-chocolate/80 mt-0.5">{h.detail}</p>
+                {h.advice && <p className="text-[12.5px] text-kaya-chocolate/80 mt-0.5">🎁 Advice: <i>“{h.advice}”</i></p>}
+              </Section>
+            );
+          })()}
           {meeting.openingWord && (
             <Section title="🙏 Opening Word">
               <p>
