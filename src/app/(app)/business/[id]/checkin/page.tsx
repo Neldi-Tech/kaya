@@ -22,13 +22,16 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
-  Business, BusinessItem, StockTake, StockMedia,
+  Business, BusinessItem, StockTake,
   subscribeToBusiness, subscribeToBusinessItems, subscribeToStockTakes,
   saveStockTake, todayKey, stockTakeStreak, logSale,
   readBusinessConfig, requestStockTakeHp, flagStockTakeHp,
   resolvePricingModel, pricingModelMeta, keepsStock,
 } from '@/lib/business';
-import { uploadBusinessPhoto } from '@/lib/businessPhoto';
+import { prepareBusinessPhotoBlob } from '@/lib/businessPhoto';
+import { enqueueBusinessPhoto, syncOutbox } from '@/lib/offlineOutbox';
+import { awaitQueuedWrite } from '@/lib/offlineWrite';
+import { OfflineBanner, OutboxChip } from '@/components/offline/OfflineKit';
 import { auth } from '@/lib/firebase';
 import { formatCash } from '@/components/hive/format';
 import { useCelebrate } from '@/components/celebrate/CelebrationProvider';
@@ -126,11 +129,14 @@ export default function DailyCheckinPage() {
     setError(''); setSaving(true);
     try {
       // 1 · Book today's sales for real (each line sweeps the Honey Pot).
+      //     📴 O1 — the sale is ONE queued WriteBatch inside logSale now, so
+      //     with no internet it books on-device and lands on reconnect;
+      //     awaitQueuedWrite keeps the save from spinning forever.
       for (const it of soldLines) {
         const q = sold[it.id] || 0;
         const price = priceFor(it);
         if (q <= 0 || price <= 0) continue;
-        await logSale(familyId, businessId, {
+        await awaitQueuedWrite(logSale(familyId, businessId, {
           qty: q,
           halfSteps,
           unitPriceCents: price,
@@ -138,22 +144,26 @@ export default function DailyCheckinPage() {
           productName: it.name,
           paymentMethod: 'hive_transfer',
           description: `${it.name} (check-in)`,
-        }, { uid: profile.uid, ownerId: business.ownerId });
+        }, { uid: profile.uid, ownerId: business.ownerId }), 4000);
       }
-      // 2 · Photos (optional for a check-in).
-      const uploaded: StockMedia[] = [];
+      // 2 · Photos (optional) — downscale NOW, queue in the on-device outbox;
+      //     the sync engine flies them up by itself (O1 · R2/R4).
+      let queuedPhotos = 0;
       for (const m of media) {
         try {
-          const url = await uploadBusinessPhoto(familyId, businessId, m.file);
-          if (url) uploaded.push({ url, kind: 'photo' });
+          const blob = await prepareBusinessPhotoBlob(m.file);
+          await enqueueBusinessPhoto(familyId, businessId, today, blob);
+          queuedPhotos++;
         } catch { /* photos are optional — keep going */ }
       }
       // 3 · The day's record — same collection as stock-takes, so the streak,
-      //     reminders and HP all just work (R14).
-      await saveStockTake(familyId, businessId, {
+      //     reminders and HP all just work (R14). Saves FIRST, offline-safe.
+      await awaitQueuedWrite(saveStockTake(familyId, businessId, {
         date: today, ownerId: business.ownerId, itemsTouched: soldLines.length,
-        note: note.trim() || undefined, media: uploaded, isCheckin: true,
-      }, profile.uid);
+        note: note.trim() || undefined, media: [], isCheckin: true,
+        pendingMedia: queuedPhotos,
+      }, profile.uid));
+      void syncOutbox();
 
       // 4 · Instant-cadence House Points — identical to the stock-take path
       //     (D2: check-in HP = stock-take HP, same config, no new settings).
@@ -163,8 +173,9 @@ export default function DailyCheckinPage() {
       if (hp.cadence === 'instant' && hp.perDayHp > 0 && !(prior?.hpGranted || prior?.hpRequested)) {
         const bizRef = { id: businessId, ownerId: business.ownerId, name: business.name, emoji: business.emoji };
         const askParent = async () => {
-          await requestStockTakeHp(familyId, bizRef, hp.perDayHp, today, profile!.uid, 'checkin');
-          await flagStockTakeHp(familyId, businessId, today, { hpRequested: true });
+          // 📴 O1 — these queue on-device offline; never spin the save.
+          await awaitQueuedWrite(requestStockTakeHp(familyId, bizRef, hp.perDayHp, today, profile!.uid, 'checkin'));
+          await awaitQueuedWrite(flagStockTakeHp(familyId, businessId, today, { hpRequested: true }));
         };
         try {
           if (hp.mode === 'auto') {
@@ -237,6 +248,10 @@ export default function DailyCheckinPage() {
           </div>
         </div>
       </div>
+
+      {/* 📴 O1 — honest offline status (R5). */}
+      <OfflineBanner className="mb-3" />
+      {familyId && <OutboxChip familyId={familyId} businessId={businessId} className="mb-3" />}
 
       <PageSplit rail={rail} railMobile="first" sticky={false}>
       {!canAct ? (

@@ -1,6 +1,9 @@
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore, initializeFirestore, Firestore } from 'firebase/firestore';
+import {
+  getFirestore, initializeFirestore, Firestore,
+  persistentLocalCache, persistentMultipleTabManager,
+} from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
 // authDomain controls what users see in the Google sign-in popup
@@ -29,11 +32,26 @@ const auth = getAuth(app);
 // initializeFirestore must be called before any getFirestore on the
 // same app, so we try-catch the HMR case where the SDK has already
 // been initialised with default settings.
+// 📴 Kaya Offline (O1 · R1, approved 22-Sep-2026): Firestore's on-device
+// cache is ON in the browser — every write (counts, sales, check-ins,
+// approval requests) queues in IndexedDB when there's no internet and syncs
+// itself, in order, when the connection returns. Multi-tab safe. On the
+// server (SSR pass) and anywhere IndexedDB is unavailable we fall back to
+// the plain memory init — exactly the pre-O1 behaviour.
 let db: Firestore;
 try {
-  db = initializeFirestore(app, { ignoreUndefinedProperties: true });
+  db = typeof window !== 'undefined'
+    ? initializeFirestore(app, {
+        ignoreUndefinedProperties: true,
+        localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+      })
+    : initializeFirestore(app, { ignoreUndefinedProperties: true });
 } catch {
-  db = getFirestore(app);
+  try {
+    db = initializeFirestore(app, { ignoreUndefinedProperties: true });
+  } catch {
+    db = getFirestore(app);
+  }
 }
 // Firebase Storage (Blaze plan) — backs the Moments photo feed. Avatars
 // still travel as data: URLs because they're small; full-res photos go

@@ -31,6 +31,7 @@ import AICoachCard from '@/components/business/AICoachCard';
 import AIImageButton from '@/components/business/AIImageButton';
 import StockTakeHistory from '@/components/business/StockTakeHistory';
 import { Page, PageSplit } from '@/components/layout/Page';
+import { OutboxChip } from '@/components/offline/OfflineKit';
 
 const MILESTONE_META = Object.fromEntries(BUSINESS_MILESTONES.map((m) => [m.key, m]));
 
@@ -504,6 +505,10 @@ export default function BusinessDashboardPage() {
       )}
 
       {error && <p className="text-hive-rose text-[12px] font-bold mb-3">{error}</p>}
+
+      {/* 📴 O1 — photos waiting in the on-device outbox for this business
+          (drains itself; celebrates when everything lands). */}
+      {familyId && <OutboxChip familyId={familyId} businessId={businessId} className="mb-3" />}
 
       {/* The everyday habit: stock-take (counts + photo) for stocked
           businesses, the Daily Check-in for everyone else (R14). */}

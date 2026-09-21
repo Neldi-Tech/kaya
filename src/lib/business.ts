@@ -37,7 +37,7 @@
 import {
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, runTransaction,
   query, where, orderBy, limit, onSnapshot,
-  Timestamp, serverTimestamp,
+  Timestamp, serverTimestamp, writeBatch,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
@@ -49,7 +49,8 @@ import type { ApprovalRequest, Wallet } from './hive';
 // hive). A parent later turns the Pot into real Cash. walletPath + txCol let
 // the Pot → business reinvest move the wallet + write the Hive ledger row
 // inside this module's own approval transaction (single-sourced paths).
-import { depositToTreasury, walletPath, txCol as hiveTxCol } from './hive';
+import { addTreasuryDepositToBatch, walletPath, txCol as hiveTxCol } from './hive';
+import { awaitQueuedWrite } from './offlineWrite';
 // Runtime — granting House Points on an approved stock-take. firestore.ts only
 // imports this module's `BusinessConfig` as a *type* (erased), so no cycle.
 import { giveAward } from './firestore';
@@ -1907,7 +1908,16 @@ export async function logSale(
   if (input.customerLabel?.trim()) entry.customerLabel = input.customerLabel.trim();
   if (input.itemId) entry.itemId = input.itemId;
   if (input.productName?.trim()) entry.productName = input.productName.trim();
-  await addDoc(ledgerCol(familyId, businessId), entry);
+  // 📴 Kaya Offline (O1) — the sale books as ONE WriteBatch: ledger row +
+  // Honey-Pot sweep + statement row commit atomically, and a batch queues
+  // offline as a single unit (runTransaction — the old sweep path — needs
+  // the server and failed with no internet). This is strictly tighter than
+  // the previous two separate awaits. awaitQueuedWrite lets the kid's save
+  // finish instantly offline; the queued commit lands on reconnect, and the
+  // post-steps below (stock decrement, stats, milestones) resume then too —
+  // by which point reads hit the live server again, so recomputes stay true.
+  const batch = writeBatch(db);
+  batch.set(doc(ledgerCol(familyId, businessId)), entry);
   if (paymentStatus === 'paid') {
     // HIVE PR1 — sale voice: the Pot entry reads like a sale, not a label
     // soup ("Sold Eggplants → Dad" instead of "Dad · Eggplants").
@@ -1915,8 +1925,9 @@ export async function logSale(
     const note = `Sold ${soldWhat}${input.customerLabel ? ` → ${input.customerLabel.trim()}` : ''}`.slice(0, 80);
     // HIVE PR2 — refId = businessId, so the 📜 Statement drills from the
     // Pot entry straight back to this business's sale history.
-    await depositToTreasury(familyId, actor.ownerId, amountCents, 'business', note, actor.uid, businessId);
+    addTreasuryDepositToBatch(batch, familyId, actor.ownerId, amountCents, 'business', note, actor.uid, businessId);
   }
+  await awaitQueuedWrite(batch.commit());
   // Reduce the sold product's stock (floor 0). Instant-stock items can hit 0
   // and still sell tomorrow (they regrow); this just keeps the count honest.
   // Menu entries (Business 2.0) skip this — nothing was on a shelf to reduce.
@@ -2067,6 +2078,9 @@ export interface StockTake {
    *  business's daily touchpoint), not a stock count. Same collection, same
    *  streak, same HP rail — only the wording differs. */
   isCheckin?: boolean;
+  /** 📴 Kaya Offline (O1) — photos still waiting in the on-device outbox.
+   *  The sync engine counts this down to 0 as each one lands in media[]. */
+  pendingMedia?: number;
 }
 
 export interface StockTakeInput {
@@ -2078,6 +2092,8 @@ export interface StockTakeInput {
   media?: StockMedia[];
   counts?: StockCount[];
   isCheckin?: boolean;
+  /** 📴 O1 — how many photos went to the outbox instead of uploading now. */
+  pendingMedia?: number;
 }
 
 const stockTakesCol = (familyId: string, businessId: string) =>
@@ -2107,6 +2123,7 @@ export async function saveStockTake(
   };
   if (input.note?.trim()) data.note = input.note.trim();
   if (input.isCheckin) data.isCheckin = true;
+  if (typeof input.pendingMedia === 'number' && input.pendingMedia > 0) data.pendingMedia = input.pendingMedia;
   const media = (input.media || []).filter((m) => m.url);
   if (media.length) {
     data.media = media;

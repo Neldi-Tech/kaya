@@ -278,7 +278,12 @@ function ApprovalRow({ req, kidName, familyId, approverUid }: { req: ApprovalReq
                 ))}
               </div>
               {take?.note && <p className="text-[12px] text-hive-navy mt-2 leading-snug">📝 &ldquo;{take.note}&rdquo;</p>}
+              {(take?.pendingMedia ?? 0) > 0 && (
+                <p className="text-[11px] text-hive-honey-dk font-nunito font-extrabold mt-1.5">📤 {take?.pendingMedia} more photo{(take?.pendingMedia ?? 0) === 1 ? '' : 's'} on the way from their phone.</p>
+              )}
             </>
+          ) : (take?.pendingMedia ?? 0) > 0 ? (
+            <p className="text-[11px] text-hive-honey-dk font-nunito font-extrabold">📤 {take?.pendingMedia} photo{(take?.pendingMedia ?? 0) === 1 ? '' : 's'} on the way — taken offline, they upload when their phone finds internet.</p>
           ) : (
             <p className="text-[11px] text-hive-muted">No photos were added for this day.</p>
           )}

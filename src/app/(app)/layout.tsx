@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { ConfirmProvider } from '@/contexts/ConfirmContext';
 import { CelebrationProvider } from '@/components/celebrate/CelebrationProvider';
+import { OfflineSyncBoot } from '@/components/offline/OfflineKit';
 import { PresenceHeartbeat } from '@/components/messaging/PresenceHeartbeat';
 import AppShell from '@/components/layout/AppShell';
 import KayaGuide from '@/components/guide/KayaGuide';
@@ -68,6 +69,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <ConfirmProvider>
       <CelebrationProvider>
         <PresenceHeartbeat />
+        {/* 📴 Kaya Offline (O1) — wires the photo-outbox sync wake-ups
+            (back-online, app foregrounded, gentle interval). Renders nothing. */}
+        <OfflineSyncBoot />
         <AppShell>{children}</AppShell>
         {/* App-wide help bubble for both kids and parents (2026-05-28). */}
         <KayaGuide />

@@ -58,6 +58,7 @@ export default function StockTakeHistory({
                   <div className="font-nunito font-extrabold text-[13px] text-hive-navy">{toDisplayDate(t.date)}{t.date === today ? ' · today' : ''}</div>
                   <div className="text-[11px] text-hive-muted flex items-center gap-2 flex-wrap mt-0.5">
                     <span>{t.itemsTouched} updated</span>
+                    {(t.pendingMedia ?? 0) > 0 && <span className="text-hive-honey-dk font-extrabold">📤 {t.pendingMedia} on the way</span>}
                     {photoN > 0 && <span>📸 {photoN}</span>}
                     {vidN > 0 && <span>🎬 {vidN}</span>}
                     {t.note && <span>📝</span>}
@@ -81,7 +82,10 @@ export default function StockTakeHistory({
               <h3 className="font-nunito font-black text-[15px]">{toDisplayDate(openTake.date)}{openTake.date === today ? ' · today' : ''}</h3>
               <button type="button" onClick={() => setOpenTake(null)} className="w-8 h-8 rounded-full bg-hive-cream text-hive-muted font-black">✕</button>
             </div>
-            <p className="text-[12px] text-hive-muted mb-3">{openTake.itemsTouched} item{openTake.itemsTouched === 1 ? '' : 's'} updated</p>
+            <p className="text-[12px] text-hive-muted mb-3">
+              {openTake.itemsTouched} item{openTake.itemsTouched === 1 ? '' : 's'} updated
+              {(openTake.pendingMedia ?? 0) > 0 && <span className="text-hive-honey-dk font-extrabold"> · 📤 {openTake.pendingMedia} photo{(openTake.pendingMedia ?? 0) === 1 ? '' : 's'} on the way</span>}
+            </p>
             {openTake.counts && openTake.counts.length > 0 && (
               <div className="mb-3">
                 <div className="text-[10px] uppercase tracking-wider font-nunito font-extrabold text-hive-muted mb-1">Counts</div>
