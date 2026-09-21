@@ -299,6 +299,30 @@ async function sendQueuedMessage(m: OutboxMessage): Promise<void> {
 
 // ── The sync engine ───────────────────────────────────────────────
 
+
+/** QA-found hardening (O4): decide what a sync failure means.
+ *  - A network-ish failure (we're offline / flaky): STOP this run and retry
+ *    from the same entry on the next wake — order preserved.
+ *  - A PERMANENT failure (rules denied it, or it has failed many times):
+ *    drop the entry so it can never poison the queue behind it. Denied
+ *    entries can never succeed anyway (e.g. membership changed since it
+ *    was queued). Logged so a stuck report is diagnosable. */
+async function handleSyncFailure(store: string, entry: { id: string; tries: number }, e: unknown): Promise<'continue' | 'break'> {
+  const msg = e instanceof Error ? e.message : String(e);
+  const tries = entry.tries + 1;
+  const denied = /permission|insufficient|unauthorized|unauthenticated/i.test(msg);
+  const online = typeof navigator === 'undefined' || navigator.onLine !== false;
+  if ((denied && online) || tries >= 8) {
+    // eslint-disable-next-line no-console
+    console.error(`[outbox] dropping unsyncable ${store} entry ${entry.id} after ${tries} tries:`, msg);
+    try { await idbDelete(store, entry.id); } catch { /* next run re-tries the drop */ }
+    notify();
+    return 'continue';
+  }
+  try { await idbPut(store, { ...entry, tries, lastError: msg }); } catch { /* keep original */ }
+  return 'break';
+}
+
 let syncing = false;
 let booted = false;
 
@@ -331,12 +355,7 @@ export async function syncOutbox(): Promise<void> {
         await idbDelete(STORE, entry.id);
         notify();
       } catch (e) {
-        // Offline mid-run (or storage hiccup): record the try and stop —
-        // the next wake retries from the oldest entry.
-        try {
-          await idbPut(STORE, { ...entry, tries: entry.tries + 1, lastError: e instanceof Error ? e.message : String(e) });
-        } catch { /* keep the original entry */ }
-        break; // network-ish failure — don't burn tries on the rest this run
+        if (await handleSyncFailure(STORE, entry, e) === 'break') break;
       }
     }
     // O2 · queued Moments posts, oldest first.
@@ -347,10 +366,7 @@ export async function syncOutbox(): Promise<void> {
         await idbDelete(POST_STORE, entry.id);
         notify();
       } catch (e) {
-        try {
-          await idbPut(POST_STORE, { ...entry, tries: entry.tries + 1, lastError: e instanceof Error ? e.message : String(e) });
-        } catch { /* keep the original entry */ }
-        break;
+        if (await handleSyncFailure(POST_STORE, entry, e) === 'break') break;
       }
     }
     // O2 · queued chat messages, oldest first, same bail-on-failure shape.
@@ -361,10 +377,7 @@ export async function syncOutbox(): Promise<void> {
         await idbDelete(MSG_STORE, m.id);
         notify();
       } catch (e) {
-        try {
-          await idbPut(MSG_STORE, { ...m, tries: m.tries + 1, lastError: e instanceof Error ? e.message : String(e) });
-        } catch { /* keep the original entry */ }
-        break;
+        if (await handleSyncFailure(MSG_STORE, m, e) === 'break') break;
       }
     }
   } finally {
