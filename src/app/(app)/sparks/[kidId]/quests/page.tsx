@@ -1,5 +1,7 @@
 'use client';
 
+import QuestStreakChain, { StreakHero } from '@/components/sparks/QuestStreakChain';
+
 // Kaya Sparks · Quests — the kid's list of running quests.
 //
 // D1 · 9th area, same AreaScreen shell as every other Sparks surface.
@@ -111,6 +113,7 @@ export default function QuestsAreaPage() {
           />
         )}
 
+        {active.length > 0 && <div className="mb-3"><StreakHero quests={active} /></div>}
         {active.length > 0 && (
           <div className="grid gap-3 sm:grid-cols-2">
             {active.map((q) => <QuestCard key={q.id} quest={q} kidId={kidId} />)}
@@ -195,6 +198,8 @@ function QuestCard({ quest, kidId }: { quest: Quest; kidId: string }) {
           </span>
         )}
       </div>
+
+      {quest.status === 'active' && <QuestStreakChain quest={quest} days={14} compact />}
 
       <div className="mt-3 flex items-center justify-between gap-2 text-[11px] text-[#5A6488] font-bold">
         <span>{rhythmLine(quest)}</span>

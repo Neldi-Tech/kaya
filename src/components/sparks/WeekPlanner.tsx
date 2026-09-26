@@ -79,6 +79,29 @@ export default function WeekPlanner({ familyId, kidId, kidName, quest, steps }: 
     return cs.filter((c) => !c.rest).every((c) => !c.step);
   }, [quest, steps, nextMonday, today]);
 
+  // 🌱 2026-09-26 · "Plan this week" — a quest created but never planted
+  // sat dead for six weeks in Elia's family (no steps → no streak, ever).
+  // Same approve-then-place flow, aimed at the days LEFT in this week.
+  const remainingThisWeek = useMemo(() => {
+    if (!isCurrentWeek) return 0;
+    return cells.filter((c) => !c.rest && !c.step && c.date >= today).length;
+  }, [cells, isCurrentWeek, today]);
+  const neverPlanted = steps.length === 0;
+
+  async function planThisWeek() {
+    setBusy('plan-now'); setError(''); setNote('');
+    try {
+      const need = Math.min(7, Math.max(1, remainingThisWeek));
+      const { items } = await generateLibrary(quest.id, need);
+      if (!items.length) { setError('Kaya didn’t come back with activities — try again in a moment.'); }
+      else setReview({ items, from: today, ticked: new Set(items.map((i) => i.id)) });
+    } catch (e) {
+      const err = e as Error & { hint?: string };
+      setError(err.hint || 'Kaya couldn’t write this week just now. Try again in a moment.');
+    }
+    setBusy('');
+  }
+
   async function planNextWeek() {
     setBusy('plan'); setError(''); setNote('');
     try {
@@ -141,6 +164,14 @@ export default function WeekPlanner({ familyId, kidId, kidName, quest, steps }: 
 
   return (
     <div className="mt-3 rounded-[18px] border-2 border-[#DFE3FB] bg-white p-3.5">
+      {neverPlanted && (
+        <div className="rounded-[14px] border-2 border-dashed border-[#D4A847] bg-[#FFFBEA] px-3.5 py-3 mb-3">
+          <div className="font-display font-extrabold text-[13.5px] text-[#8A6800]">🌱 Plant the first week — 1 tap</div>
+          <p className="text-[12px] text-[#5A6488] mt-1 mb-0 leading-snug">
+            This quest has no steps yet, so there is nothing for {kidName} to do — and no streak can start. Kaya writes the days left in this week; you tick them; they go on the days.
+          </p>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="font-display font-extrabold text-[13px] text-[#0F1F44]">
           📅 {isCurrentWeek ? 'This week' : weekStart === nextMonday ? 'Next week' : 'Week'} · {fmtRange(weekStart)}
@@ -184,8 +215,15 @@ export default function WeekPlanner({ familyId, kidId, kidName, quest, steps }: 
       )}
 
       <div className="flex items-center gap-2 flex-wrap mt-2.5">
+        {remainingThisWeek > 0 && (
+          <button type="button" onClick={planThisWeek} disabled={!!busy}
+            className="px-3.5 py-2 rounded-xl text-[12.5px] font-extrabold text-white disabled:opacity-50" style={{ background: '#2E7D34' }}>
+            {busy === 'plan-now' ? 'Kaya is writing…' : `✨ Plan this week · ${remainingThisWeek} day${remainingThisWeek === 1 ? '' : 's'} left`}
+          </button>
+        )}
         <button type="button" onClick={planNextWeek} disabled={!!busy}
-          className="px-3.5 py-2 rounded-xl text-[12.5px] font-extrabold text-white disabled:opacity-50" style={{ background: '#5A3CB8' }}>
+          className="px-3.5 py-2 rounded-xl text-[12.5px] font-extrabold disabled:opacity-50"
+          style={remainingThisWeek > 0 ? { background: '#fff', color: '#5A3CB8', border: '1.5px solid #DFE3FB' } : { background: '#5A3CB8', color: '#fff' }}>
           {busy === 'plan' ? 'Kaya is writing…' : '✨ Plan next week'}
         </button>
         <div className="flex items-center gap-1">

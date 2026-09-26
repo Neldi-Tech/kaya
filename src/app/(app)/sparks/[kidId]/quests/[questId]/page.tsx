@@ -1,5 +1,8 @@
 'use client';
 
+import QuestStreakChain from '@/components/sparks/QuestStreakChain';
+import { nudgeParent, scheduledSteps } from '@/lib/sparks/quests';
+
 // Kaya Sparks · one Quest.
 //
 // The quest's own page: the goal, the rhythm, the pathway (built once
@@ -23,7 +26,7 @@ import MarkerPanel from '@/components/sparks/MarkerPanel';
 import QuestRemindersPanel from '@/components/sparks/QuestRemindersPanel';
 import CoachEarCard from '@/components/sparks/CoachEarCard';
 import QuestFinishPanel from '@/components/sparks/QuestFinishPanel';
-import WeekPlanner, { KidWeekStrip } from '@/components/sparks/WeekPlanner';
+import WeekPlanner from '@/components/sparks/WeekPlanner';
 import {
   subscribeToQuest, pauseQuest, resumeQuest, deleteQuest, updateQuest, repairStreak,
   consistency, pathwayProgress, groupStepsByWeek, rhythmLine, restDays,
@@ -110,6 +113,8 @@ export default function QuestDetailPage() {
     || (!!myKidId && myKidId === kidId)
     || profile?.role === 'helper';
 
+  const [askState, setAskState] = useState<'idle' | 'sent' | 'failed'>('idle');
+
   async function onPause() {
     if (!familyId) return;
     setBusy(true);
@@ -164,6 +169,7 @@ export default function QuestDetailPage() {
         {isParent && familyId && quest.status === 'active' && (
           <WeekPlanner familyId={familyId} kidId={kidId} kidName={kid.name} quest={quest} steps={steps} />
         )}
+        {isParent && quest.status === 'active' && <QuestStreakChain quest={quest} steps={steps} days={14} />}
 
         {/* ── 🎬 Step zero · the baseline, before anything else ────── */}
         {quest.status === 'active' && (
@@ -189,16 +195,39 @@ export default function QuestDetailPage() {
                 isToday
               />
             ) : dueToday ? (
+              scheduledSteps(steps).length === 0 && !isParent ? (
+                // 🌱 2026-09-26 · never planted — tell the kid the truth and
+                // let them ask (gateway bell to every parent, once a day).
+                <div className="rounded-[18px] border-2 border-dashed border-[#F3C8C4] bg-[#FFF7F6] px-4 py-4 text-center">
+                  <div className="text-[14px] font-extrabold text-[#8B2130]">🌱 This quest isn’t planted yet</div>
+                  <p className="text-[12px] text-[#5A6488] mt-1 mb-0 max-w-sm mx-auto leading-snug">
+                    A parent needs to put this week’s steps on the days. Until then there’s nothing to do — and nothing you can lose.
+                  </p>
+                  <button type="button" disabled={busy || askState === 'sent'}
+                    onClick={async () => {
+                      if (!familyId) return;
+                      setBusy(true);
+                      const r = await nudgeParent(familyId, kidId, questId).catch(() => ({ ok: false }));
+                      setAskState(r.ok ? 'sent' : 'failed');
+                      setBusy(false);
+                    }}
+                    className="mt-3 px-4 py-2.5 rounded-xl text-[12.5px] font-extrabold text-white disabled:opacity-60"
+                    style={{ background: '#5A3CB8' }}>
+                    {askState === 'sent' ? '🔔 Asked — your parents were told' : askState === 'failed' ? 'Couldn’t send — try again' : '🔔 Ask a parent to plant it'}
+                  </button>
+                </div>
+              ) : (
               <div className="rounded-[18px] border border-[#ECE4D3] bg-[#FBF7EE] px-4 py-5 text-center">
                 <div className="text-[13px] font-extrabold text-[#0F1F44]">
                   Nothing scheduled for today yet
                 </div>
                 <p className="text-[12px] text-[#5A6488] mt-1 mb-0 max-w-sm mx-auto leading-snug">
                   {isParent
-                    ? 'Generate activities in the Library below, tick the ones you’ll allow, then schedule them onto the days.'
+                    ? 'Tap ✨ Plan this week above — Kaya writes the activities, you tick them, they go on the days.'
                     : 'A parent is still choosing today’s activity.'}
                 </p>
               </div>
+              )
             ) : (
               <div className="rounded-[18px] border border-[#ECE4D3] bg-[#E7F5EC] px-4 py-4 text-center">
                 <div className="text-[13px] font-extrabold text-[#2E7D34]">
@@ -208,7 +237,7 @@ export default function QuestDetailPage() {
             )}
 
             {/* QF-3 · kid's read-only week strip */}
-            {!isParent && <KidWeekStrip quest={quest} steps={steps} />}
+            {!isParent && <QuestStreakChain quest={quest} steps={steps} days={28} hero />}
 
             {/* 🔒 What's next — readable, not doable. */}
             {upNext && (!todayStep || todayStep.done) && (

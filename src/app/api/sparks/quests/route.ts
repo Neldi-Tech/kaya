@@ -45,7 +45,9 @@ type Action =
   | 'marker-add' | 'marker-delete' | 'today'
   | 'buddy-set' | 'graduate'
   | 'library-add' | 'library-edit' | 'library-approve' | 'library-remove'
-  | 'library-schedule' | 'library-unschedule';
+  | 'library-schedule' | 'library-unschedule'
+  // 🔔 (2026-09-26) a kid asks the parents to plant the quest
+  | 'nudge-parent';
 
 const ALL_ACTIONS: Action[] = [
   'list', 'get', 'create', 'update', 'delete',
@@ -54,7 +56,7 @@ const ALL_ACTIONS: Action[] = [
   'marker-add', 'marker-delete', 'today',
   'buddy-set', 'graduate',
   'library-add', 'library-edit', 'library-approve', 'library-remove',
-  'library-schedule', 'library-unschedule',
+  'library-schedule', 'library-unschedule', 'nudge-parent',
 ];
 
 // ── Small validators ────────────────────────────────────────────────
@@ -380,6 +382,31 @@ export async function POST(req: NextRequest) {
   //
   // D13 · one action, one SERVER-minted award. Nothing about points is
   // decided on the client, so a kid can't mint their own.
+  // ── 🔔 nudge-parent (2026-09-26) — a kid asks for the quest to be
+  // planted. Kids never write notifications directly (permission wall):
+  // the gateway bells every parent, once per quest per day.
+  if (action === 'nudge-parent') {
+    if (!(isParent || isOwner || isBuddy)) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    const today = todayInTZ();
+    if (String(quest.lastKidNudgeOn || '') === today) return NextResponse.json({ ok: true, already: true });
+    const kidSnap = await famRef.collection('children').doc(kidId).get();
+    const kidFirst = String((kidSnap.data() as { name?: string } | undefined)?.name || 'Your child').split(' ')[0];
+    const parents = await db.collection('users').where('familyId', '==', familyId).where('role', '==', 'parent').get();
+    const title = String(quest.title || 'Quest');
+    const link = `/sparks/${kidId}/quests/${questId}`;
+    for (const p of parents.docs) {
+      await famRef.collection('notifications').add({
+        type: 'quest-plan',
+        title: `🌱 ${kidFirst} is waiting for ${title} to be planted`,
+        message: 'Nothing is on the days yet — ✨ Plan this week in one tap on the quest.',
+        read: false, forUserId: p.id, link,
+        createdAt: FieldValue.serverTimestamp(),
+      }).catch(() => {});
+    }
+    await questRef.update({ lastKidNudgeOn: today }).catch(() => {});
+    return NextResponse.json({ ok: true, notified: parents.size });
+  }
+
   if (action === 'step-done' || action === 'step-undo') {
     // 👥 the buddy shares the streak — either of them keeping the day
     // alive keeps it alive for both.
@@ -493,6 +520,8 @@ export async function POST(req: NextRequest) {
     if (reflectionAttachedDate) patch.reflectionAttachedDate = reflectionAttachedDate;
     if (reflectionClaimed) patch.reflectionClaimed = true;
     await stepRef.update(patch);
+    // 🔥 Streak Chain — remember the day so the hub can draw it.
+    advanced.doneDates = Array.from(new Set([...(streak.doneDates ?? []), stepDate])).sort().slice(-90);
     await questRef.update({ streak: advanced });
 
     return NextResponse.json({
@@ -1114,6 +1143,8 @@ function dowOf(date: string): DayOfWeek {
 interface Streak {
   current: number; best: number; lastDoneDate?: string;
   shields: number; repairUsed?: boolean; shieldedDates?: string[];
+  /** 🔥 Streak Chain — every local day a step was done (last 90). */
+  doneDates?: string[];
 }
 
 function readStreak(v: unknown): Streak {
@@ -1125,6 +1156,7 @@ function readStreak(v: unknown): Streak {
     shields: Number.isFinite(Number(s.shields)) ? Number(s.shields) : 1,
     repairUsed: s.repairUsed === true,
     shieldedDates: Array.isArray(s.shieldedDates) ? s.shieldedDates.slice(-30) : [],
+    doneDates: Array.isArray(s.doneDates) ? s.doneDates.slice(-90) : [],
   };
 }
 
