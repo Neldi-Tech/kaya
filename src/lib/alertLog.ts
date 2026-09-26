@@ -90,7 +90,14 @@ export interface AlertLogEntry {
   kind: 'alert' | 'recovered' | 'kid_reward' | 'kid_digest' | 'kid_statement' | 'storage_quota' | 'points_email'
     // HP2 (2026-08-23) — helper performance emails: weekly report,
     // daily digest, and a kid's review-done note to parents.
-    | 'helper_weekly' | 'helper_daily' | 'kid_review';
+    | 'helper_weekly' | 'helper_daily' | 'kid_review'
+    // 📷 (2026-09-26) — a kid's scan flow reported a failed step.
+    | 'scan_trace';
+  /** scan_trace — which step failed (upload · ocr · capture), the error text, the device. */
+  step?: string;
+  error?: string;
+  surface?: string;
+  ua?: string;
   /** HP2 — ISO week key on helper_weekly / kid_review entries. */
   weekKey?: string;
   /** HP2 kid_review — which helper was reviewed. */

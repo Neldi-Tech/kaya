@@ -217,6 +217,12 @@ export async function POST(req: NextRequest) {
   if (!imageBase64 || !kind) {
     return NextResponse.json({ error: 'Missing imageBase64 or kind' }, { status: 400 });
   }
+  // 2026-09-26 · a raw 12 MP capture as base64 blows the model's 5 MB image
+  // limit — the client now sends a lean JPEG, but never let a stray big
+  // payload turn into a silent failure again.
+  if (imageBase64.length > 5_600_000) {
+    return NextResponse.json({ error: 'image-too-large' }, { status: 413 });
+  }
 
   const system =
     kind === 'achievement'         ? ACHIEVEMENT_SYSTEM

@@ -68,6 +68,31 @@ function fileToBase64(file: File): Promise<{ b64: string; mime: string }> {
   });
 }
 
+// 2026-09-26 · Lean JPEG (≤1600px, q0.85) for OCR: keeps the request well
+// under the 4.5 MB body limit and turns HEIC/PNG captures into a type the
+// reader accepts. Falls back to the raw bytes if this browser can't decode.
+async function fileToOcrBase64(file: File): Promise<{ b64: string; mime: string }> {
+  try {
+    const url = URL.createObjectURL(file);
+    const img = await new Promise<HTMLImageElement>((res, rej) => {
+      const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('decode')); i.src = url;
+    });
+    URL.revokeObjectURL(url);
+    const long = Math.max(img.naturalWidth, img.naturalHeight);
+    const scale = long > 1600 ? 1600 / long : 1;
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(img.naturalWidth * scale));
+    c.height = Math.max(1, Math.round(img.naturalHeight * scale));
+    const ctx = c.getContext('2d');
+    if (!ctx) throw new Error('canvas');
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    const dataUrl = c.toDataURL('image/jpeg', 0.85);
+    return { b64: dataUrl.split(',')[1] ?? '', mime: 'image/jpeg' };
+  } catch {
+    return fileToBase64(file);
+  }
+}
+
 export default function ReflectionPage() {
   const params = useParams<{ kidId: string }>();
   const kidId = params?.kidId ?? '';
@@ -260,32 +285,75 @@ export default function ReflectionPage() {
   // ── Scan flow ──
   // Fed by CameraCaptureSheet (scan mode → AI auto-frame/crop/enhance gives a
   // clean page). Uploads the enhanced page, then OCRs it for the draft text.
+  // 2026-09-26 · kids: "it does not accept the pictures". Root causes: the
+  // upload failure was swallowed, an OCR error left an EMPTY draft (which
+  // could not be saved), and the photo alone could never be saved. Now the
+  // photo is the primary record — uploaded with a retry and an honest
+  // message — Kaya's reading is a bonus, and a photo-only save always
+  // works. Every failure step is traced to the parents' 📜 alert log.
+  const scanTrace = (step: string, error: unknown) => {
+    void (async () => {
+      try {
+        const { auth } = await import('@/lib/firebase');
+        const tok = await auth.currentUser?.getIdToken();
+        if (!tok) return;
+        await fetch('/api/sparks/scan-trace', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
+          body: JSON.stringify({
+            kidId, surface: 'reflection', step,
+            error: String((error as Error)?.message || error || 'unknown').slice(0, 300),
+            ua: navigator.userAgent.slice(0, 200),
+          }),
+        });
+      } catch { /* the trace is best-effort */ }
+    })();
+  };
+
   const processScanFile = async (file: File) => {
     if (!file || !familyId) return;
     setErr(''); setMode('scanning');
+    // 1 · keep the page (one retry) — the photo is the primary record.
+    let up: Awaited<ReturnType<typeof uploadSparksPhoto>> | null = null;
+    let uploadErr: unknown = null;
+    for (let attempt = 0; attempt < 2 && !up; attempt++) {
+      try { up = await uploadSparksPhoto(familyId, `reflection_${kidId}_${today}`, file); }
+      catch (e) { uploadErr = e; }
+    }
+    if (!up) scanTrace('upload', uploadErr);
+    // 2 · Kaya reads it — from a lean JPEG, never the raw capture.
+    let text = '';
+    let readErr = '';
     try {
-      // Upload the page (so the parent can see the original), then OCR it.
-      const up = await uploadSparksPhoto(familyId, `reflection_${kidId}_${today}`, file).catch(() => null);
-      const { b64, mime } = await fileToBase64(file);
+      const { b64, mime } = await fileToOcrBase64(file);
       const res = await fetch('/api/sparks/ai/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ imageBase64: b64, mediaType: mime, kind: 'reflection' }),
       });
       const data = await res.json().catch(() => ({}));
-      if (data?.skipped) {
-        // AI off — let the kid type what they wrote instead.
-        setErr(sw ? 'Uchanganuzi haupatikani sasa — andika kwa mkono kisha andika hapa.' : 'Scanning is off right now — type what you wrote.');
-        setSource('typed'); setMode('review'); setScanUrl(up?.fullUrl);
-        return;
-      }
-      setDraft((data?.text as string || '').trim());
-      setScanUrl(up?.fullUrl);
-      setSource('scan');
-      setMode('review');
-    } catch (e2) {
-      setErr((e2 as Error).message || 'Scan failed');
-      setMode('idle');
+      if (data?.skipped) readErr = 'off';
+      else if (!res.ok || data?.error) { readErr = String(data?.error || `read-failed-${res.status}`); scanTrace('ocr', readErr); }
+      else text = String(data?.text || '').trim();
+    } catch (e) {
+      readErr = (e as Error).message || 'read-failed';
+      scanTrace('ocr', e);
+    }
+    setScanUrl(up?.fullUrl);
+    setSource(up ? 'scan' : 'typed');
+    setDraft(text);
+    setMode('review');
+    const quotaMsg = (uploadErr as Error | null)?.message?.startsWith('📦') ? (uploadErr as Error).message : '';
+    if (!up) {
+      setErr(quotaMsg || (sw
+        ? 'Picha haikuhifadhiwa (mtandao dhaifu?). Maneno ya Kaya yako hapa — changanua tena ukitaka picha.'
+        : 'The photo didn’t save (weak network?). Kaya’s words are here — re-scan if you want the photo kept.'));
+    } else if (readErr === 'off') {
+      setErr(sw ? 'Usomaji haupatikani sasa — hifadhi picha kama ilivyo, au andika maneno.' : 'Reading is off right now — save the photo as it is, or type what you wrote.');
+    } else if (readErr) {
+      setErr(sw ? 'Kaya haikuweza kusoma ukurasa huu — hifadhi picha kama ilivyo, au andika maneno.' : 'Kaya couldn’t read this page — save the photo as it is, or type the words yourself.');
+    } else if (!text) {
+      setErr(sw ? 'Kaya haikuona maneno — hifadhi picha kama ilivyo, au andika.' : 'Kaya didn’t find words on the page — save the photo as it is, or type them.');
     }
   };
 
@@ -360,7 +428,11 @@ export default function ReflectionPage() {
 
   // ── Save + request feedback ──
   const save = async () => {
-    if (!familyId || !draft.trim() || !authProfile?.uid) return;
+    // A photo-only page (Kaya couldn't read it, or the kid prefers not to
+    // type) is a real reflection: it keeps the streak and the parent sees
+    // the handwriting. The route stores an empty text happily.
+    const photoOnly = !draft.trim() && source === 'scan' && !!scanUrl;
+    if (!familyId || (!draft.trim() && !photoOnly) || !authProfile?.uid) return;
     setSaving(true); setErr('');
     try {
       await saveReflection(familyId, {
@@ -378,7 +450,7 @@ export default function ReflectionPage() {
         const next = recent.some((r) => r.date === today)
           ? recent
           : [
-              ({ kidId, date: today, text: draft.trim(), source } as unknown as ReflectionEntry),
+              ({ kidId, date: today, text: draft.trim(), source, scanUrl } as unknown as ReflectionEntry),
               ...recent,
             ];
         const liveStreak = computeReflectionStreak(next);
@@ -422,6 +494,7 @@ export default function ReflectionPage() {
       // the call fails. Fires in parallel with the feedback below.
       void (async () => {
         try {
+          if (!draft.trim()) return;
           const res = await fetch('/api/sparks/ai/reflection-read', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -438,6 +511,7 @@ export default function ReflectionPage() {
       // parallel — degrades silently when the AI key is absent.
       void (async () => {
         try {
+          if (!draft.trim()) return;
           const res = await fetch('/api/sparks/ai/reflection-score', {
             method: 'POST',
             headers: await aiRequestHeaders(),
@@ -453,6 +527,7 @@ export default function ReflectionPage() {
       // Best-effort structured feedback (degrades silently if AI off).
       setFeedbackBusy(true);
       try {
+        if (!draft.trim()) throw new Error('photo-only');
         const res = await fetch('/api/sparks/ai/reflect', {
           method: 'POST',
           headers: await aiRequestHeaders(),
@@ -765,9 +840,15 @@ export default function ReflectionPage() {
         <div className="space-y-3">
           <div className="text-[11px] font-nunito font-black uppercase tracking-[1.2px] text-[#5A6488]">
             {source === 'scan'
-              ? (sw ? '📖 Kaya imesoma ukurasa wako' : '📖 Kaya read your page')
+              ? (draft.trim()
+                ? (sw ? '📖 Kaya imesoma ukurasa wako' : '📖 Kaya read your page')
+                : (sw ? '📷 Ukurasa wako umehifadhiwa — maneno ni hiari' : '📷 Your page is kept — words are optional'))
               : (sw ? '✍️ Andika tafakari yako' : '✍️ Write your reflection')}
           </div>
+          {source === 'scan' && scanUrl && (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img src={scanUrl} alt="" className="w-full max-h-44 object-contain rounded-xl border border-[#ECE4D3] bg-white" />
+          )}
           <textarea
             value={draft}
             onChange={(e) => { setDraft(e.target.value); if (polishedDraft) setPolishedDraft(null); }}
@@ -789,10 +870,14 @@ export default function ReflectionPage() {
                 ↻ {sw ? 'Changanua tena' : 'Re-scan'}
               </button>
             )}
-            <button type="button" onClick={save} disabled={saving || !draft.trim()}
+            <button type="button" onClick={save} disabled={saving || !(draft.trim() || (source === 'scan' && scanUrl))}
               className="ml-auto px-4 py-2 rounded-xl text-white font-nunito font-black text-[13px] disabled:opacity-50"
               style={{ background: VIOLET }}>
-              {saving ? (sw ? 'Inahifadhi…' : 'Saving…') : (sw ? 'Inaonekana sawa · Hifadhi →' : 'Looks right · Save →')}
+              {saving
+                ? (sw ? 'Inahifadhi…' : 'Saving…')
+                : draft.trim()
+                  ? (sw ? 'Inaonekana sawa · Hifadhi →' : 'Looks right · Save →')
+                  : (sw ? 'Hifadhi picha →' : 'Save the photo →')}
             </button>
           </div>
         </div>
