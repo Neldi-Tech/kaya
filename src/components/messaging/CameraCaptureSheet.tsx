@@ -17,7 +17,7 @@
 // quick clean-only enhancePhoto.
 
 import { useEffect, useRef, useState } from 'react';
-import { enhancePhoto, autoScanWithDetector, rotateFile90WithPreview, applyColorMode, tightenScanFile, type ScanColorMode } from '@/lib/photoEnhance';
+import { enhancePhoto, autoScanWithDetector, rotateFile90WithPreview, applyColorMode, tightenScanFile, loadImage, type ScanColorMode } from '@/lib/photoEnhance';
 import { detectCornersBest } from '@/lib/scan/cvDetect';
 import DocumentCropEditor from '@/components/scan/DocumentCropEditor';
 
@@ -42,6 +42,43 @@ type Page = {
   tight: boolean;
 };
 
+// 2026-09-26 (kids: "it does not accept the pictures") — when the enhance
+// pipeline throws (low-RAM phone, odd capture format, CDN detector down),
+// the photo must NEVER be rejected. Keep it exactly as taken, re-encoded
+// to JPEG when this phone can decode it, so the kid carries on and the
+// parent still gets the page. Null only when the bytes are undecodable.
+async function keepAsTaken(file: File): Promise<Page | null> {
+  let out: File;
+  try {
+    const img = await loadImage(file);
+    const long = Math.max(img.naturalWidth, img.naturalHeight);
+    const scale = long > 2000 ? 2000 / long : 1;
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(img.naturalWidth * scale));
+    c.height = Math.max(1, Math.round(img.naturalHeight * scale));
+    const ctx = c.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    const blob = await new Promise<Blob | null>((res) => c.toBlob(res, 'image/jpeg', 0.9));
+    if (!blob) return null;
+    out = new File([blob], 'photo.jpg', { type: 'image/jpeg' });
+  } catch { return null; }
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    original: file,
+    enhanced: out,
+    enhancedUrl: URL.createObjectURL(out),
+    originalUrl: URL.createObjectURL(file),
+    useEnhanced: true,
+    framed: false,
+    mode: 'color',
+    colorBase: out,
+    colorBaseFull: out,
+    colorBaseTight: null,
+    tight: false,
+  };
+}
+
 const MODES: { id: ScanColorMode; label: string }[] = [
   { id: 'color', label: 'Color' }, { id: 'grayscale', label: 'Gray' }, { id: 'bw', label: 'B&W' },
 ];
@@ -64,6 +101,7 @@ export default function CameraCaptureSheet({
   const [pages, setPages] = useState<Page[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [note, setNote] = useState('');
   // Crop editor (scan mode): the just-captured file awaiting crop, and the
   // page being re-cropped (null = a new page).
   const [cropFile, setCropFile] = useState<File | null>(null);
@@ -89,6 +127,7 @@ export default function CameraCaptureSheet({
         return [];
       });
       setError('');
+      setNote('');
       setCropFile(null);
       setRecropId(null);
     }
@@ -136,7 +175,16 @@ export default function CameraCaptureSheet({
       };
       setPages((prev) => [...prev, page]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not process the photo.');
+      // A failed tidy-up never rejects the picture — keep it as taken.
+      const kept = await keepAsTaken(file);
+      if (kept) {
+        setPages((prev) => [...prev, kept]);
+        setNote('📷 Kept the photo exactly as taken — Kaya couldn’t tidy it up this time, and that’s fine.');
+      } else {
+        setError(err instanceof Error && err.message !== 'Could not read the image.'
+          ? err.message
+          : 'This phone couldn’t read that photo. Try again — or in Settings → Camera → Formats choose “Most Compatible”.');
+      }
     } finally {
       setBusy(false);
     }
@@ -350,6 +398,7 @@ export default function CameraCaptureSheet({
           </div>
         )}
 
+        {note && <p className="text-[12px] font-bold text-[#2E7D34] mb-2">{note}</p>}
         {error && <p className="text-hive-rose text-[12px] font-bold mt-3">{error}</p>}
 
         <div className="flex items-center gap-2 mt-4">

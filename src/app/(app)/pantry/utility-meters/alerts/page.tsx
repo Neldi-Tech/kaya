@@ -120,6 +120,23 @@ export default function AlertLogPage() {
           {g.rows.map((e) => {
             // 📦 System alarms (STOR PR1) — storage bucket full; parents
             // were emailed + belled. Fixed template, so the row IS the trace.
+            // 📷 scan_trace (2026-09-26) — a kid's photo flow hit a snag;
+            // the row IS the evidence (step · error · device).
+            if (e.kind === 'scan_trace') {
+              return (
+                <div key={e.id} className="w-full bg-hive-paper border border-hive-line rounded-hive p-3 mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">📷</span>
+                    <span className="font-nunito font-extrabold text-[13px] text-hive-navy">
+                      {e.childName ? `${e.childName}'s ` : ''}scan hiccup · {e.step || 'unknown'}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-nunito font-black bg-[#FFF1C9] text-[#8A6800]">{e.surface || 'reflection'}</span>
+                  </div>
+                  <div className="text-[11.5px] text-hive-navy mt-1 break-words">{e.error || '—'}</div>
+                  <div className="text-[10.5px] text-hive-muted mt-1 break-words">{timeOf(e.firedAt)}{e.ua ? ` · ${e.ua}` : ''}</div>
+                </div>
+              );
+            }
             if (e.kind === 'storage_quota') {
               const em = e.channels?.email;
               const inapp = e.channels?.inapp;
