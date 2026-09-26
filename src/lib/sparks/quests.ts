@@ -194,6 +194,10 @@ export interface QuestStreak {
   repairUsed?: boolean;
   /** Days the streak was saved by a shield (for an honest history). */
   shieldedDates?: string[];
+  /** 🔥 Streak Chain (2026-09-26) — every LOCAL day a step was done,
+   *  appended server-side on step-done (last 90). Lets the hub draw the
+   *  chain without loading a quest's steps. */
+  doneDates?: string[];
 }
 
 export const DEFAULT_QUEST_STREAK: QuestStreak = {
@@ -1244,4 +1248,68 @@ export function rhythmLine(quest: Quest): string {
     ? 'Mon–Fri'
     : days.join(' · ');
   return `${quest.minutesPerDay} min · ${compact} · by ${quest.cutoffHHmm}`;
+}
+
+// ── 🔥 Streak Chain (JOBS design v1, 2026-09-26) ───────────────────
+
+export const STREAK_MILESTONES: Array<{ days: number; emoji: string; label: string }> = [
+  { days: 3, emoji: '🌱', label: 'first sprout' },
+  { days: 7, emoji: '⭐', label: 'first star' },
+  { days: 14, emoji: '🔥', label: 'two-week fire' },
+  { days: 30, emoji: '🏆', label: 'month trophy' },
+  { days: 60, emoji: '👑', label: 'crown' },
+];
+
+export function nextStreakMilestone(current: number) {
+  return STREAK_MILESTONES.find((m) => m.days > current) ?? null;
+}
+
+export function isStreakMilestone(current: number): boolean {
+  return STREAK_MILESTONES.some((m) => m.days === current);
+}
+
+export function streakMilestoneMeta(current: number) {
+  return STREAK_MILESTONES.find((m) => m.days === current) ?? null;
+}
+
+export interface ChainCell {
+  date: string;
+  kind: 'done' | 'shield' | 'rest' | 'miss' | 'today' | 'empty';
+}
+
+/** The last `days` days ending today as chain cells. Rest and paused days
+ *  are 😴; days saved by a shield are 🛡; an active day before today with
+ *  nothing done — after the chain started — is ○. Days before the quest
+ *  had any activity render as '·' (never as a miss). */
+export function buildStreakChain(quest: Quest, steps: QuestStep[], days: number, today = todayKey()): ChainCell[] {
+  const done = new Set<string>(quest.streak?.doneDates ?? []);
+  for (const s of scheduledSteps(steps)) if (s.done) done.add(s.date);
+  const shielded = new Set<string>(quest.streak?.shieldedDates ?? []);
+  const firstDone = [...done].sort()[0] ?? '';
+  const firstScheduled = scheduledSteps(steps)[0]?.date ?? '';
+  const started = [firstDone, firstScheduled].filter(Boolean).sort()[0] ?? '';
+  const out: ChainCell[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const date = addDays(today, -i);
+    let kind: ChainCell['kind'];
+    if (done.has(date)) kind = 'done';
+    else if (shielded.has(date)) kind = 'shield';
+    else if (date === today) kind = 'today';
+    else if (quest.pausedUntil && date <= quest.pausedUntil && date >= (started || date)) kind = 'rest';
+    else if (!quest.activeDays.includes(dowForDate(date))) kind = 'rest';
+    else if (!started || date < started) kind = 'empty';
+    else kind = 'miss';
+    out.push({ date, kind });
+  }
+  return out;
+}
+
+/** 🔔 A kid asks the parents to plant the quest (gateway; once a day). */
+export async function nudgeParent(
+  familyId: string, kidId: string, questId: string,
+): Promise<{ ok: boolean; already?: boolean }> {
+  if (isGuestActive()) return { ok: true, already: true };
+  const r = await questsApi<{ ok: boolean; already?: boolean }>('nudge-parent', { questId });
+  pingQuests(familyId, kidId);
+  return r;
 }

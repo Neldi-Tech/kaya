@@ -17,6 +17,8 @@
 //      readable sentence instead of a dead spinner.
 
 import { useEffect, useRef, useState } from 'react';
+import CelebrationBurst from '@/components/sparks/CelebrationBurst';
+import { streakMilestoneMeta } from '@/lib/sparks/quests';
 import {
   completeStep, undoStep, uploadQuestMedia, PROOF_LIMITS,
   REFLECTION_CLAIM_MIN_CHARS,
@@ -97,6 +99,9 @@ export default function TodayStepCard({
     setBusy(false);
   }
 
+  const [milestone, setMilestone] = useState<{ days: number; emoji: string; label: string } | null>(null);
+  const [burst, setBurst] = useState(false);
+
   async function tick() {
     setBusy(true); setError('');
     try {
@@ -113,6 +118,9 @@ export default function TodayStepCard({
         streak: res.streak?.current ?? 0,
         late: res.doneLate,
       });
+      // 🔥 Streak Chain (2026-09-26) — a milestone lands with confetti.
+      const meta = streakMilestoneMeta(res.streak?.current ?? 0);
+      if (meta) { setMilestone(meta); setBurst(true); }
     } catch (e) {
       // QF-1 · name the cause. "Check your connection" hid every real one.
       const msg = (e as Error).message || '';
@@ -159,6 +167,13 @@ export default function TodayStepCard({
             It landed after the cut-off — that&apos;s fine, and your parents will be told you did it.
           </p>
         )}
+        {milestone && (
+          <div className="mt-3 rounded-[14px] px-3.5 py-3" style={{ background: 'linear-gradient(135deg,#D4A847,#F5B301)' }}>
+            <div className="font-display font-black text-[20px] leading-none">{milestone.emoji} {milestone.days} days!</div>
+            <div className="text-[12px] opacity-95 mt-1">Your {milestone.label} on {quest.title}{milestone.days % 10 === 0 ? ' — 🛡 shield refilled' : ''}</div>
+          </div>
+        )}
+        {burst && <CelebrationBurst onDone={() => setBurst(false)} />}
         {canAct && (
           <button
             type="button"

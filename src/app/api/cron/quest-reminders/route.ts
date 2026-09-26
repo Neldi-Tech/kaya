@@ -148,14 +148,17 @@ async function handle(req: NextRequest) {
         if (q.remindersEnabled === false) continue;
         if (q.pausedUntil && today <= q.pausedUntil) continue;
         const activeDays = Array.isArray(q.activeDays) ? q.activeDays : [];
-        if (!activeDays.includes(todayDow)) continue;
 
         const kidId = String(q.kidId || '');
         if (!kidId) continue;
 
-        // ── QF-3 · Sunday 18:00 — next week has nothing planned ──────
-        // bell + push + ONE email to the resolved parents, once per week.
-        if (todayDow === 'sun' && nowMin >= 18 * 60 && nowMin < 19 * 60) {
+        // ── QF-3 · "nothing planned" nudge — runs BEFORE the rest-day skip
+        // (2026-09-26: a Mon–Sat quest never got its Sunday nudge because
+        // Sunday IS its rest day, so the sweep skipped it first). Weekly on
+        // Sunday 18:00 — and the very first evening for a quest that has
+        // never been planted at all.
+        const planWindow = nowMin >= 18 * 60 && nowMin < 19 * 60;
+        if (planWindow && (todayDow === 'sun' || !q.lastPlanNudgeFor)) {
           const nextMon = shiftDayKey(today, 1);
           const nextSun = shiftDayKey(today, 7);
           if (q.lastPlanNudgeFor !== nextMon) {
@@ -172,23 +175,29 @@ async function handle(req: NextRequest) {
               const emoji = String(q.emoji || '🚀');
               const name = kidName.get(kidId) || 'Your child';
               const link = `/sparks/${kidId}/quests/${qDoc.id}`;
+              const neverPlanted = allSteps.empty;
+              const nudgeTitle = neverPlanted
+                ? `🌱 ${name}'s ${title} hasn't started — nothing planted yet`
+                : `📅 ${name}'s ${title} — next week is empty`;
+              const nudgeMsg = neverPlanted
+                ? 'Plant it in one tap: ✨ Plan this week on the quest.'
+                : 'Plan it in one tap: ✨ Plan next week on the quest.';
               for (const p of parents) {
                 await famDoc.ref.collection('notifications').add({
                   type: 'quest-plan',
-                  title: `📅 ${name}'s ${title} — next week is empty`,
-                  message: 'Plan it in one tap: ✨ Plan next week on the quest.',
+                  title: nudgeTitle,
+                  message: nudgeMsg,
                   read: false, forUserId: p.uid, link,
                   createdAt: FieldValue.serverTimestamp(),
                 }).catch(() => {});
-                await push(p.uid, `📅 ${name}'s ${title} — next week is empty`,
-                  'Plan it in one tap on the quest.', link, 'quest-plan');
+                await push(p.uid, nudgeTitle, nudgeMsg, link, 'quest-plan');
               }
               const { uids } = resolveAlertRecipients(alertCfg, 'sparks', parentUids, q.alertRecipientUids);
               const to = parents.filter((p) => uids.includes(p.uid) && p.email).map((p) => p.email);
               if (resend && to.length) {
                 await resend.emails.send({
                   from: FROM, to,
-                  subject: `📅 ${name}'s ${title} — nothing planned for next week yet`,
+                  subject: neverPlanted ? `🌱 ${name}'s ${title} hasn't started yet` : `📅 ${name}'s ${title} — nothing planned for next week yet`,
                   html: planEmail({ name, title, emoji, appUrl: APP_URL, link }),
                 }).catch(() => {});
               }
@@ -196,6 +205,9 @@ async function handle(req: NextRequest) {
             }
           }
         }
+
+        // Rest day → nothing due today (checked AFTER the plan nudge).
+        if (!activeDays.includes(todayDow)) continue;
 
         // Today's step. No step planned = nothing to chase.
         const stepsSnap = await famDoc.ref.collection('sparks_quest_steps')

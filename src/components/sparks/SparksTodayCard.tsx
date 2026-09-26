@@ -39,13 +39,14 @@ export default function SparksTodayCard({ familyId, kidId, kidName, variant = 'c
   // Nothing planned and the reflection is written → say so and stop.
   const allClear = today.openCount === 0;
 
-  const dots: Array<{ key: string; emoji: string; label: string; done: boolean; href: string }> = [
+  const dots: Array<{ key: string; emoji: string; label: string; done: boolean; href: string; streak?: number }> = [
     ...dueQuests.map((q) => ({
       key: q.id,
       emoji: q.emoji,
       label: q.stepDone ? q.title : (q.stepTitle || q.title),
       done: q.stepDone,
       href: `/sparks/${kidId}/quests/${q.id}`,
+      streak: q.streak,
     })),
     {
       key: 'reflection',
@@ -91,6 +92,9 @@ export default function SparksTodayCard({ familyId, kidId, kidName, variant = 'c
               }`}>
                 {d.label}
               </span>
+              {(d.streak ?? 0) > 0 && (
+                <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full bg-[#FFF1C9] text-[#8A6800]">🔥{d.streak}</span>
+              )}
               {!d.done && <span className="text-[#3B2E86] font-bold" aria-hidden>›</span>}
             </Link>
           ))}
@@ -139,7 +143,7 @@ export default function SparksTodayCard({ familyId, kidId, kidName, variant = 'c
                 : 'bg-[#FBF7EE] text-[#5A6488] border border-[#ECE4D3]'
             }`}
           >
-            {d.done ? '✅' : d.emoji} {d.label.length > 22 ? `${d.label.slice(0, 22)}…` : d.label}
+            {d.done ? '✅' : d.emoji} {d.label.length > 22 ? `${d.label.slice(0, 22)}…` : d.label}{(d.streak ?? 0) > 0 ? ` · 🔥${d.streak}` : ''}
           </span>
         ))}
       </div>
