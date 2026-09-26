@@ -51,6 +51,9 @@ export default function QuestDetailPage() {
   const [detail, setDetail] = useState<QuestDetail | null | 'missing'>(null);
   const [builderOpen, setBuilderOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  // 🔔 kid 'Ask a parent' state — declared with the other hooks, ABOVE the
+  // early returns (a hook below them trips React #310 once data loads).
+  const [askState, setAskState] = useState<'idle' | 'sent' | 'failed'>('idle');
 
   useEffect(() => {
     if (!familyId || !kidId || !questId) return;
@@ -113,7 +116,6 @@ export default function QuestDetailPage() {
     || (!!myKidId && myKidId === kidId)
     || profile?.role === 'helper';
 
-  const [askState, setAskState] = useState<'idle' | 'sent' | 'failed'>('idle');
 
   async function onPause() {
     if (!familyId) return;
