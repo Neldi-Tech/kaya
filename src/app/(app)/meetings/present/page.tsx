@@ -594,6 +594,17 @@ export default function MeetingPresenterPage() {
     });
   }, [children, attendees]);
 
+  // 🙏 The kid the Wheel dealt the "Prayer starter" role (first name, to
+  // match the prayer-leader chips). This is what keeps the Closing → Family
+  // Prayer screen in sync with the roles shown at Attendance — the prayer
+  // screen defaults its "Who leads the prayer?" selection to this kid so the
+  // two screens never show different names (the presenter can still tap to
+  // override).
+  const prayerRoleName = useMemo(() => {
+    const entry = roleEntries.find((r) => r.id === 'prayer');
+    return entry ? entry.kidName.split(' ')[0] : '';
+  }, [roleEntries]);
+
 
   // Fetch parent profiles for the household so attendance lists adults
   // alongside kids. Falls back to just the signed-in profile if the
@@ -917,6 +928,16 @@ export default function MeetingPresenterPage() {
   const [ledByName, setLedByName] = useState('');
   const [ledSeeded, setLedSeeded] = useState(false);
   const [prayerLedBy, setPrayerLedBy] = useState('');
+  // Sync the Closing prayer screen with the Attendance roles: seed the
+  // prayer leader ONCE from the Wheel-dealt "Prayer starter" the moment the
+  // roles are known. Seed-once (not a hard binding) so the presenter can
+  // still tap a different name — or clear it — without it snapping back.
+  const [prayerLedBySeeded, setPrayerLedBySeeded] = useState(false);
+  useEffect(() => {
+    if (prayerLedBySeeded || !prayerRoleName) return;
+    setPrayerLedBy((prev) => prev || prayerRoleName);
+    setPrayerLedBySeeded(true);
+  }, [prayerRoleName, prayerLedBySeeded]);
   // 👑 LW PR-L1 — tonight's leader as an ID too (kid childId when a kid
   // leads), so the handover at FINISH can credit the Host trait.
   const ledByRef = useRef<{ id: string; kind: 'parent' | 'kid' | 'helper' } | null>(null);
@@ -2002,6 +2023,7 @@ export default function MeetingPresenterPage() {
                     viewerName={(profile?.displayName || 'Family').split(' ')[0]}
                     prayerLedBy={prayerLedBy}
                     onPrayerLedBy={setPrayerLedBy}
+                    prayerRoleName={prayerRoleName}
                     prayerLeaderOptions={[
                       ...householdParents.map((p) => ({ name: p.name.split(' ')[0], emoji: p.avatarEmoji || '👤' })),
                       ...children.map((c) => ({ name: c.name.split(' ')[0], emoji: c.avatarEmoji || '🧒' })),
@@ -3909,6 +3931,7 @@ function ReflectionStep({
   viewerName,
   prayerLedBy,
   onPrayerLedBy,
+  prayerRoleName,
   prayerLeaderOptions,
 }: {
   /** Which of the 3 closings the parent enabled in /settings/meetings.
@@ -3937,6 +3960,10 @@ function ReflectionStep({
   /** Meeting Notes — who led the prayer tonight (chips under the prayer). */
   prayerLedBy?: string;
   onPrayerLedBy?: (name: string) => void;
+  /** First name of the kid the Wheel dealt the "Prayer starter" role at
+   *  Attendance — the prayer-leader selection defaults to this so the two
+   *  screens stay in sync. */
+  prayerRoleName?: string;
   prayerLeaderOptions?: Array<{ name: string; emoji: string }>;
 }) {
   // v4.4: keep the pre-set song link HIDDEN behind the reveal (a surprise,
@@ -4035,7 +4062,7 @@ function ReflectionStep({
             {isPrayer && (prayerLeaderOptions?.length ?? 0) > 0 && onPrayerLedBy && (
               <div className="mt-3">
                 <p className="text-[10.5px] uppercase tracking-[0.14em] font-bold text-kaya-gold-light/70 mb-1.5">
-                  🙏 Who leads the prayer?
+                  🙏 Who leads the prayer?{prayerRoleName ? <span className="normal-case tracking-normal text-white/50"> · 🎭 dealt to {prayerRoleName} — tap to change</span> : null}
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {prayerLeaderOptions!.map((o) => (
