@@ -84,8 +84,9 @@ const NAME_SOURCES = ['lookup', 'vision', 'manual'];
 const READING_MODES = ['off', 'daily', 'weekdays', 'weekly'];
 
 type Action =
-  | 'shelf' | 'item' | 'add' | 'update'
+  | 'shelf' | 'item' | 'add' | 'check' | 'update'
   | 'condition' | 'found' | 'sighting' | 'lend' | 'return' | 'end'
+  | 'request' | 'grant'
   | 'settings-get' | 'settings-set' | 'helpers'
   | 'my-reading' | 'reading-start' | 'reading-mark' | 'reading-finish'
   | 'reading-reminder' | 'reading-invite' | 'reading-invite-respond'
@@ -94,8 +95,9 @@ type Action =
   | 'play-log' | 'dust-snooze';
 
 const ALL_ACTIONS: Action[] = [
-  'shelf', 'item', 'add', 'update',
+  'shelf', 'item', 'add', 'check', 'update',
   'condition', 'found', 'sighting', 'lend', 'return', 'end',
+  'request', 'grant',
   'settings-get', 'settings-set', 'helpers',
   'my-reading', 'reading-start', 'reading-mark', 'reading-finish',
   'reading-reminder', 'reading-invite', 'reading-invite-respond',
@@ -463,6 +465,47 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, settings: await readSettings(privateCol) });
   }
 
+  // ── Check (the shopping verify) ───────────────────────────────────
+  //
+  // "Do we already have this?" — the SAME D29 dedupe the `add` path runs,
+  // but as a dry run that writes nothing. Used by the scanner's Shopping
+  // mode so a parent can tell, in a shop, whether the family already owns
+  // a book or game (theirs OR any child's — both sit on this shelf, D25)
+  // before deciding to buy.
+  if (action === 'check') {
+    const kind = str(body.kind, 10) === 'game' ? 'game' : 'book';
+    const name = str(body.name, 120);
+    const barcode = cleanBarcode(body.barcode);
+    const book = kind === 'book' ? bookMeta(body.book) : {};
+    const isbn = kind === 'book' ? String(book.isbn || barcode || '') : '';
+    const code = barcode || isbn;
+    if (!name && !code) return NextResponse.json({ onShelf: null });
+    const rows = await shelfRows();
+    const key = titleKey(name, String(book.author || ''));
+    const dup = rows.find((tr) => {
+      if (ENDED.includes(String(tr.status))) return false;
+      if (String(tr.categoryId) !== kind) return false;
+      const tb = (tr.book ?? {}) as { author?: string; isbn?: string };
+      const tcode = String(tr.barcode || tb.isbn || '');
+      if (code && tcode && code === tcode) return true;
+      return name ? titleKey(String(tr.name || ''), tb.author) === key : false;
+    });
+    if (!dup) return NextResponse.json({ onShelf: null });
+    const d = decorate(dup.id, dup);
+    return NextResponse.json({
+      onShelf: {
+        id: dup.id,
+        name: String(dup.name || ''),
+        ownerName: d.ownerName,
+        family: dup.ownerScope === 'family' || String(dup.kidId) === FAMILY_OWNER_ID,
+        status: String(dup.status || 'kept'),
+        readCount: Array.isArray(dup.readings) ? (dup.readings as unknown[]).length : 0,
+        newUntilGiven: dup.newUntilGiven === true,
+        whereKept: str(dup.whereKept, 120) || undefined,
+      },
+    });
+  }
+
   // ── Add (D25 · D27 · D28 · D29) ───────────────────────────────────
 
   if (action === 'add') {
@@ -532,6 +575,10 @@ export async function POST(req: NextRequest) {
       createdBy: uid,
       createdByName: actorName,
     };
+    // New Books / New Games — a book or game bought while shopping is held
+    // by the parents in the "🆕 New" band until a child asks and is given
+    // it. Family-owned by nature; the flag clears on grant.
+    if (body.newShelf === true && scope === 'family') doc.newUntilGiven = true;
     if (code) doc.barcode = code;
     if (Object.keys(book).length) doc.book = book;
     if (Object.keys(game).length) doc.game = game;
@@ -1200,6 +1247,90 @@ export async function POST(req: NextRequest) {
       treasureId, kidId, kind: how, on: today, at: now, byName: actorName, note: note || undefined,
     });
     return NextResponse.json({ ok: true, newTreasureId: patch.handedToTreasureId });
+  }
+
+  // ── Request (a child asks for a New book/game) ────────────────────
+  //
+  // A child taps "Can I have this?" on a family-held item. No ownership
+  // changes — it records an open request a parent then grants or declines.
+  if (action === 'request') {
+    if (!familyOwned) return NextResponse.json({ error: 'already-owned' }, { status: 409 });
+    // A kid requests for themselves; a parent may record one for a child.
+    const requesterKidId = isParent ? str(body.kidId, 80) : viewerChildId;
+    if (!requesterKidId || !kidName.has(requesterKidId)) return NextResponse.json({ error: 'no-such-kid' }, { status: 400 });
+    const reqs = Array.isArray(t.requests) ? (t.requests as Array<Record<string, unknown>>) : [];
+    // Idempotent — one open request per child.
+    if (reqs.some((r) => String(r.kidId) === requesterKidId && String(r.status) === 'open')) {
+      return NextResponse.json({ ok: true, already: true });
+    }
+    const now = Date.now();
+    const request = {
+      id: `${requesterKidId}_${now}`,
+      kidId: requesterKidId,
+      kidName: kidName.get(requesterKidId)!.name,
+      at: now, on: today, status: 'open',
+      ...(str(body.note, 200) ? { note: str(body.note, 200) } : {}),
+    };
+    await ref.update({ requests: FieldValue.arrayUnion(request), updatedAt: now });
+    await logEvent(eventsCol, {
+      treasureId, kidId, kind: 'requested', on: today, at: now, byName: kidName.get(requesterKidId)!.name,
+      note: `${kidName.get(requesterKidId)!.name} asked for ${String(t.name || 'it')}`,
+    });
+    return NextResponse.json({ ok: true, requestId: request.id });
+  }
+
+  // ── Grant (a parent gives / lends / declines) ─────────────────────
+  //
+  // give    → it becomes the child's book/game (owner → kid), leaves New.
+  // lend    → the child reads/plays it now; it stays a family thing
+  //           (the Borrow & Return loop). Leaves New.
+  // decline → "not yet"; the request closes, nothing else changes.
+  if (action === 'grant') {
+    if (!isParent) return NextResponse.json({ error: 'parents-only' }, { status: 403 });
+    const mode = ['give', 'lend', 'decline'].includes(str(body.mode, 10)) ? str(body.mode, 10) : 'give';
+    const toChildId = str(body.kidId, 80);
+    if (!toChildId || !kidName.has(toChildId)) return NextResponse.json({ error: 'no-such-kid' }, { status: 400 });
+    const now = Date.now();
+    const child = kidName.get(toChildId)!;
+    const reqs = (Array.isArray(t.requests) ? (t.requests as Array<Record<string, unknown>>) : [])
+      .map((r) => (String(r.kidId) === toChildId && String(r.status) === 'open'
+        ? { ...r, status: mode === 'decline' ? 'declined' : 'granted', resolvedOn: today } : r));
+
+    if (mode === 'decline') {
+      await ref.update({ requests: reqs, updatedAt: now });
+      return NextResponse.json({ ok: true });
+    }
+    if (ENDED.includes(String(t.status))) return NextResponse.json({ error: 'already-ended' }, { status: 409 });
+
+    if (mode === 'give') {
+      if (!familyOwned) return NextResponse.json({ error: 'not-family-owned' }, { status: 409 });
+      await ref.update({
+        ownerScope: 'kid', kidId: toChildId, ownership: 'kid',
+        watchlisted: true, newUntilGiven: FieldValue.delete(),
+        requests: reqs, updatedAt: now, updatedByName: actorName,
+      });
+      await logEvent(eventsCol, {
+        treasureId, kidId: toChildId, kind: 'granted', on: today, at: now, byName: actorName,
+        note: `${String(t.name || 'It')} — given to ${child.name}`,
+      });
+      return NextResponse.json({ ok: true, mode });
+    }
+
+    // lend
+    const dueOn = isDate(body.dueOn) ? (body.dueOn as string) : addDays(today, 14);
+    const lending = (t.lending ?? {}) as { out?: number; backOnTime?: number; backLate?: number };
+    await ref.update({
+      status: 'lent',
+      borrow: { toName: child.name, toChildId, since: today, dueOn },
+      lending: { out: Number(lending.out || 0) + 1, backOnTime: Number(lending.backOnTime || 0), backLate: Number(lending.backLate || 0) },
+      newUntilGiven: FieldValue.delete(),
+      requests: reqs, updatedAt: now, updatedByName: actorName,
+    });
+    await logEvent(eventsCol, {
+      treasureId, kidId, kind: 'lent', on: today, at: now, byName: actorName,
+      note: `Lent to ${child.name} · back by ${dueOn}`,
+    });
+    return NextResponse.json({ ok: true, mode });
   }
 
   return NextResponse.json({ error: 'unknown-action' }, { status: 400 });
