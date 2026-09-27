@@ -95,6 +95,19 @@ export default function MeetingReviewPage() {
   const [windowKey, setWindowKey] = useState<WindowKey>({ kind: 'lifetime' });
   const [customFrom, setCustomFrom] = useState<string>(todayString());
   const [customTo, setCustomTo] = useState<string>(todayString());
+  // A kid can only PROPOSE Star/Belt/Ladder on the "Last 7 days" / "This
+  // month" ceremony windows (kidWindowAllowed). Opening on Lifetime meant a
+  // kid's tap was silently refused ("window-not-allowed") and never reached
+  // a parent's approvals — the whole propose→approve flow looked broken.
+  // Default KIDS to "Last 7 days" so proposing works out of the box; parents
+  // keep the Lifetime default. Seed once, so a later manual window change
+  // (including back to Lifetime) is respected.
+  const [windowSeeded, setWindowSeeded] = useState(false);
+  useEffect(() => {
+    if (windowSeeded || !profile) return;
+    if (profile.role === 'kid') setWindowKey({ kind: 'last7' });
+    setWindowSeeded(true);
+  }, [profile, windowSeeded]);
   const [tab, setTab] = useState<TabKey>('points');
   // "?" guide — explains Belt vs Star vs Ladder so a parent picking up
   // the meeting cold can read the rules in one screen.
