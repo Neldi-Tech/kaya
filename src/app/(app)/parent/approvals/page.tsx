@@ -16,6 +16,9 @@ import BackButton from '@/components/ui/BackButton';
 import RequestsHistory from '@/components/parent/RequestsHistory';
 import { subscribeToPendingGameApprovals } from '@/lib/gamesApprovals';
 import type { GamePlay } from '@/lib/games';
+import { listLeaderNotes, type LeaderNote } from '@/lib/leaderWeek';
+import { listMeetingAwards, type MeetingAwardProposal } from '@/lib/meetingAwards';
+import { awardTitle } from '@/lib/meetingAwards.shared';
 import { Page } from '@/components/layout/Page';
 
 export default function ParentApprovalsPage() {
@@ -38,7 +41,29 @@ export default function ParentApprovalsPage() {
     return () => unsub();
   }, [familyId, isParent]);
 
-  const waitingCount = pendingApprovals.length + gamePlays.length;
+  // 🏆 Meeting awards + 👑 Leader notes the kids proposed at the Sunday
+  // meeting. These live in their own gateway-backed collections (not Hive
+  // approvalRequests), so without this they never appeared on THIS page —
+  // only on the Home banner. Same gateway idiom + poll the banner uses.
+  const [meetingAwards, setMeetingAwards] = useState<MeetingAwardProposal[]>([]);
+  const [leaderNotes, setLeaderNotes] = useState<LeaderNote[]>([]);
+  useEffect(() => {
+    if (!familyId || !isParent) return;
+    let alive = true;
+    const tick = () => {
+      listMeetingAwards(familyId, { pending: true })
+        .then((r) => { if (alive) setMeetingAwards(r.proposals.filter((x) => !x.direct && x.status === 'pending')); })
+        .catch(() => {});
+      listLeaderNotes(familyId, { status: 'pending' })
+        .then((r) => { if (alive) setLeaderNotes(r.notes); })
+        .catch(() => {});
+    };
+    tick();
+    const t = setInterval(tick, 90_000);
+    return () => { alive = false; clearInterval(t); };
+  }, [familyId, isParent]);
+
+  const waitingCount = pendingApprovals.length + gamePlays.length + meetingAwards.length + leaderNotes.length;
   const nothing = waitingCount === 0;
 
   // Web-Fit (2026-08-23): content tier. Header keeps its inline "Rates →"
@@ -119,6 +144,60 @@ export default function ParentApprovalsPage() {
                 {gamePlays.map((p) => (
                   <GameApprovalCard key={p.id} play={p} />
                 ))}
+              </div>
+            </div>
+          )}
+
+          {meetingAwards.length > 0 && (
+            <div>
+              <div className="flex items-baseline justify-between gap-2 mb-2">
+                <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-honey-dk">
+                  🏆 Meeting awards · House Points
+                </p>
+                <Link href="/meetings/awards" className="text-[12px] font-nunito font-extrabold text-hive-honey-dk hover:underline">
+                  Review &amp; approve →
+                </Link>
+              </div>
+              <div className="space-y-3 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-3 lg:items-start">
+                {meetingAwards.map((m) => (
+                  <Link key={m.id} href="/meetings/awards" className="block bg-hive-paper border border-hive-line rounded-hive-lg p-3 hover:shadow-sm transition-shadow">
+                    <p className="font-nunito font-extrabold text-[13px] text-hive-ink">
+                      {awardTitle(m)} → {(m.childName || '').split(' ')[0]} · +{m.points}
+                    </p>
+                    <p className="text-[11px] text-hive-muted mt-0.5">
+                      Proposed by {(m.proposedByName || 'the leader').split(' ')[0]} · {m.rangeLabel} · tap to review →
+                    </p>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {leaderNotes.length > 0 && (
+            <div>
+              <div className="flex items-baseline justify-between gap-2 mb-2">
+                <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-honey-dk">
+                  👑 Leader notes
+                </p>
+                <Link href="/parent/leader" className="text-[12px] font-nunito font-extrabold text-hive-honey-dk hover:underline">
+                  Review &amp; approve →
+                </Link>
+              </div>
+              <div className="space-y-3 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-3 lg:items-start">
+                {leaderNotes.map((n) => {
+                  const who = n.targetChildId === n.leaderChildId ? 'themselves' : (n.targetName || 'a sibling').split(' ')[0];
+                  const pts = n.proposedPoints > 0 ? `+${n.proposedPoints}` : n.proposedPoints === 0 ? 'note only' : `${n.proposedPoints}`;
+                  return (
+                    <Link key={n.id} href="/parent/leader" className="block bg-hive-paper border border-hive-line rounded-hive-lg p-3 hover:shadow-sm transition-shadow">
+                      <p className="font-nunito font-extrabold text-[13px] text-hive-ink">
+                        {n.kind === 'shoutout' ? '⭐' : '📝'} {(n.leaderName || 'Leader').split(' ')[0]} noted {who} · {pts}
+                      </p>
+                      <p className="text-[11px] text-hive-muted mt-0.5 truncate">
+                        {n.reason} · tap to review →
+                      </p>
+                    </Link>
+                  );
+                })}
               </div>
             </div>
           )}
