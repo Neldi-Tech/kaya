@@ -13,10 +13,11 @@ import GameNightPicker from './GameNightPicker';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   subscribeToCupboard, liveItems, endedItems, books, games,
-  type CupboardShelf, type CupboardKind, type CupboardItem,
+  requestCupboardItem, grantCupboardItem,
+  type CupboardShelf, type CupboardKind, type CupboardItem, type CupboardRequest,
 } from '@/lib/sparks/cupboard';
 import { GAME_KINDS, isFamilyOwned, liveReadings, finishedReadings, isFavouriteBook } from '@/lib/sparks/treasures';
-import { CupboardFrame, Card, Pill, ShelfCard, WOOD, WOOD_DK, WOOD_BG } from './CupboardShell';
+import { CupboardFrame, Card, Pill, ShelfCard, WOOD, WOOD_DK, WOOD_BG, WOOD_BD, JADE, Field, ChoiceChips } from './CupboardShell';
 import CupboardAddSheet from './CupboardAddSheet';
 import CupboardScanSheet from './CupboardScanSheet';
 
@@ -100,6 +101,10 @@ export default function CupboardShelfPage({ kind }: { kind: CupboardKind }) {
   const live = liveItems(all);
   const ended = endedItems(all);
   const famN = live.filter(isFamilyOwned).length;
+  /** 🆕 bought-while-shopping, held by the parents until given out. */
+  const newItems = useMemo(() => live.filter((t) => t.newUntilGiven === true), [live]);
+  /** Parent grant sheet target. */
+  const [granting, setGranting] = useState<CupboardItem | null>(null);
 
   const kindsPresent = useMemo(() => {
     if (kind !== 'game') return [];
@@ -108,6 +113,7 @@ export default function CupboardShelfPage({ kind }: { kind: CupboardKind }) {
   }, [kind, live]);
 
   const visible = live.filter((t) => {
+    if (t.newUntilGiven) return false; // 🆕 items live in the New band, not the main shelf
     if (who === 'family' && !isFamilyOwned(t)) return false;
     if (who === 'kids' && isFamilyOwned(t)) return false;
     if (who === 'reading' && liveReadings(t).length === 0) return false;
@@ -168,6 +174,16 @@ export default function CupboardShelfPage({ kind }: { kind: CupboardKind }) {
                 </button>
               ))}
             </div>
+
+            {newItems.length > 0 && familyId && (
+              <NewBand
+                kind={kind}
+                items={newItems}
+                me={shelf.me}
+                onAsk={async (t) => { await requestCupboardItem(familyId, t.id, {}); }}
+                onGive={(t) => setGranting(t)}
+              />
+            )}
 
             {live.length === 0 ? (
               <Card tone="wood">
@@ -255,6 +271,157 @@ export default function CupboardShelfPage({ kind }: { kind: CupboardKind }) {
           onAdded={(id) => { setAdding(false); router.push(`/sparks/treasures/cupboard/${id}`); }}
         />
       )}
+      {granting && familyId && shelf && (
+        <GrantSheet
+          familyId={familyId}
+          item={granting}
+          shelf={shelf}
+          onClose={() => setGranting(null)}
+          onDone={() => setGranting(null)}
+        />
+      )}
     </>
+  );
+}
+
+// ── 🆕 The New band — bought books/games held by the parents ─────────
+//
+// A pinned section above the shelf. Parents give (or lend) a New item to a
+// child, or field a child's ask; a child taps "Can I have this?".
+
+function NewBand({ kind, items, me, onAsk, onGive }: {
+  kind: CupboardKind;
+  items: CupboardItem[];
+  me: CupboardShelf['me'];
+  onAsk: (t: CupboardItem) => Promise<void>;
+  onGive: (t: CupboardItem) => void;
+}) {
+  const isParent = me.role === 'parent';
+  const noun = kind === 'book' ? 'Books' : 'Games';
+  const [asking, setAsking] = useState<string | null>(null);
+  return (
+    <div className="mb-3 rounded-[14px] border p-3" style={{ borderColor: WOOD_BD, background: WOOD_BG }}>
+      <div className="flex items-center justify-between">
+        <div className="font-display font-extrabold text-[12.5px]" style={{ color: WOOD_DK }}>🆕 New {noun} · with Mum &amp; Dad</div>
+        <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-white" style={{ color: WOOD_DK }}>{items.length}</span>
+      </div>
+      <div className="text-[10px] font-bold mt-0.5" style={{ color: '#8A7A5E' }}>
+        {isParent ? 'Not given out yet — give one now, or a child can ask.' : 'Ask a grown-up for one you’d like to read.'}
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 mt-2.5">
+        {items.map((t) => {
+          const cover = kind === 'book' ? t.book?.coverUrl : undefined;
+          const img = cover || t.thumbUrl;
+          const openReqs = (t.requests ?? []).filter((r) => r.status === 'open');
+          const myOpen = !isParent && openReqs.some((r) => r.kidId === me.childId);
+          return (
+            <div key={t.id} className="rounded-[12px] border border-[#ECE4D3] bg-white overflow-hidden">
+              <Link href={`/sparks/treasures/cupboard/${t.id}`} className="block h-[74px] grid place-items-center text-[26px] bg-[#FBF4E4] no-underline">
+                {img ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={img} alt="" className="w-full h-full object-cover" />
+                ) : <span aria-hidden>{t.emoji}</span>}
+              </Link>
+              <div className="px-2 py-1.5">
+                <div className="font-display font-extrabold text-[11px] leading-tight text-[#0F1F44] line-clamp-2">{t.name}</div>
+                {isParent && openReqs.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {openReqs.slice(0, 3).map((r) => (
+                      <span key={r.id} className="text-[8.5px] font-extrabold rounded-full px-1.5 py-0.5" style={{ background: '#EFE8FF', color: '#5A3CB8' }}>🙋 {r.kidName.split(' ')[0]}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="px-2 pb-2">
+                {isParent ? (
+                  <button type="button" onClick={() => onGive(t)} className="w-full rounded-[8px] py-1.5 text-[10px] font-extrabold text-white" style={{ background: JADE }}>
+                    {openReqs.length ? `Give · ${openReqs.length} asked` : 'Give to…'}
+                  </button>
+                ) : myOpen ? (
+                  <div className="w-full rounded-[8px] py-1.5 text-[10px] font-extrabold text-center bg-[#EEF0F4] text-[#5B6B8C]">⏳ waiting for a grown-up</div>
+                ) : (
+                  <button type="button" disabled={asking === t.id || !me.childId}
+                    onClick={async () => { setAsking(t.id); try { await onAsk(t); } finally { setAsking(null); } }}
+                    className="w-full rounded-[8px] py-1.5 text-[10px] font-extrabold text-white disabled:opacity-50" style={{ background: '#5A3CB8' }}>
+                    {asking === t.id ? 'Asking…' : '🙋 Can I have this?'}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Grant sheet — a parent gives / lends a New item to a child ───────
+
+function GrantSheet({ familyId, item, shelf, onClose, onDone }: {
+  familyId: string;
+  item: CupboardItem;
+  shelf: CupboardShelf;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const openReqs = (item.requests ?? []).filter((r) => r.status === 'open');
+  const firstAsk = openReqs[0]?.kidId;
+  const [kidId, setKidId] = useState<string>(firstAsk || shelf.kids[0]?.id || '');
+  const [mode, setMode] = useState<'give' | 'lend'>('give');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const kidChips = shelf.kids.map((k) => ({ id: k.id, label: `${k.emoji} ${k.name.split(' ')[0]}` }));
+
+  const submit = async (m: 'give' | 'lend' | 'decline', who?: string) => {
+    const target = who || kidId;
+    if (m !== 'decline' && !target) { setErr('Pick a child first.'); return; }
+    setBusy(true); setErr('');
+    try {
+      await grantCupboardItem(familyId, item.id, target, m);
+      onDone();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not do that');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center" onClick={onClose}>
+      <div className="w-full sm:max-w-sm bg-[#FFFBF5] rounded-t-[22px] sm:rounded-[22px]" onClick={(e) => e.stopPropagation()}>
+        <div className="p-4 text-white rounded-t-[22px]" style={{ background: 'linear-gradient(135deg,#0E6B5E 0%,#3FA38F 100%)' }}>
+          <div className="text-[10.5px] font-extrabold opacity-85">🆕 New {item.categoryId === 'game' ? 'game' : 'book'}</div>
+          <div className="font-display text-[17px] font-extrabold mt-0.5">Give “{item.name}”</div>
+        </div>
+        <div className="p-4">
+          {openReqs.length > 0 && (
+            <div className="mb-3">
+              <div className="text-[10.5px] font-extrabold uppercase tracking-[.5px] text-[#8A8471] mb-1.5">Asked for it</div>
+              <div className="space-y-1.5">
+                {openReqs.map((r) => (
+                  <div key={r.id} className="flex items-center gap-2 rounded-[10px] border border-[#E8E0CF] bg-white px-2.5 py-2">
+                    <div className="text-[12px] font-extrabold text-[#0F1F44] flex-1">🙋 {r.kidName}{r.note ? <span className="font-bold text-[#5B6B8C]"> · “{r.note}”</span> : ''}</div>
+                    <button type="button" disabled={busy} onClick={() => submit('give', r.kidId)} className="px-2.5 py-1 rounded-full text-[10.5px] font-extrabold text-white disabled:opacity-50" style={{ background: JADE }}>Give</button>
+                    <button type="button" disabled={busy} onClick={() => submit('decline', r.kidId)} className="px-2.5 py-1 rounded-full text-[10.5px] font-extrabold" style={{ background: '#EEF0F4', color: '#5B6B8C' }}>Not yet</button>
+                  </div>
+                ))}
+              </div>
+              <div className="h-px bg-[#ECE4D3] my-3" />
+            </div>
+          )}
+          <Field label="Give to"><ChoiceChips value={kidId} onChange={setKidId} options={kidChips} tone="jade" /></Field>
+          <Field label="How"><ChoiceChips value={mode} onChange={setMode} options={[{ id: 'give', label: '🎁 Give (it’s theirs)' }, { id: 'lend', label: '🤝 Lend (stays family’s)' }]} tone="jade" /></Field>
+          {err && <p className="text-[11.5px] font-bold text-[#C0392B] mt-1">{err}</p>}
+          <div className="flex gap-2 mt-3">
+            <button type="button" disabled={busy || !kidId} onClick={() => submit(mode)} className="flex-1 px-4 py-2.5 rounded-full font-extrabold text-[13px] text-white disabled:opacity-50" style={{ background: JADE }}>
+              {busy ? 'Giving…' : mode === 'give' ? '🎁 Give it' : '🤝 Lend it'}
+            </button>
+            <button type="button" onClick={onClose} className="px-4 py-2.5 rounded-full font-extrabold text-[13px] bg-[#EEF0F4] text-[#5B6B8C]">Close</button>
+          </div>
+          <p className="text-[10px] text-[#8A8471] italic leading-snug mt-2 mb-0">
+            🎁 Give makes it the child’s. 🤝 Lend keeps it a family {item.categoryId === 'game' ? 'game' : 'book'} they use now (Borrow &amp; Return). Either way it leaves 🆕 New.
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }
