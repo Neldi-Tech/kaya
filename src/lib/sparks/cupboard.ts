@@ -68,12 +68,29 @@ export const DAY_LABEL = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 // ── Shapes the pages share ──────────────────────────────────────────
 
+/** A child's ask for a New book/game, held on the item until a parent
+ *  grants or declines it. */
+export interface CupboardRequest {
+  id: string;
+  kidId: string;
+  kidName: string;
+  at: number;
+  on: string;
+  status: 'open' | 'granted' | 'declined';
+  resolvedOn?: string;
+  note?: string;
+}
+
 /** A Treasure as the Cupboard sees it — plus the owner/keeper names the
  *  gateway resolves so no page needs the children collection. */
 export interface CupboardItem extends Treasure {
   /** '' for family-owned; else the owning kid's name. */
   ownerName: string;
   keeperName?: string;
+  /** 🆕 bought while shopping, held by the parents until given out. */
+  newUntilGiven?: boolean;
+  /** Children who have asked for this New item. */
+  requests?: CupboardRequest[];
 }
 
 export interface CupboardShelf {
@@ -295,6 +312,33 @@ export interface NewCupboardItemInput {
   photoId?: string;
   /** D29 · set when the user chose "add a 2nd copy" past a dedupe hit. */
   allowDuplicate?: boolean;
+  /** Shopping mode · file this bought item into the 🆕 New band (held by
+   *  the parents until a child is given it). Family-owned only. */
+  newShelf?: boolean;
+}
+
+/** The shopping "do we already have this?" answer — a dry-run dedupe that
+ *  writes nothing. `onShelf` is null when the family doesn't own it yet. */
+export interface CupboardCheckResult {
+  onShelf: {
+    id: string;
+    name: string;
+    ownerName: string;
+    family: boolean;
+    status: string;
+    readCount: number;
+    newUntilGiven: boolean;
+    whereKept?: string;
+  } | null;
+}
+
+/** Shopping verify — identify (via lookup) then ask the shelf if it's
+ *  already ours (ours OR any child's). Nothing is written. */
+export async function cupboardCheck(input: {
+  kind: CupboardKind; name?: string; barcode?: string;
+  book?: { author?: string; isbn?: string };
+}): Promise<CupboardCheckResult> {
+  return cupboardApi<CupboardCheckResult>('check', { ...input });
 }
 
 export interface AddCupboardResult {
@@ -350,6 +394,31 @@ export async function cupboardLend(
 export async function cupboardReturn(familyId: string, treasureId: string): Promise<void> {
   await cupboardApi('return', { treasureId });
   pingCupboard(familyId);
+}
+
+// ── 🆕 New Books / New Games · request → grant ─────────────────────
+//
+// A bought item waits (family-owned, `newUntilGiven`) until a child asks
+// ("Can I have this?") and a parent gives or lends it.
+
+/** A child asks for a New family item. Idempotent (one open ask/child). */
+export async function requestCupboardItem(
+  familyId: string, treasureId: string, opts: { kidId?: string; note?: string } = {},
+): Promise<{ ok: true; requestId?: string; already?: boolean }> {
+  const r = await cupboardApi<{ ok: true; requestId?: string; already?: boolean }>('request', { treasureId, ...opts });
+  pingCupboard(familyId);
+  return r;
+}
+
+/** A parent gives (owner → kid), lends (Borrow & Return), or declines a
+ *  child's ask on a New item. */
+export async function grantCupboardItem(
+  familyId: string, treasureId: string, kidId: string,
+  mode: 'give' | 'lend' | 'decline', opts: { dueOn?: string } = {},
+): Promise<{ ok: true; mode?: string }> {
+  const r = await cupboardApi<{ ok: true; mode?: string }>('grant', { treasureId, kidId, mode, ...opts });
+  pingCupboard(familyId);
+  return r;
 }
 
 export async function cupboardEnd(
