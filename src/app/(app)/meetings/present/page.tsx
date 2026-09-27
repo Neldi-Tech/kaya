@@ -604,6 +604,13 @@ export default function MeetingPresenterPage() {
     const entry = roleEntries.find((r) => r.id === 'prayer');
     return entry ? entry.kidName.split(' ')[0] : '';
   }, [roleEntries]);
+  // Full name of the dealt Prayer starter — used by the Opening Word step so
+  // the person who opens the night matches the roles card (the Wheel deal),
+  // not the meeting leader. Empty when no kids are present to deal roles to.
+  const prayerRoleFullName = useMemo(() => {
+    const entry = roleEntries.find((r) => r.id === 'prayer');
+    return entry ? entry.kidName : '';
+  }, [roleEntries]);
 
 
   // Fetch parent profiles for the household so attendance lists adults
@@ -1681,7 +1688,7 @@ export default function MeetingPresenterPage() {
 
               {step.id === 'openingword' && (
                 <OpeningWordStep
-                  leaderName={family?.nextMeetingLeader?.name || profile?.displayName || 'The leader'}
+                  leaderName={prayerRoleFullName || family?.nextMeetingLeader?.name || profile?.displayName || 'The leader'}
                   mode={openingWordMode}
                   onMode={setOpeningWordMode}
                   note={openingWordNote}
