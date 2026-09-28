@@ -52,6 +52,10 @@ export interface UserProfile {
   /** 🏠 HD PR-A — approval categories THIS parent treats as 🔴 urgent on
    *  the Home deck (per-parent focus; absent = kid-centric default). */
   approvalUrgentCategories?: string[];
+  /** Set once the kid-proposal categories (🏆 meeting awards, 👑 leader notes)
+   *  were merged into a SAVED urgent list — so a parent who later turns them
+   *  off keeps them off. */
+  approvalUrgentV2?: boolean;
   photoURL?: string;
   avatarPhoto?: string;     // user-uploaded or library avatar (data URL)
   role: Role;
