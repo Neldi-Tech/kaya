@@ -16,7 +16,7 @@ export const MAX_PHOTO_BYTES = 25 * 1024 * 1024; // 25 MB hard cap on input
 const THUMB_EDGE = 300;
 const FEED_EDGE = 1080;
 const FULL_EDGE = 2400;
-const JPEG_QUALITY = 0.85;
+const JPEG_QUALITY = 0.9;
 
 // ── Video (2026-05-21) ─────────────────────────────────────────────
 // Stored as-is (no transcoding); a poster frame is grabbed in-browser so

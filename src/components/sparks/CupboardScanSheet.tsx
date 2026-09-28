@@ -26,6 +26,7 @@ import {
   type CupboardCheckResult,
 } from '@/lib/sparks/cupboard';
 import { GAME_KINDS, type GameKind, type NameSource, type OwnerScope } from '@/lib/sparks/treasures';
+import { enhancePhoto } from '@/lib/photoEnhance';
 import { Field, ChoiceChips, inputCls, WOOD, WOOD_DK, WOOD_BG, WOOD_BD, JADE } from './CupboardShell';
 
 interface Props {
@@ -123,14 +124,16 @@ function beep() {
   try { navigator.vibrate?.(40); } catch { /* noop */ }
 }
 
-/** Downscale a photo to ≤1280px JPEG and return base64 (no prefix). */
-async function fileToBase64(file: File, max = 1280): Promise<{ base64: string; mediaType: 'image/jpeg' }> {
+/** Downscale a photo to ≤max px JPEG and return base64 (no prefix).
+ *  Balanced default 1600 @ 0.92 — sharp enough for Kaya to read a cover /
+ *  box title cleanly, still light for low-bandwidth uploads. */
+async function fileToBase64(file: File, max = 1600, quality = 0.92): Promise<{ base64: string; mediaType: 'image/jpeg' }> {
   const bmp = await createImageBitmap(file);
   const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
   const w = Math.round(bmp.width * scale); const h = Math.round(bmp.height * scale);
   const c = document.createElement('canvas'); c.width = w; c.height = h;
   c.getContext('2d')!.drawImage(bmp, 0, 0, w, h);
-  const dataUrl = c.toDataURL('image/jpeg', 0.85);
+  const dataUrl = c.toDataURL('image/jpeg', quality);
   return { base64: dataUrl.split(',')[1] || '', mediaType: 'image/jpeg' };
 }
 
@@ -235,15 +238,22 @@ export default function CupboardScanSheet({ familyId, shelf, defaultKind = 'book
     (async () => {
       if (!navigator.mediaDevices?.getUserMedia) { setCamFailed(true); return; }
       try {
+        // Ask for a high-res rear stream (1080p ideal, up to 4K) so the cover
+        // snap has real detail; the browser clamps to the device's best.
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false,
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1920, max: 3840 },
+            height: { ideal: 1080, max: 2160 },
+          },
+          audio: false,
         });
         if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
         streamRef.current = stream;
         const v = videoRef.current;
         if (v) { v.srcObject = stream; await v.play().catch(() => {}); }
         setCamFailed(false);
-        setCamMsg(tier === 'live' ? 'Point at the barcode — hold steady' : 'Hold the front of the book in the frame · tap Snap');
+        setCamMsg(tier === 'live' ? 'Point at the barcode — hold steady' : 'Fill the frame with the cover — the whole view is captured · tap Snap');
       } catch {
         setCamFailed(true);
         return;
@@ -301,26 +311,36 @@ export default function CupboardScanSheet({ familyId, shelf, defaultKind = 'book
     } catch { setCamMsg('Could not read that — try 📖 the cover instead'); }
   }
 
-  /** 📖 Snap the cover from the live camera → Kaya reads it. */
+  /** 📖 Snap the cover from the live camera → Kaya reads it.
+   *  Grabs the FULL frame at the camera's native resolution (no narrowing),
+   *  capped at 2200px so enhancePhoto has real detail to sharpen. */
   async function snapCover() {
     const v = videoRef.current;
     if (!v || v.readyState < 2 || snapping) return;
     setSnapping(true);
     try {
-      const scale = Math.min(1, 1280 / Math.max(v.videoWidth, v.videoHeight));
+      const scale = Math.min(1, 2200 / Math.max(v.videoWidth, v.videoHeight));
       const c = document.createElement('canvas');
       c.width = Math.round(v.videoWidth * scale); c.height = Math.round(v.videoHeight * scale);
       c.getContext('2d')!.drawImage(v, 0, 0, c.width, c.height);
-      const blob: Blob | null = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.85));
+      const blob: Blob | null = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.95));
       if (!blob) return;
       await readFront(new File([blob], 'cover.jpg', { type: 'image/jpeg' }));
     } finally { setSnapping(false); }
   }
 
   // ── tier 1 · the cover (Kaya AI) ──
-  async function readFront(file: File) {
+  async function readFront(rawFile: File) {
     setFrontBusy(true); setFrontErr('');
     try {
+      // CamScanner-grade clean-up before the read: auto-levels + sharpen at a
+      // higher ceiling so faint / glossy covers OCR cleanly. Falls back to the
+      // raw capture if enhancement can't run (very old browsers, huge images).
+      let file = rawFile;
+      try {
+        const enhanced = await enhancePhoto(rawFile, { maxLongSide: 1800, quality: 0.92 });
+        if (enhanced?.file) file = enhanced.file;
+      } catch { /* keep the raw capture */ }
       const { base64, mediaType } = await fileToBase64(file);
       const r = await cupboardLookup('vision', { imageBase64: base64, mediaType, kind: frontKind === 'any' ? '' : frontKind });
       if (!r.found) {
@@ -502,22 +522,23 @@ export default function CupboardScanSheet({ familyId, shelf, defaultKind = 'book
                 <button type="button" onClick={onTypeInstead} className="text-[10.5px] font-extrabold px-2.5 py-1.5 rounded-full border border-[#E8E0CF] bg-white text-[#5B6B8C]">⌨ Type it</button>
               </div>
 
-              {/* one viewfinder, two frames */}
+              {/* one viewfinder, two frames — the WHOLE frame is captured, so
+                  the cover feed is shown uncropped (object-contain) and tall. */}
               {!camFailed && (
-                <div className="relative rounded-[14px] overflow-hidden bg-[#0f1420]" style={{ height: 230 }}>
+                <div className="relative rounded-[14px] overflow-hidden bg-[#0f1420]" style={{ height: 300 }}>
                   {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                  <video ref={videoRef} playsInline muted className="w-full h-full object-cover" />
+                  <video ref={videoRef} playsInline muted className={`w-full h-full ${tier === 'front' ? 'object-contain' : 'object-cover'}`} />
                   <div className="absolute inset-0 grid place-items-center pointer-events-none">
                     {tier === 'front' ? (
-                      <div className="w-[128px] h-[172px] border-2 rounded-[8px]" style={{ borderColor: '#3FA38F', boxShadow: '0 0 18px rgba(63,163,143,.45)' }} />
+                      <div className="w-[62%] max-w-[210px] aspect-[3/4] border-2 rounded-[10px]" style={{ borderColor: '#3FA38F', boxShadow: '0 0 22px rgba(63,163,143,.4)' }} />
                     ) : (
-                      <div className="w-[220px] h-[96px] border-2 rounded-[8px] relative" style={{ borderColor: '#3FA38F' }}>
+                      <div className="w-[240px] h-[104px] border-2 rounded-[8px] relative" style={{ borderColor: '#3FA38F' }}>
                         <div className="absolute left-2 right-2 top-1/2 h-[2px]" style={{ background: '#FF5C5C', boxShadow: '0 0 10px #FF5C5C' }} />
                       </div>
                     )}
                   </div>
                   <div className="absolute bottom-0 left-0 right-0 text-center text-[10.5px] font-extrabold text-white/90 py-1.5 bg-black/30">
-                    {tier === 'front' ? (frontBusy ? '🧠 Kaya is reading the cover…' : 'Hold the front of the book in the frame · tap Snap') : camMsg}
+                    {tier === 'front' ? (frontBusy ? '🧠 Kaya is reading the cover…' : 'Fill the frame with the cover — the whole view is captured · tap Snap') : camMsg}
                   </div>
                 </div>
               )}
