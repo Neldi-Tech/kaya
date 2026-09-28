@@ -53,7 +53,11 @@ const CATEGORIES: Array<{ id: string; emoji: string; label: string }> = [
   { id: 'drivers',   emoji: '🚗', label: 'Drivers' },
   { id: 'payroll',   emoji: '💼', label: 'Payroll' },
 ];
-const DEFAULT_URGENT = ['kidpoints', 'kidfunds'];
+// Kid-proposed points (🏆 Star/Belt/Ladder, 👑 Leader notes) are urgent by
+// default: a kid is waiting on the answer, and they used to sink into the
+// collapsed "normal" pile — invisible under the 🔴 Urgent filter (28-Sep-2026).
+const DEFAULT_URGENT = ['kidpoints', 'kidfunds', 'meetingawards', 'leader'];
+const NEW_URGENT_V2 = ['meetingawards', 'leader'];
 
 const HIVE_TYPE_LABEL: Record<string, string> = {
   hp_to_honey: 'HP → Honey',
@@ -131,12 +135,23 @@ export default function PendingApprovalsBanner() {
   // ── Per-parent urgency choices + per-device view state ──────────
   const [urgentCats, setUrgentCats] = useState<string[]>(DEFAULT_URGENT);
   useEffect(() => {
-    if (profile?.approvalUrgentCategories) setUrgentCats(profile.approvalUrgentCategories);
-  }, [profile?.approvalUrgentCategories]);
+    const saved = profile?.approvalUrgentCategories;
+    if (!saved) return;
+    // A list saved before kid proposals were urgent-by-default never had the
+    // chance to include them — merge them in ONCE (then respect the parent's
+    // own toggles forever after).
+    if (!profile?.approvalUrgentV2) {
+      const merged = Array.from(new Set([...saved, ...NEW_URGENT_V2]));
+      setUrgentCats(merged);
+      void updateUserProfile(profile.uid, { approvalUrgentCategories: merged, approvalUrgentV2: true }).catch(() => {});
+      return;
+    }
+    setUrgentCats(saved);
+  }, [profile?.approvalUrgentCategories, profile?.approvalUrgentV2, profile?.uid]);
   const toggleCat = (id: string) => {
     const next = urgentCats.includes(id) ? urgentCats.filter((c) => c !== id) : [...urgentCats, id];
     setUrgentCats(next);
-    if (profile) void updateUserProfile(profile.uid, { approvalUrgentCategories: next }).catch(() => {});
+    if (profile) void updateUserProfile(profile.uid, { approvalUrgentCategories: next, approvalUrgentV2: true }).catch(() => {});
   };
   const [open, setOpen] = useState(false);
   // FX PR-1 — three filters: all | urgent (chosen cats) | aging (>7d rest).
