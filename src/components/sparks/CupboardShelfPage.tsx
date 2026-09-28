@@ -14,6 +14,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import {
   subscribeToCupboard, liveItems, endedItems, books, games,
   requestCupboardItem, grantCupboardItem,
+  resolveShoppingItem, updateCupboardItem, fetchBookSummary, bookMetaLine, gameMetaLine,
   type CupboardShelf, type CupboardKind, type CupboardItem, type CupboardRequest,
 } from '@/lib/sparks/cupboard';
 import { GAME_KINDS, isFamilyOwned, liveReadings, finishedReadings, isFavouriteBook } from '@/lib/sparks/treasures';
@@ -55,7 +56,7 @@ function SpineShelf({ items }: { items: CupboardItem[] }) {
               style={{ width: width(t), height: 120, background: colour[s], color: fg[s] }}>
               {pct > 0 && <span className="absolute left-0 right-0 bottom-0" style={{ height: `${pct}%`, background: 'rgba(255,255,255,.35)' }} aria-hidden />}
               <span className="absolute inset-0 grid place-items-center text-[8.5px] font-extrabold leading-none px-0.5 text-center" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
-                {t.nameConfirmed === false ? '⚠ ' : ''}{t.name.slice(0, 26)}
+                {t.nameConfirmed === false ? '⚠ ' : ''}{t.adultOnly ? '🔞 ' : ''}{t.name.slice(0, 26)}
               </span>
             </Link>
           );
@@ -103,6 +104,12 @@ export default function CupboardShelfPage({ kind }: { kind: CupboardKind }) {
   const famN = live.filter(isFamilyOwned).length;
   /** 🆕 bought-while-shopping, held by the parents until given out. */
   const newItems = useMemo(() => live.filter((t) => t.newUntilGiven === true), [live]);
+  /** 🛒 scanned in a shop, not yet confirmed — parents/helpers only (the
+   *  gateway never sends these to a child). */
+  const shopList = useMemo(
+    () => (shelf?.shoppingList ?? []).filter((t) => (kind === 'book' ? t.categoryId !== 'game' : t.categoryId === 'game')),
+    [shelf, kind],
+  );
   /** Parent grant sheet target. */
   const [granting, setGranting] = useState<CupboardItem | null>(null);
 
@@ -174,6 +181,10 @@ export default function CupboardShelfPage({ kind }: { kind: CupboardKind }) {
                 </button>
               ))}
             </div>
+
+            {shopList.length > 0 && familyId && (
+              <ShoppingListBand kind={kind} items={shopList} familyId={familyId} isParent={shelf.me.role === 'parent'} />
+            )}
 
             {newItems.length > 0 && familyId && (
               <NewBand
@@ -281,6 +292,98 @@ export default function CupboardShelfPage({ kind }: { kind: CupboardKind }) {
         />
       )}
     </>
+  );
+}
+
+// ── 🛒 The shopping list — scanned in a shop, waiting for "bought" ───
+//
+// Nothing scanned while shopping is lost: every NEW book/game is seated
+// here with Kaya's summary. "Bought" moves it into the Cupboard (🆕 New);
+// "Not buying" removes it. Parents can mark 🔞 adults-only.
+
+function ShoppingListBand({ kind, items, familyId, isParent }: {
+  kind: CupboardKind; items: CupboardItem[]; familyId: string; isParent: boolean;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+  const [err, setErr] = useState('');
+  const act = async (id: string, fn: () => Promise<unknown>) => {
+    setBusy(id); setErr('');
+    try { await fn(); } catch (e) { setErr(e instanceof Error ? e.message : 'Could not do that'); }
+    finally { setBusy(null); }
+  };
+  const getSummary = (t: CupboardItem) => act(t.id, async () => {
+    const sm = await fetchBookSummary(t.name, t.book?.author);
+    if (!sm) throw new Error('Kaya couldn’t find a summary for this one yet.');
+    await updateCupboardItem(familyId, t.id, { book: { summary: sm.summary, summarySource: sm.summarySource } });
+    setOpen(t.id);
+  });
+  return (
+    <div className="mb-3 rounded-[14px] border p-3 bg-white" style={{ borderColor: '#BFE3D8' }}>
+      <div className="flex items-center justify-between">
+        <div className="font-display font-extrabold text-[12.5px]" style={{ color: JADE }}>🛒 Shopping list · scanned, not confirmed</div>
+        <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full" style={{ background: '#E2F3EE', color: JADE }}>{items.length}</span>
+      </div>
+      <div className="text-[10px] font-bold mt-0.5 text-[#5B6B8C]">Tap ✓ Bought and it moves into the Cupboard. Only grown-ups see this list.</div>
+      {err && <p className="text-[11px] font-bold text-[#C0392B] mt-1.5 mb-0">{err}</p>}
+      <div className="mt-2.5 space-y-2">
+        {items.map((t) => {
+          const cover = t.book?.coverUrl || t.thumbUrl;
+          const meta = kind === 'book' ? bookMetaLine(t.book) : gameMetaLine(t.game);
+          const summary = t.book?.summary;
+          const isOpen = open === t.id;
+          const b = busy === t.id;
+          return (
+            <div key={t.id} className="rounded-[12px] border border-[#ECE4D3] p-2.5" style={{ background: '#FBFDFC' }}>
+              <div className="flex gap-2.5">
+                <div className="w-[40px] h-[56px] rounded-[6px] grid place-items-center text-[20px] shrink-0 overflow-hidden" style={{ background: WOOD_BG, border: `1px solid ${WOOD_BD}` }}>
+                  {cover
+                    // eslint-disable-next-line @next/next/no-img-element
+                    ? <img src={cover} alt="" className="w-full h-full object-cover" />
+                    : <span aria-hidden>{t.emoji}</span>}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-display font-extrabold text-[12.5px] leading-tight text-[#0F1F44]">
+                    {t.adultOnly ? '🔞 ' : ''}{t.name}
+                  </div>
+                  {meta && <div className="text-[10px] font-bold text-[#5B6B8C] mt-0.5 line-clamp-1">{meta}</div>}
+                  {kind === 'book' && (summary ? (
+                    <button type="button" onClick={() => setOpen(isOpen ? null : t.id)} className="text-left mt-1 w-full">
+                      <span className={`block text-[10.5px] leading-snug text-[#394458] ${isOpen ? '' : 'line-clamp-2'}`}>
+                        📖 {summary}
+                        {t.book?.summarySource === 'kaya' && <span className="ml-1 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full" style={{ background: '#EFE8FF', color: '#5A3CB8' }}>🧠 Kaya</span>}
+                      </span>
+                      <span className="text-[9.5px] font-extrabold" style={{ color: WOOD_DK }}>{isOpen ? 'less' : 'more'}</span>
+                    </button>
+                  ) : (
+                    <button type="button" disabled={b} onClick={() => getSummary(t)} className="mt-1 text-[10.5px] font-extrabold disabled:opacity-50" style={{ color: '#5A3CB8' }}>
+                      {b ? '🧠 Finding a summary…' : '✨ Get Kaya’s summary'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                <button type="button" disabled={b} onClick={() => act(t.id, () => resolveShoppingItem(familyId, t.id, 'bought'))}
+                  className="flex-1 min-w-[120px] rounded-full py-1.5 text-[11px] font-extrabold text-white disabled:opacity-50" style={{ background: JADE }}>
+                  ✓ Bought → Cupboard
+                </button>
+                <button type="button" disabled={b} onClick={() => act(t.id, () => resolveShoppingItem(familyId, t.id, 'drop'))}
+                  className="rounded-full px-3 py-1.5 text-[11px] font-extrabold bg-[#EEF0F4] text-[#5B6B8C] disabled:opacity-50">
+                  ✗ Not buying
+                </button>
+                {isParent && (
+                  <button type="button" disabled={b} onClick={() => act(t.id, () => updateCupboardItem(familyId, t.id, { adultOnly: !t.adultOnly }))}
+                    className="rounded-full px-2.5 py-1.5 text-[10.5px] font-extrabold border disabled:opacity-50"
+                    style={t.adultOnly ? { background: '#FDE8E8', borderColor: '#F0C9CC', color: '#C0392B' } : { background: '#fff', borderColor: '#E8E0CF', color: '#5B6B8C' }}>
+                    🔞 {t.adultOnly ? 'Adults only' : 'Adults?'}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

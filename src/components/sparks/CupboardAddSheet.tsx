@@ -61,6 +61,9 @@ export default function CupboardAddSheet({ familyId, shelf, defaultKind = 'book'
   }
   const whoValue = scope === 'family' ? 'family' : `kid:${kidId}`;
 
+  /** 🔞 parents only — hidden from children until they turn 18. */
+  const [adultOnly, setAdultOnly] = useState(false);
+
   async function submit(allowDuplicate = false) {
     if (busy) return;
     const n = name.trim();
@@ -70,6 +73,7 @@ export default function CupboardAddSheet({ familyId, shelf, defaultKind = 'book'
       const input: NewCupboardItemInput = {
         kind, name: n, ownerScope: scope, nameSource: 'manual', allowDuplicate,
         whereKept: whereKept.trim() || undefined,
+        adultOnly: (isParent && adultOnly) || undefined,
       };
       if (scope === 'kid') input.kidId = kidId;
       if (kind === 'book') {
@@ -157,6 +161,12 @@ export default function CupboardAddSheet({ familyId, shelf, defaultKind = 'book'
           <Field label="📍 Where it lives">
             <input className={inputCls} value={whereKept} onChange={(e) => setWhereKept(e.target.value)} placeholder="living-room cupboard, top shelf" maxLength={120} />
           </Field>
+          {isParent && (
+            <label className="flex items-center gap-2 mb-2.5 text-[12px] font-extrabold text-[#0F1F44]">
+              <input type="checkbox" checked={adultOnly} onChange={(e) => setAdultOnly(e.target.checked)} />
+              🔞 Adults only <span className="font-bold text-[10.5px] text-[#8A8471]">— hidden from children until they turn 18</span>
+            </label>
+          )}
 
           <Field label="Photo (optional)">
             <input type="file" accept="image/*" capture="environment" className="text-[12px]" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />

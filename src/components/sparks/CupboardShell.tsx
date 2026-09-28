@@ -140,6 +140,9 @@ export function ShelfCard({ item }: { item: CupboardItem }) {
         <div className="text-[9.5px] font-bold text-[#5B6B8C] mt-0.5 line-clamp-1">{meta || (item.whereKept ? `📍 ${item.whereKept}` : '—')}</div>
         <div className="flex flex-wrap items-center gap-1 mt-1.5">
           <OwnerChip item={item} small />
+          {item.adultOnly && (
+            <span className="inline-block text-[9.5px] font-extrabold px-2 py-0.5 rounded-full" style={{ background: '#FDE8E8', color: '#C0392B' }}>🔞 adults</span>
+          )}
           {unusual && (
             <span className="inline-block text-[9.5px] font-extrabold px-2 py-0.5 rounded-full" style={{ background: chip.bg, color: chip.fg }}>
               {chip.emoji} {STATUS_LABEL[item.status]}

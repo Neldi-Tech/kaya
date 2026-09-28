@@ -22,6 +22,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   addCupboardItem, cupboardLookup, cupboardCheck, normaliseTitle,
+  fetchBookSummary, resolveShoppingItem, updateCupboardItem, type AddCupboardResult,
   type CupboardShelf, type CupboardKind, type NewCupboardItemInput, type LookupResult,
   type CupboardCheckResult,
 } from '@/lib/sparks/cupboard';
@@ -55,6 +56,8 @@ interface TrayItem {
   dupOf?: { id: string; name: string; ownerName: string };
   addedId?: string;
   allowDuplicate?: boolean;
+  /** 🔞 parent marked it adults-only on the confirm card. */
+  adultOnly?: boolean;
   error?: string;
 }
 
@@ -68,6 +71,12 @@ interface ShopVerdict {
   coverUrl?: string;
   code?: string;
   onShelf: CupboardCheckResult['onShelf'];
+  /** 🛒 the shopping-list entry this scan was seated as (new items only). */
+  savedId?: string;
+  /** It was already on the list from an earlier scan. */
+  onList?: boolean;
+  /** 🔞 marked adults-only. */
+  adultOnly?: boolean;
 }
 
 const BARCODE_FORMATS = ['EAN13', 'UPCA', 'UPCE', 'EAN8'] as const;
@@ -194,9 +203,40 @@ export default function CupboardScanSheet({ familyId, shelf, defaultKind = 'book
       kind, name, barcode: code,
       book: kind === 'book' ? { author: r.book?.author, isbn } : undefined,
     }).catch(() => ({ onShelf: null } as CupboardCheckResult));
-    setVerdict({ kind, name, nameSource, book: r.book, game: r.game, coverUrl: r.book?.coverUrl, code, onShelf: check.onShelf });
+
+    // 🛒 A NEW book/game is seated on the parents' shopping list straight
+    // away — so nothing scanned in a shop is ever lost — with Kaya's
+    // summary when the library had none. Confirm "bought" later.
+    let book = r.book;
+    let savedId: string | undefined;
+    const adultOnly = ((book?.ageMin ?? r.game?.ageMin ?? 0) >= 18) || undefined;
+    if (!check.onShelf && name) {
+      if (kind === 'book' && !book?.summary) {
+        const sm = await fetchBookSummary(name, book?.author).catch(() => null);
+        if (sm) book = { ...(book || { name }), summary: sm.summary, summarySource: sm.summarySource };
+      }
+      if (check.onList) {
+        savedId = check.onList.id;
+      } else {
+        const input: NewCupboardItemInput = {
+          kind, name, ownerScope: 'family', barcode: code, nameSource, shopping: true, adultOnly,
+        };
+        if (kind === 'book' && book) {
+          input.book = {
+            author: book.author, pages: book.pages, year: book.year, publisher: book.publisher,
+            coverUrl: book.coverUrl, isbn, ageMin: book.ageMin, summary: book.summary, summarySource: book.summarySource,
+          };
+        }
+        if (kind === 'game' && r.game) {
+          input.game = { ageMin: r.game.ageMin, playersMin: r.game.playersMin, playersMax: r.game.playersMax, minutes: r.game.minutes, gameKind: r.game.gameKind };
+        }
+        const res = await addCupboardItem(familyId, input).catch(() => ({} as AddCupboardResult));
+        savedId = res.id;
+      }
+    }
+    setVerdict({ kind, name, nameSource, book, game: r.game, coverUrl: book?.coverUrl, code, onShelf: check.onShelf, savedId, onList: !!check.onList, adultOnly: !!adultOnly });
     setTrip((s) => ({ ...s, scanned: s.scanned + 1, owned: s.owned + (check.onShelf ? 1 : 0), neu: s.neu + (check.onShelf ? 0 : 1) }));
-  }, []);
+  }, [familyId]);
 
   // ── a decoded code → tray (home) · or verdict (shopping) ──
   const onCode = useCallback(async (raw: string) => {
@@ -380,6 +420,7 @@ export default function CupboardScanSheet({ familyId, shelf, defaultKind = 'book
       barcode: it.code,
       nameSource: it.nameSource || 'manual',
       allowDuplicate: it.allowDuplicate === true,
+      adultOnly: it.adultOnly === true || undefined,
     };
     if (it.kind === 'book' && it.book) {
       input.book = { author: it.book.author, pages: it.book.pages, year: it.book.year, publisher: it.book.publisher, coverUrl: it.book.coverUrl, isbn: it.book.isbn || (it.code && it.code.length === 13 ? it.code : undefined), ageMin: it.book.ageMin, summary: it.book.summary, summarySource: it.book.summarySource };
@@ -427,6 +468,16 @@ export default function CupboardScanSheet({ familyId, shelf, defaultKind = 'book
     if (!verdict || busy) return;
     setBusy(true);
     const v = verdict;
+    // 🛒 Seated on the list → confirm it: it moves into the Cupboard (🆕 New).
+    if (!v.onShelf && v.savedId) {
+      try {
+        await resolveShoppingItem(familyId, v.savedId, 'bought');
+        setTrip((s) => ({ ...s, bought: s.bought + 1 }));
+      } catch { /* stays on the list — confirm it from the shelf */ }
+      setBusy(false);
+      setVerdict(null);
+      return;
+    }
     const input: NewCupboardItemInput = {
       kind: v.kind,
       name: v.name.trim(),
@@ -454,7 +505,26 @@ export default function CupboardScanSheet({ familyId, shelf, defaultKind = 'book
     setBusy(false);
     setVerdict(null);
   }
-  const discardVerdict = () => setVerdict(null);
+  /** "Not buying" — a seated list entry is removed; an owned one just closes. */
+  async function discardVerdict() {
+    const v = verdict;
+    if (v && !v.onShelf && v.savedId) {
+      setBusy(true);
+      try { await resolveShoppingItem(familyId, v.savedId, 'drop'); } catch { /* leave it listed */ }
+      setBusy(false);
+    }
+    setVerdict(null);
+  }
+  /** "Decide later" — it stays on the 🛒 shopping list on the shelf. */
+  const laterVerdict = () => setVerdict(null);
+  async function toggleAdult() {
+    const v = verdict;
+    if (!v?.savedId || !isParent) return;
+    const next = !v.adultOnly;
+    setVerdict({ ...v, adultOnly: next });
+    try { await updateCupboardItem(familyId, v.savedId, { adultOnly: next }); }
+    catch { setVerdict((cur) => (cur ? { ...cur, adultOnly: !next } : cur)); }
+  }
 
   const ready = tray.filter((x) => x.status === 'ready').length;
   const added = tray.filter((x) => x.status === 'added');
@@ -601,7 +671,7 @@ export default function CupboardScanSheet({ familyId, shelf, defaultKind = 'book
                       <div className="text-[10.5px] font-bold text-[#8A8471] mt-1">Seeing if the family already has this one.</div>
                     </div>
                   )}
-                  {verdict && <ShopVerdictCard v={verdict} busy={busy} onKeep={keepBought} onDiscard={discardVerdict} />}
+                  {verdict && <ShopVerdictCard v={verdict} busy={busy} canAdult={isParent} onKeep={keepBought} onDiscard={discardVerdict} onLater={laterVerdict} onToggleAdult={toggleAdult} />}
                 </div>
               )}
 
@@ -750,6 +820,8 @@ function ConfirmCard({ item, shelf, whoOptions, whoValue, scope, kidId, whereKep
   const [pMax, setPMax] = useState(item.game?.playersMax ? String(item.game.playersMax) : '');
   const [minutes, setMinutes] = useState(item.game?.minutes ? String(item.game.minutes) : '');
   const [gameKind, setGameKind] = useState<GameKind | undefined>(item.game?.gameKind);
+  // 🔞 parents only — pre-ticked when the lookup says 18+.
+  const [adultOnly, setAdultOnly] = useState<boolean>(item.adultOnly ?? ((item.book?.ageMin ?? item.game?.ageMin ?? 0) >= 18));
   // D43 · "What it's about" — parents may edit; kids read.
   const [summary, setSummary] = useState(item.book?.summary || '');
   const [summaryOpen, setSummaryOpen] = useState(true);
@@ -803,6 +875,12 @@ function ConfirmCard({ item, shelf, whoOptions, whoValue, scope, kidId, whereKep
         )}
         <Field label="Whose is it?"><ChoiceChips value={whoValue} onChange={onWho} options={whoOptions} /></Field>
         <Field label="📍 Where it lives"><input className={inputCls} value={whereKept} onChange={(e) => onWhere(e.target.value)} placeholder="living-room cupboard, top shelf" maxLength={120} /></Field>
+        {isParent && (
+          <label className="flex items-center gap-2 mb-2.5 text-[12px] font-extrabold text-[#0F1F44]">
+            <input type="checkbox" checked={adultOnly} onChange={(e) => setAdultOnly(e.target.checked)} />
+            🔞 Adults only <span className="font-bold text-[10.5px] text-[#8A8471]">— hidden from children until they turn 18</span>
+          </label>
+        )}
       </div>
 
       {kind === 'book' && (summary || item.nameSource !== 'manual') && (
@@ -828,7 +906,7 @@ function ConfirmCard({ item, shelf, whoOptions, whoValue, scope, kidId, whereKep
 
       <div className="flex gap-2 mt-2">
         <button type="button" disabled={busy || !name.trim()} onClick={() => onAdd({
-          ...item, kind, name: name.trim(), nameSource,
+          ...item, kind, name: name.trim(), nameSource, adultOnly: isParent && adultOnly,
           book: kind === 'book' ? { ...(item.book || { name: name.trim() }), name: name.trim(), author: author.trim() || undefined, pages: pages ? Number(pages) : undefined, ageMin: ageMin ? Number(ageMin) : undefined, summary: summary.trim() || undefined, summarySource: summary.trim() ? (summary.trim() !== (item.book?.summary || '').trim() ? 'parent' : summarySource) : undefined } : undefined,
           game: kind === 'game' ? { name: name.trim(), ageMin: ageMin ? Number(ageMin) : undefined, playersMin: pMin ? Number(pMin) : undefined, playersMax: pMax ? Number(pMax) : undefined, minutes: minutes ? Number(minutes) : undefined, gameKind } : undefined,
         })} className="flex-1 px-4 py-2.5 rounded-full font-extrabold text-[13px] text-white disabled:opacity-50" style={{ background: WOOD }}>
@@ -842,8 +920,9 @@ function ConfirmCard({ item, shelf, whoOptions, whoValue, scope, kidId, whereKep
 
 // ── Shopping verdict card (own / new + keep or discard) ─────────────
 
-function ShopVerdictCard({ v, busy, onKeep, onDiscard }: {
-  v: ShopVerdict; busy: boolean; onKeep: () => void; onDiscard: () => void;
+function ShopVerdictCard({ v, busy, canAdult, onKeep, onDiscard, onLater, onToggleAdult }: {
+  v: ShopVerdict; busy: boolean; canAdult: boolean;
+  onKeep: () => void; onDiscard: () => void; onLater: () => void; onToggleAdult: () => void;
 }) {
   const own = !!v.onShelf;
   const meta = v.kind === 'book'
@@ -873,7 +952,22 @@ function ShopVerdictCard({ v, busy, onKeep, onDiscard }: {
         <div className="inline-flex items-center gap-1.5 mt-2 text-[11px] font-extrabold rounded-[10px] px-2.5 py-1.5 bg-white" style={{ border: `1px solid ${WOOD_BD}`, color: WOOD_DK }}>{ownerLine}</div>
       )}
       {!own && v.kind === 'book' && v.book?.summary && (
-        <div className="text-[10.5px] text-[#394458] text-left mt-2 leading-snug border-l-[3px] pl-2.5" style={{ borderColor: WOOD_BD }}>📖 {v.book.summary}</div>
+        <div className="text-[10.5px] text-[#394458] text-left mt-2 leading-snug border-l-[3px] pl-2.5" style={{ borderColor: WOOD_BD }}>
+          📖 {v.book.summary}
+          {v.book.summarySource === 'kaya' && <span className="ml-1 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full" style={{ background: '#EFE8FF', color: '#5A3CB8' }}>🧠 Kaya</span>}
+        </div>
+      )}
+      {!own && v.savedId && (
+        <div className="text-[10.5px] font-extrabold mt-2" style={{ color: '#0E6B5E' }}>
+          📋 {v.onList ? 'Already on your shopping list' : 'Saved to your shopping list'} — confirm now or later from the shelf.
+        </div>
+      )}
+      {!own && v.savedId && canAdult && (
+        <button type="button" onClick={onToggleAdult} disabled={busy}
+          className="mt-2 text-[10.5px] font-extrabold px-2.5 py-1 rounded-full border disabled:opacity-50"
+          style={v.adultOnly ? { background: '#FDE8E8', borderColor: '#F0C9CC', color: '#C0392B' } : { background: '#fff', borderColor: '#E8E0CF', color: '#5B6B8C' }}>
+          🔞 {v.adultOnly ? 'Adults only — hidden from kids' : 'Mark adults only'}
+        </button>
       )}
       <div className="flex gap-2 mt-3">
         {own ? (
@@ -883,11 +977,14 @@ function ShopVerdictCard({ v, busy, onKeep, onDiscard }: {
           </>
         ) : (
           <>
-            <button type="button" disabled={busy} onClick={onKeep} className="flex-1 px-4 py-2.5 rounded-full font-extrabold text-[12.5px] text-white disabled:opacity-50" style={{ background: JADE }}>{busy ? 'Saving…' : '🛍 Bought it → New Books'}</button>
-            <button type="button" disabled={busy} onClick={onDiscard} className="px-4 py-2.5 rounded-full font-extrabold text-[12.5px] bg-[#EEF0F4] text-[#5B6B8C] disabled:opacity-50">Didn&rsquo;t buy</button>
+            <button type="button" disabled={busy} onClick={onKeep} className="flex-1 px-4 py-2.5 rounded-full font-extrabold text-[12.5px] text-white disabled:opacity-50" style={{ background: JADE }}>{busy ? 'Saving…' : '🛍 Bought it → Cupboard'}</button>
+            <button type="button" disabled={busy} onClick={onDiscard} className="px-4 py-2.5 rounded-full font-extrabold text-[12.5px] bg-[#EEF0F4] text-[#5B6B8C] disabled:opacity-50">Not buying</button>
           </>
         )}
       </div>
+      {!own && v.savedId && (
+        <button type="button" disabled={busy} onClick={onLater} className="mt-2 text-[11px] font-extrabold disabled:opacity-50" style={{ color: WOOD_DK }}>📋 Decide later — keep scanning</button>
+      )}
     </div>
   );
 }

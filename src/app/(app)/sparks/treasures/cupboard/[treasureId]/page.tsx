@@ -123,6 +123,18 @@ export default function CupboardItemPage() {
         </span>
         {item.keeperName && <span className="inline-block text-[10px] font-extrabold px-2 py-1 rounded-full bg-[#EEF0F4] text-[#5B6B8C]">🔑 Keeper: {item.keeperName}</span>}
         {item.barcode && <span className="inline-block text-[10px] font-extrabold px-2 py-1 rounded-full bg-[#EEF0F4] text-[#5B6B8C]">▌▌ {item.barcode}</span>}
+        {/* 🔞 parents mark adults-only: hidden from children until they turn 18 */}
+        {perm.canManage ? (
+          <button type="button" disabled={busy}
+            onClick={() => run(() => updateCupboardItem(familyId, item.id, { adultOnly: !item.adultOnly }))}
+            className="inline-block text-[10px] font-extrabold px-2 py-1 rounded-full border disabled:opacity-50"
+            style={item.adultOnly ? { background: '#FDE8E8', borderColor: '#F0C9CC', color: '#C0392B' } : { background: '#fff', borderColor: '#E8E0CF', color: '#5B6B8C' }}
+            title="Adults only — children won't see it until they turn 18">
+            🔞 {item.adultOnly ? 'Adults only' : 'Mark adults only'}
+          </button>
+        ) : item.adultOnly ? (
+          <span className="inline-block text-[10px] font-extrabold px-2 py-1 rounded-full" style={{ background: '#FDE8E8', color: '#C0392B' }}>🔞 Adults only</span>
+        ) : null}
       </div>
 
       {img && (
