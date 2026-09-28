@@ -36,6 +36,10 @@ import { bumpBadgeCountersAdmin } from '@/lib/badgeCountersAdmin';
 import { resolveAiLevelAdmin } from '@/lib/ai/level.server';
 import { aiLevelAddendum, withLevelAddendum } from '@/lib/ai/level.prompts';
 import { parseAiLevel } from '@/lib/ai/level.shared';
+import {
+  canSeeAdult as canSeeAdultRule, canShop as canShopRule,
+  visibleTo as visibleToRule, adultOkForChild,
+} from '@/lib/sparks/cupboardVisibility';
 
 // C4 · D36 — the Finish Quiz is generated + scored by Claude. Absent key
 // → honest generic questions and no score (never an error).
@@ -86,7 +90,7 @@ const READING_MODES = ['off', 'daily', 'weekdays', 'weekly'];
 type Action =
   | 'shelf' | 'item' | 'add' | 'check' | 'update'
   | 'condition' | 'found' | 'sighting' | 'lend' | 'return' | 'end'
-  | 'request' | 'grant'
+  | 'request' | 'grant' | 'shop-resolve'
   | 'settings-get' | 'settings-set' | 'helpers'
   | 'my-reading' | 'reading-start' | 'reading-mark' | 'reading-finish'
   | 'reading-reminder' | 'reading-invite' | 'reading-invite-respond'
@@ -97,7 +101,7 @@ type Action =
 const ALL_ACTIONS: Action[] = [
   'shelf', 'item', 'add', 'check', 'update',
   'condition', 'found', 'sighting', 'lend', 'return', 'end',
-  'request', 'grant',
+  'request', 'grant', 'shop-resolve',
   'settings-get', 'settings-set', 'helpers',
   'my-reading', 'reading-start', 'reading-mark', 'reading-finish',
   'reading-reminder', 'reading-invite', 'reading-invite-respond',
@@ -329,6 +333,17 @@ export async function POST(req: NextRequest) {
     };
   };
 
+  // 🔞 Adults-only: parents always; a child only once they turn 18 (no
+  // birthday on file → stays hidden); helpers never. Enforced HERE so an
+  // adult title never reaches a child's device, not merely hidden in the UI.
+  const viewer = { isParent, isHelper, childId: viewerChildId, age: viewerChildId ? kidName.get(viewerChildId)?.age : undefined };
+  const canSeeAdult = canSeeAdultRule(viewer);
+  const canShop = canShopRule(viewer);
+  const visibleTo = (t: Record<string, unknown>) => visibleToRule(viewer, t);
+  /** A dedupe hit a child isn't allowed to see is named generically. */
+  const dupName = (t: Record<string, unknown>) =>
+    (t.adultOnly === true && !canSeeAdult) ? 'a grown-ups’ book' : String(t.name || '');
+
   /** D25 · what sits on the shelves: family-owned books/games + a kid's
    *  own book/game they shared with the family. Two equality queries. */
   async function shelfRows(): Promise<Array<Record<string, unknown> & { id: string }>> {
@@ -345,13 +360,20 @@ export async function POST(req: NextRequest) {
   // ── Reads ─────────────────────────────────────────────────────────
 
   if (action === 'shelf') {
-    const rows = await shelfRows();
+    const rows = (await shelfRows()).filter(visibleTo);
+    const shoppingList = rows
+      .filter((t) => t.shoppingList === true && !ENDED.includes(String(t.status)))
+      .map((t) => decorate(t.id, t))
+      .sort((a, b) => Number((b as { createdAt?: number }).createdAt || 0)
+        - Number((a as { createdAt?: number }).createdAt || 0));
     const items = rows
+      .filter((t) => t.shoppingList !== true)
       .map((t) => decorate(t.id, t))
       .sort((a, b) => Number((b as { createdAt?: number }).createdAt || 0)
         - Number((a as { createdAt?: number }).createdAt || 0));
     return NextResponse.json({
       items,
+      shoppingList,
       kids: kidsSnap.docs.map((d) => {
         const k = kidName.get(d.id)!;
         return { id: d.id, name: k.name, emoji: k.emoji, ...(k.age !== undefined ? { age: k.age } : {}) };
@@ -381,6 +403,7 @@ export async function POST(req: NextRequest) {
     for (const d of bSnap.docs) {
       const t = d.data() as Record<string, unknown>;
       if (ENDED.includes(String(t.status))) continue;
+      if (!visibleTo(t)) continue; // 🔞 / 🛒 never reach a child's reading feed
       const rs = Array.isArray(t.readings) ? (t.readings as Array<Record<string, unknown>>) : [];
       for (const r of rs) {
         if (String(r.readerKidId) !== kidId || r.finishedOn) continue;
@@ -473,6 +496,7 @@ export async function POST(req: NextRequest) {
   // a book or game (theirs OR any child's — both sit on this shelf, D25)
   // before deciding to buy.
   if (action === 'check') {
+    if (!canShop) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
     const kind = str(body.kind, 10) === 'game' ? 'game' : 'book';
     const name = str(body.name, 120);
     const barcode = cleanBarcode(body.barcode);
@@ -482,20 +506,25 @@ export async function POST(req: NextRequest) {
     if (!name && !code) return NextResponse.json({ onShelf: null });
     const rows = await shelfRows();
     const key = titleKey(name, String(book.author || ''));
-    const dup = rows.find((tr) => {
+    const same = (tr: Record<string, unknown>) => {
       if (ENDED.includes(String(tr.status))) return false;
       if (String(tr.categoryId) !== kind) return false;
       const tb = (tr.book ?? {}) as { author?: string; isbn?: string };
       const tcode = String(tr.barcode || tb.isbn || '');
       if (code && tcode && code === tcode) return true;
       return name ? titleKey(String(tr.name || ''), tb.author) === key : false;
-    });
-    if (!dup) return NextResponse.json({ onShelf: null });
+    };
+    // A shopping-list entry is NOT owned — it's reported separately so a
+    // second scan of the same book in the shop doesn't list it twice.
+    const listed = rows.find((tr) => tr.shoppingList === true && same(tr));
+    const onList = listed ? { id: listed.id, name: dupName(listed) } : null;
+    const dup = rows.find((tr) => tr.shoppingList !== true && same(tr));
+    if (!dup) return NextResponse.json({ onShelf: null, onList });
     const d = decorate(dup.id, dup);
     return NextResponse.json({
       onShelf: {
         id: dup.id,
-        name: String(dup.name || ''),
+        name: dupName(dup),
         ownerName: d.ownerName,
         family: dup.ownerScope === 'family' || String(dup.kidId) === FAMILY_OWNER_ID,
         status: String(dup.status || 'kept'),
@@ -503,6 +532,7 @@ export async function POST(req: NextRequest) {
         newUntilGiven: dup.newUntilGiven === true,
         whereKept: str(dup.whereKept, 120) || undefined,
       },
+      onList,
     });
   }
 
@@ -528,12 +558,21 @@ export async function POST(req: NextRequest) {
     const isbn = kind === 'book' ? String(book.isbn || barcode || '') : '';
     const code = barcode || isbn;
 
+    // 🛒 Shopping list — a book/game scanned in a shop, seated for the
+    // parents to confirm later. Shoppers only; always family-held.
+    const shopping = body.shopping === true;
+    if (shopping && (!canShop || scope !== 'family')) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    }
+
     // D29 · dedupe — same barcode, else same normalised title+author,
     // among the things already on the shelf. Never a silent double.
     if (body.allowDuplicate !== true) {
       const rows = await shelfRows();
       const key = titleKey(name, String(book.author || ''));
       const dup = rows.find((t) => {
+        // Shopping-list entries only dedupe against each other.
+        if ((t.shoppingList === true) !== shopping) return false;
         if (ENDED.includes(String(t.status))) return false;
         if (String(t.categoryId) !== kind) return false;
         const tb = (t.book ?? {}) as { author?: string; isbn?: string };
@@ -543,8 +582,10 @@ export async function POST(req: NextRequest) {
       });
       if (dup) {
         const d = decorate(dup.id, dup);
+        // Re-scanning something already on the shopping list just returns it.
+        if (shopping) return NextResponse.json({ id: dup.id, existing: true });
         return NextResponse.json({
-          duplicateOf: { id: dup.id, name: String(dup.name || ''), ownerName: d.ownerName },
+          duplicateOf: { id: dup.id, name: dupName(dup), ownerName: d.ownerName },
         });
       }
     }
@@ -578,7 +619,10 @@ export async function POST(req: NextRequest) {
     // New Books / New Games — a book or game bought while shopping is held
     // by the parents in the "🆕 New" band until a child asks and is given
     // it. Family-owned by nature; the flag clears on grant.
-    if (body.newShelf === true && scope === 'family') doc.newUntilGiven = true;
+    if (shopping) doc.shoppingList = true;
+    else if (body.newShelf === true && scope === 'family') doc.newUntilGiven = true;
+    // 🔞 only a parent can mark a thing adults-only.
+    if (body.adultOnly === true && isParent) doc.adultOnly = true;
     if (code) doc.barcode = code;
     if (Object.keys(book).length) doc.book = book;
     if (Object.keys(game).length) doc.game = game;
@@ -589,6 +633,7 @@ export async function POST(req: NextRequest) {
     const photoId = str(body.photoId, 80); if (photoId) doc.photoId = photoId;
 
     const ref = await col.add(doc);
+    if (shopping) return NextResponse.json({ id: ref.id });
     await logEvent(eventsCol, {
       treasureId: ref.id, kidId, kind: 'registered', on: today, at: now, byName: actorName,
       note: scope === 'family'
@@ -606,6 +651,8 @@ export async function POST(req: NextRequest) {
   const snap = await ref.get();
   if (!snap.exists) return NextResponse.json({ error: 'not-found' }, { status: 404 });
   const t = snap.data() as Record<string, unknown>;
+  // 🔞 / 🛒 — an item this viewer may not see simply doesn't exist for them.
+  if (!visibleTo(t)) return NextResponse.json({ error: 'not-found' }, { status: 404 });
   const familyOwned = t.ownerScope === 'family' || String(t.kidId) === FAMILY_OWNER_ID;
   const onShelf = (t.categoryId === 'book' || t.categoryId === 'game')
     && (familyOwned || String(t.visibility || 'private') === 'family');
@@ -1097,6 +1144,10 @@ export async function POST(req: NextRequest) {
       if (!isParent) return NextResponse.json({ error: 'parents-only-name' }, { status: 403 });
       patch.nameConfirmed = p.nameConfirmed !== false;
     }
+    if (p.adultOnly !== undefined) {
+      if (!isParent) return NextResponse.json({ error: 'parents-only' }, { status: 403 });
+      patch.adultOnly = p.adultOnly === true ? true : FieldValue.delete();
+    }
     if (p.emoji !== undefined) patch.emoji = str(p.emoji, 8) || (t.categoryId === 'game' ? '🎲' : '📚');
     if (p.whereKept !== undefined) patch.whereKept = str(p.whereKept, 120);
     if (p.keeperKidId !== undefined) {
@@ -1249,6 +1300,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, newTreasureId: patch.handedToTreasureId });
   }
 
+  // ── Shop-resolve (confirm a shopping-list entry) ──────────────────
+  //
+  // bought → it joins the Cupboard in the 🆕 New band (held by the parents
+  //          until a child is given it) and gets its "registered" event.
+  // drop   → "not buying" — the entry is removed; nothing was ever owned.
+  if (action === 'shop-resolve') {
+    if (!canShop) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    if (t.shoppingList !== true) return NextResponse.json({ error: 'not-on-list' }, { status: 409 });
+    const mode = str(body.mode, 10) === 'drop' ? 'drop' : 'bought';
+    if (mode === 'drop') {
+      await ref.delete();
+      return NextResponse.json({ ok: true, mode });
+    }
+    const now = Date.now();
+    await ref.update({
+      shoppingList: FieldValue.delete(), newUntilGiven: true,
+      givenOn: today, createdAt: now, updatedAt: now, updatedByName: actorName,
+    });
+    await logEvent(eventsCol, {
+      treasureId, kidId, kind: 'registered', on: today, at: now, byName: actorName,
+      note: `${String(t.name || 'It')} — bought and added to the Family Cupboard`,
+    });
+    return NextResponse.json({ ok: true, mode });
+  }
+
   // ── Request (a child asks for a New book/game) ────────────────────
   //
   // A child taps "Can I have this?" on a family-held item. No ownership
@@ -1299,6 +1375,11 @@ export async function POST(req: NextRequest) {
     if (mode === 'decline') {
       await ref.update({ requests: reqs, updatedAt: now });
       return NextResponse.json({ ok: true });
+    }
+    if (t.shoppingList === true) return NextResponse.json({ error: 'not-bought-yet' }, { status: 409 });
+    // 🔞 an adults-only title never goes to a child under 18 (or with no birthday).
+    if (t.adultOnly === true && !adultOkForChild(child.age)) {
+      return NextResponse.json({ error: 'adult-only' }, { status: 409 });
     }
     if (ENDED.includes(String(t.status))) return NextResponse.json({ error: 'already-ended' }, { status: 409 });
 

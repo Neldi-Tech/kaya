@@ -91,10 +91,17 @@ export interface CupboardItem extends Treasure {
   newUntilGiven?: boolean;
   /** Children who have asked for this New item. */
   requests?: CupboardRequest[];
+  /** 🛒 scanned in a shop, waiting for a parent to confirm "bought". */
+  shoppingList?: boolean;
+  /** 🔞 parents only (and children once they turn 18). */
+  adultOnly?: boolean;
 }
 
 export interface CupboardShelf {
   items: CupboardItem[];
+  /** 🛒 parents/helpers only — scanned while shopping, not yet bought.
+   *  Kept OUT of `items` so no count or shelf ever includes them. */
+  shoppingList?: CupboardItem[];
   /** `age` from the child's birthday (absent when no birthday) — gates
    *  the Finish Quiz (D36) and the Game Night picker (D38). */
   kids: Array<{ id: string; name: string; emoji: string; age?: number }>;
@@ -315,6 +322,10 @@ export interface NewCupboardItemInput {
   /** Shopping mode · file this bought item into the 🆕 New band (held by
    *  the parents until a child is given it). Family-owned only. */
   newShelf?: boolean;
+  /** 🛒 seat it on the parents' shopping list (not owned yet). */
+  shopping?: boolean;
+  /** 🔞 parents only (honoured for a parent's add). */
+  adultOnly?: boolean;
 }
 
 /** The shopping "do we already have this?" answer — a dry-run dedupe that
@@ -330,6 +341,8 @@ export interface CupboardCheckResult {
     newUntilGiven: boolean;
     whereKept?: string;
   } | null;
+  /** Already on the parents' shopping list (scanned before, not bought). */
+  onList?: { id: string; name: string } | null;
 }
 
 /** Shopping verify — identify (via lookup) then ask the shelf if it's
@@ -343,6 +356,8 @@ export async function cupboardCheck(input: {
 
 export interface AddCupboardResult {
   id?: string;
+  /** 🛒 the same book was already on the shopping list — this is its id. */
+  existing?: boolean;
   /** D29 · the gateway found the same thing already on the shelf. */
   duplicateOf?: { id: string; name: string; ownerName: string };
 }
@@ -357,7 +372,10 @@ export async function addCupboardItem(
 
 export type CupboardPatch = Partial<Pick<Treasure,
   'name' | 'emoji' | 'whereKept' | 'keeperKidId' | 'book' | 'game' |
-  'photoUrl' | 'thumbUrl' | 'photoId' | 'barcode' | 'nameConfirmed'>>;
+  'photoUrl' | 'thumbUrl' | 'photoId' | 'barcode' | 'nameConfirmed'>> & {
+  /** 🔞 parents only. */
+  adultOnly?: boolean;
+};
 
 export async function updateCupboardItem(
   familyId: string, treasureId: string, patch: CupboardPatch,
@@ -400,6 +418,16 @@ export async function cupboardReturn(familyId: string, treasureId: string): Prom
 //
 // A bought item waits (family-owned, `newUntilGiven`) until a child asks
 // ("Can I have this?") and a parent gives or lends it.
+
+/** 🛒 Confirm a shopping-list entry: bought → the 🆕 New band in the
+ *  Cupboard; drop → "not buying", the entry is removed. */
+export async function resolveShoppingItem(
+  familyId: string, treasureId: string, mode: 'bought' | 'drop',
+): Promise<{ ok: true; mode: string }> {
+  const r = await cupboardApi<{ ok: true; mode: string }>('shop-resolve', { treasureId, mode });
+  pingCupboard(familyId);
+  return r;
+}
 
 /** A child asks for a New family item. Idempotent (one open ask/child). */
 export async function requestCupboardItem(
