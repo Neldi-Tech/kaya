@@ -28,6 +28,7 @@ import {
 } from '@/lib/sparks/cupboard';
 import { GAME_KINDS, type GameKind, type NameSource, type OwnerScope } from '@/lib/sparks/treasures';
 import { enhancePhoto } from '@/lib/photoEnhance';
+import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 import { Field, ChoiceChips, inputCls, WOOD, WOOD_DK, WOOD_BG, WOOD_BD, JADE } from './CupboardShell';
 
 interface Props {
@@ -157,7 +158,8 @@ export default function CupboardScanSheet({ familyId, shelf, defaultKind = 'book
   const [camMsg, setCamMsg] = useState('Starting the camera…');
   /** D30′ · no live camera → the photo paths show inside each tab. */
   const [camFailed, setCamFailed] = useState(false);
-  const [snapping, setSnapping] = useState(false);
+  /** 📖 the full-screen CamScanner-grade scanner for the cover. */
+  const [coverCam, setCoverCam] = useState(false);
   const [tray, setTray] = useState<TrayItem[]>([]);
   const [confirm, setConfirm] = useState<TrayItem | null>(null);
   const [frontBusy, setFrontBusy] = useState(false);
@@ -276,6 +278,9 @@ export default function CupboardScanSheet({ familyId, shelf, defaultKind = 'book
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // The live stream is ONLY for barcodes (continuous decode). Covers use
+      // the full-screen scanner, so no stream fights the native camera.
+      if (tier !== 'live') return;
       if (!navigator.mediaDevices?.getUserMedia) { setCamFailed(true); return; }
       try {
         // Ask for a high-res rear stream (1080p ideal, up to 4K) so the cover
@@ -293,7 +298,7 @@ export default function CupboardScanSheet({ familyId, shelf, defaultKind = 'book
         const v = videoRef.current;
         if (v) { v.srcObject = stream; await v.play().catch(() => {}); }
         setCamFailed(false);
-        setCamMsg(tier === 'live' ? 'Point at the barcode — hold steady' : 'Fill the frame with the cover — the whole view is captured · tap Snap');
+        setCamMsg('Point at the barcode — hold steady');
       } catch {
         setCamFailed(true);
         return;
@@ -351,36 +356,21 @@ export default function CupboardScanSheet({ familyId, shelf, defaultKind = 'book
     } catch { setCamMsg('Could not read that — try 📖 the cover instead'); }
   }
 
-  /** 📖 Snap the cover from the live camera → Kaya reads it.
-   *  Grabs the FULL frame at the camera's native resolution (no narrowing),
-   *  capped at 2200px so enhancePhoto has real detail to sharpen. */
-  async function snapCover() {
-    const v = videoRef.current;
-    if (!v || v.readyState < 2 || snapping) return;
-    setSnapping(true);
-    try {
-      const scale = Math.min(1, 2200 / Math.max(v.videoWidth, v.videoHeight));
-      const c = document.createElement('canvas');
-      c.width = Math.round(v.videoWidth * scale); c.height = Math.round(v.videoHeight * scale);
-      c.getContext('2d')!.drawImage(v, 0, 0, c.width, c.height);
-      const blob: Blob | null = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.95));
-      if (!blob) return;
-      await readFront(new File([blob], 'cover.jpg', { type: 'image/jpeg' }));
-    } finally { setSnapping(false); }
-  }
-
   // ── tier 1 · the cover (Kaya AI) ──
-  async function readFront(rawFile: File) {
+  async function readFront(rawFile: File, opts: { alreadyClean?: boolean } = {}) {
     setFrontBusy(true); setFrontErr('');
     try {
       // CamScanner-grade clean-up before the read: auto-levels + sharpen at a
       // higher ceiling so faint / glossy covers OCR cleanly. Falls back to the
       // raw capture if enhancement can't run (very old browsers, huge images).
+      // (The full-screen scanner has already framed + cleaned it.)
       let file = rawFile;
-      try {
-        const enhanced = await enhancePhoto(rawFile, { maxLongSide: 1800, quality: 0.92 });
-        if (enhanced?.file) file = enhanced.file;
-      } catch { /* keep the raw capture */ }
+      if (!opts.alreadyClean) {
+        try {
+          const enhanced = await enhancePhoto(rawFile, { maxLongSide: 1800, quality: 0.92 });
+          if (enhanced?.file) file = enhanced.file;
+        } catch { /* keep the raw capture */ }
+      }
       const { base64, mediaType } = await fileToBase64(file);
       const r = await cupboardLookup('vision', { imageBase64: base64, mediaType, kind: frontKind === 'any' ? '' : frontKind });
       if (!r.found) {
@@ -536,6 +526,7 @@ export default function CupboardScanSheet({ familyId, shelf, defaultKind = 'book
   }
 
   return (
+    <>
     <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center" onClick={close}>
       <div className="w-full sm:max-w-md lg:max-w-lg bg-[#FFFBF5] rounded-t-[22px] sm:rounded-[22px] max-h-[94vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="p-4 text-white rounded-t-[22px]" style={{ background: 'linear-gradient(135deg,#6E4624 0%,#8B5E34 100%)' }}>
@@ -592,38 +583,33 @@ export default function CupboardScanSheet({ familyId, shelf, defaultKind = 'book
                 <button type="button" onClick={onTypeInstead} className="text-[10.5px] font-extrabold px-2.5 py-1.5 rounded-full border border-[#E8E0CF] bg-white text-[#5B6B8C]">⌨ Type it</button>
               </div>
 
-              {/* one viewfinder, two frames — the WHOLE frame is captured, so
-                  the cover feed is shown uncropped (object-contain) and tall. */}
-              {!camFailed && (
-                <div className="relative rounded-[14px] overflow-hidden bg-[#0f1420]" style={{ height: 300 }}>
+              {/* ▌▌ live viewfinder — barcodes only */}
+              {!camFailed && tier === 'live' && (
+                <div className="relative rounded-[14px] overflow-hidden bg-[#0f1420]" style={{ height: 260 }}>
                   {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                  <video ref={videoRef} playsInline muted className={`w-full h-full ${tier === 'front' ? 'object-contain' : 'object-cover'}`} />
+                  <video ref={videoRef} playsInline muted className="w-full h-full object-cover" />
                   <div className="absolute inset-0 grid place-items-center pointer-events-none">
-                    {tier === 'front' ? (
-                      <div className="w-[62%] max-w-[210px] aspect-[3/4] border-2 rounded-[10px]" style={{ borderColor: '#3FA38F', boxShadow: '0 0 22px rgba(63,163,143,.4)' }} />
-                    ) : (
-                      <div className="w-[240px] h-[104px] border-2 rounded-[8px] relative" style={{ borderColor: '#3FA38F' }}>
-                        <div className="absolute left-2 right-2 top-1/2 h-[2px]" style={{ background: '#FF5C5C', boxShadow: '0 0 10px #FF5C5C' }} />
-                      </div>
-                    )}
+                    <div className="w-[240px] h-[104px] border-2 rounded-[8px] relative" style={{ borderColor: '#3FA38F' }}>
+                      <div className="absolute left-2 right-2 top-1/2 h-[2px]" style={{ background: '#FF5C5C', boxShadow: '0 0 10px #FF5C5C' }} />
+                    </div>
                   </div>
-                  <div className="absolute bottom-0 left-0 right-0 text-center text-[10.5px] font-extrabold text-white/90 py-1.5 bg-black/30">
-                    {tier === 'front' ? (frontBusy ? '🧠 Kaya is reading the cover…' : 'Fill the frame with the cover — the whole view is captured · tap Snap') : camMsg}
-                  </div>
+                  <div className="absolute bottom-0 left-0 right-0 text-center text-[10.5px] font-extrabold text-white/90 py-1.5 bg-black/30">{camMsg}</div>
                 </div>
               )}
 
               {tier === 'front' && (
                 <div className="rounded-[14px] border border-[#D9CCFA] bg-[#EFE8FF] p-3 mt-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {!camFailed && (
-                      <button type="button" disabled={frontBusy || snapping} onClick={snapCover} className="px-4 py-2 rounded-full font-extrabold text-[12.5px] text-white disabled:opacity-50" style={{ background: '#5A3CB8' }}>
-                        {frontBusy || snapping ? '🧠 Reading…' : '📖 Snap the cover'}
-                      </button>
-                    )}
+                  <button type="button" disabled={frontBusy} onClick={() => setCoverCam(true)}
+                    className="w-full rounded-[14px] py-5 font-extrabold text-white disabled:opacity-60 flex flex-col items-center gap-1"
+                    style={{ background: 'linear-gradient(135deg,#3B2B78 0%,#5A3CB8 100%)' }}>
+                    <span className="text-[30px] leading-none" aria-hidden>{frontBusy ? '🧠' : '📷'}</span>
+                    <span className="text-[15px]">{frontBusy ? 'Kaya is reading the cover…' : 'Scan the cover'}</span>
+                    <span className="text-[10.5px] font-bold opacity-85">{frontBusy ? 'Title · author · what it’s about' : 'Full-screen camera · auto-frames, straightens & sharpens'}</span>
+                  </button>
+                  <div className="flex flex-wrap items-center gap-2 mt-2.5">
                     <label className="text-[10.5px] font-extrabold px-2.5 py-1.5 rounded-full border border-[#D9CCFA] bg-white cursor-pointer" style={{ color: '#5A3CB8' }}>
-                      🖼 {camFailed ? 'Take a photo of the cover' : 'or choose a photo'}
-                      <input type="file" accept="image/*" capture="environment" disabled={frontBusy} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) readFront(f); e.target.value = ''; }} />
+                      🖼 or choose a photo
+                      <input type="file" accept="image/*" disabled={frontBusy} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) readFront(f); e.target.value = ''; }} />
                     </label>
                     <div className="ml-auto"><ChoiceChips value={frontKind} onChange={setFrontKind} options={[{ id: 'book', label: '📚 Book' }, { id: 'game', label: '🎲 Game' }, { id: 'any', label: '🤷' }]} tone="jade" /></div>
                   </div>
@@ -742,6 +728,20 @@ export default function CupboardScanSheet({ familyId, shelf, defaultKind = 'book
         </div>
       </div>
     </div>
+
+    {/* 📖 The full-screen CamScanner-grade scanner (the same one Reflection,
+        Revisions and Materials use): native full-res camera → edge-detect →
+        straighten → de-shadow + sharpen, with crop/rotate on each page. */}
+    <CameraCaptureSheet
+      open={coverCam}
+      mode="scan"
+      onClose={() => setCoverCam(false)}
+      onConfirm={async (files) => {
+        setCoverCam(false);
+        if (files[0]) await readFront(files[0], { alreadyClean: true });
+      }}
+    />
+    </>
   );
 }
 
