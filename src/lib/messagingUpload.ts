@@ -12,8 +12,8 @@ import { storage } from './firebase';
 import { isGuestActive } from './mockFamily';
 import type { Attachment } from './messaging';
 
-const LONG_EDGE = 1280;
-const JPEG_QUALITY = 0.85;
+const LONG_EDGE = 1600;
+const JPEG_QUALITY = 0.88;
 const MAX_IMAGE_INPUT = 25 * 1024 * 1024;  // pre-resize guard
 const MAX_VIDEO = 50 * 1024 * 1024;        // matches storage.rules
 const MAX_VOICE = 25 * 1024 * 1024;

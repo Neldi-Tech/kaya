@@ -293,7 +293,7 @@ function computeHomography(from: Pt[], to: Pt[]): number[] | null {
  *  rectangle. Output dimensions follow the detected edge lengths so the
  *  page keeps its aspect. Returns null on a degenerate quad. */
 export function warpToDocument(
-  img: HTMLImageElement, corners: DocCorners, maxLongSide = 1700,
+  img: HTMLImageElement, corners: DocCorners, maxLongSide = 2200,
 ): HTMLCanvasElement | null {
   const { canvas: srcCanvas, ctx: srcCtx } = drawToCanvas(img, 2600);
   const sw = srcCanvas.width, sh = srcCanvas.height;
@@ -375,7 +375,7 @@ export async function autoFrameScan(
     });
     if (corners) {
       const img = await loadImage(source);
-      const warped = warpToDocument(img, corners, options.maxLongSide ?? 1700);
+      const warped = warpToDocument(img, corners, options.maxLongSide ?? 2200);
       if (warped) {
         const ctx = warped.getContext('2d', { willReadFrequently: true });
         if (ctx) {
@@ -489,7 +489,7 @@ export async function tightenScanFile(
   file: File, options: EnhanceOptions = {},
 ): Promise<{ file: File; previewUrl: string } | null> {
   const img = await loadImage(file);
-  const { canvas } = drawToCanvas(img, options.maxLongSide ?? 1700);
+  const { canvas } = drawToCanvas(img, options.maxLongSide ?? 2200);
   const trimmed = trimToContent(canvas);
   if (trimmed === canvas) return null;
   const out = await canvasToFile(trimmed, options.fileName ?? 'scan.jpg', options.quality ?? 0.92);
@@ -602,7 +602,7 @@ export async function applyColorMode(
   file: File, mode: ScanColorMode, options: EnhanceOptions = {},
 ): Promise<{ file: File; previewUrl: string }> {
   const img = await loadImage(file);
-  const { canvas, ctx } = drawToCanvas(img, options.maxLongSide ?? 1700);
+  const { canvas, ctx } = drawToCanvas(img, options.maxLongSide ?? 2200);
   if (mode !== 'color') {
     const w = canvas.width, h = canvas.height;
     const image = ctx.getImageData(0, 0, w, h);
@@ -637,7 +637,7 @@ export async function rotateFile90WithPreview(
   file: File, options: EnhanceOptions = {},
 ): Promise<{ file: File; previewUrl: string }> {
   const img = await loadImage(file);
-  const { canvas } = drawToCanvas(img, options.maxLongSide ?? 1700);
+  const { canvas } = drawToCanvas(img, options.maxLongSide ?? 2200);
   const rotated = rotateCanvasDegrees(canvas, 90);
   const out = await canvasToFile(rotated, options.fileName ?? 'scan.jpg', options.quality ?? 0.92);
   return { file: out, previewUrl: rotated.toDataURL('image/jpeg', options.quality ?? 0.92) };
@@ -696,7 +696,7 @@ export async function cropCleanScan(
   corners: DocCorners,
   options: EnhanceOptions & { contentTrim?: boolean } = {},
 ): Promise<{ file: File; previewUrl: string; width: number; height: number } | null> {
-  const warped = warpToDocument(img, corners, options.maxLongSide ?? 1700);
+  const warped = warpToDocument(img, corners, options.maxLongSide ?? 2200);
   if (!warped) return null;
   documentClean(warped);
   // Optional content-tight pass — trims blank margins to the writing so a
@@ -720,7 +720,7 @@ export async function autoScanWithDetector(
     const corners = await detect(source);
     if (corners) {
       const img = await loadImage(source);
-      const warped = warpToDocument(img, corners, options.maxLongSide ?? 1700);
+      const warped = warpToDocument(img, corners, options.maxLongSide ?? 2200);
       if (warped) {
         let out = warped;
         if (options.autoRotate !== false) {

@@ -12,8 +12,8 @@ import type { SparksItemArea } from './schema';
 import { aiRequestHeaders } from '@/lib/ai/useAiLevel';
 import { parseAiLevel, type AiLevel } from '@/lib/ai/level.shared';
 
-const MAX_LONG_EDGE_AI = 1280; // px — keeps base64 payload small
-const JPEG_Q = 0.85;
+const MAX_LONG_EDGE_AI = 1600; // px — balanced: sharper OCR, still mobile-friendly
+const JPEG_Q = 0.9;
 
 // ── Image conversion ─────────────────────────────────────────────────
 
