@@ -10,7 +10,8 @@
 
 import { useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { logPlay, gameFits, type CupboardShelf, type CupboardItem } from '@/lib/sparks/cupboard';
+import { logPlay, gameFits, guestId, type CupboardShelf, type CupboardItem } from '@/lib/sparks/cupboard';
+import CupboardPeoplePicker, { familyPeople } from './CupboardPeoplePicker';
 import { gameKindDef } from '@/lib/sparks/treasures';
 import { Pill, WOOD, WOOD_DK, WOOD_BG, JADE } from './CupboardShell';
 
@@ -25,15 +26,22 @@ export default function GameNightPicker({ familyId, shelf, games, onClose, onPla
 }) {
   const { profile } = useAuth();
   const meLabel = profile?.displayName?.split(' ')[0] || (shelf.me.role === 'parent' ? 'Me' : 'Me');
+  // 👥 Everyone: the family's grown-ups (every parent + active helpers), the
+  // children, and remembered relatives & friends. Older servers without
+  // `members` fall back to "me".
+  const [extraGuests, setExtraGuests] = useState<string[]>([]);
+  const fullPeople = useMemo(() => familyPeople(shelf, extraGuests), [shelf, extraGuests]);
   const people: Who[] = useMemo(() => {
-    const list: Who[] = [];
-    // The caller — a parent/helper counts as a grown-up; a kid is already in kids.
-    if (shelf.me.role !== 'kid') list.push({ id: 'me', label: meLabel });
-    for (const k of shelf.kids) list.push({ id: k.id, label: k.name, age: k.age });
+    const list: Who[] = fullPeople.map((p) => ({ id: p.id, label: p.label, age: p.age }));
+    if (!(shelf.members?.length) && shelf.me.role !== 'kid') list.unshift({ id: 'me', label: meLabel });
     return list;
-  }, [shelf, meLabel]);
+  }, [fullPeople, shelf, meLabel]);
 
-  const [inIds, setInIds] = useState<Set<string>>(() => new Set(people.map((p) => p.id)));
+  // Family in by default; guests opt in.
+  const [inIds, setInIds] = useState<Set<string>>(() => new Set(
+    familyPeople(shelf).filter((p) => p.kind !== 'guest').map((p) => p.id)
+      .concat(!(shelf.members?.length) && shelf.me.role !== 'kid' ? ['me'] : []),
+  ));
   const [maxMin, setMaxMin] = useState<number | undefined>(60);
   const [spun, setSpun] = useState<CupboardItem | null>(null);
   const [spinning, setSpinning] = useState(false);
@@ -98,15 +106,15 @@ export default function GameNightPicker({ familyId, shelf, games, onClose, onPla
             </div>
           ) : (
             <>
-              <div className="flex flex-wrap gap-1.5">
-                {people.map((p) => (
-                  <button key={p.id} type="button" onClick={() => toggle(p.id)}
-                    className="text-[11px] font-extrabold px-2.5 py-1.5 rounded-full border-[1.5px] border-[#E8E0CF] bg-white text-[#0F1F44]"
-                    style={inIds.has(p.id) ? { background: JADE, color: '#fff', borderColor: JADE } : { opacity: 0.55, textDecoration: 'line-through' }}>
-                    {p.label}{typeof p.age === 'number' ? ` ${p.age}` : ''}
-                  </button>
-                ))}
-              </div>
+              <CupboardPeoplePicker
+                people={fullPeople}
+                value={inIds}
+                onToggle={toggle}
+                onAddGuest={(name) => {
+                  setExtraGuests((g) => (g.some((x) => x.toLowerCase() === name.toLowerCase()) ? g : [...g, name]));
+                  setInIds((s) => new Set(s).add(guestId(name)));
+                }}
+              />
 
               <div className="mt-3 rounded-[12px] border border-[#ECE4D3] bg-white p-2.5">
                 <div className="text-[10.5px] font-extrabold tracking-[.5px] uppercase text-[#8A8471] mb-1.5">⏱ How long?</div>

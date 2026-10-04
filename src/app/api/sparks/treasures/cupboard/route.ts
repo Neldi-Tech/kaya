@@ -80,6 +80,8 @@ const TZ = process.env.SPARKS_REFLECTION_TZ || 'Africa/Dar_es_Salaam';
 
 /** D25 · sentinel kidId for family-owned things (lib/sparks/treasures.ts). */
 const FAMILY_OWNER_ID = 'family';
+/** 👥 remembered relatives/friends (Game Shelf "who was in"). */
+const MAX_GUESTS = 40;
 const SETTINGS_DOC = 'cupboard__settings';
 
 const ENDED = ['handed_on', 'donated', 'sold', 'outgrown', 'retired'];
@@ -223,6 +225,8 @@ interface Settings {
   gameNight: { enabled: boolean; dayOfWeek: number; hour: number; minute: number };
   dustDays: number;
   meetingLine: boolean;
+  /** 👥 relatives & friends the family plays with — remembered names. */
+  guests: string[];
 }
 
 const DEFAULTS: Settings = {
@@ -232,6 +236,7 @@ const DEFAULTS: Settings = {
   gameNight: { enabled: true, dayOfWeek: 5, hour: 18, minute: 30 },
   dustDays: 90,
   meetingLine: true,
+  guests: [],
 };
 
 async function readSettings(
@@ -262,6 +267,7 @@ async function readSettings(
     },
     dustDays: num(s.dustDays, 0, 365, DEFAULTS.dustDays),
     meetingLine: s.meetingLine === undefined ? DEFAULTS.meetingLine : s.meetingLine !== false,
+    guests: Array.isArray(s.guests) ? (s.guests as unknown[]).map((g) => str(g, 40)).filter(Boolean).slice(0, MAX_GUESTS) : [],
   };
 }
 
@@ -322,14 +328,38 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // 👥 The family's grown-ups — every parent account, plus active helpers —
+  // so "who played" / "who has it" covers EVERYONE, not just the children.
+  // Ids are namespaced: `u:<uid>` (parent), `h:<uid>` (helper).
+  const [usersSnap, helpersSnap] = await Promise.all([
+    db.collection('users').where('familyId', '==', familyId).get(),
+    famRef.collection('helpers').get(),
+  ]);
+  const grownups = new Map<string, { name: string; emoji: string; role: 'parent' | 'helper' }>();
+  for (const d of usersSnap.docs) {
+    const u = d.data() as { role?: string; displayName?: string };
+    if (u.role === 'parent') grownups.set(`u:${d.id}`, { name: str(u.displayName, 60) || 'Parent', emoji: '🧑', role: 'parent' });
+  }
+  for (const d of helpersSnap.docs) {
+    const h = d.data() as { status?: string; displayName?: string };
+    if (h.status === 'active') grownups.set(`h:${d.id}`, { name: str(h.displayName, 60) || 'Helper', emoji: '🤝', role: 'helper' });
+  }
+  const myMemberId = isParent ? `u:${uid}` : isHelper ? `h:${uid}` : viewerChildId;
+  /** Any person id → display name ('' when unknown). */
+  const personName = (id: string): string => {
+    if (id === 'me') return actorName;
+    if (id.startsWith('g:')) return str(id.slice(2), 40);
+    return kidName.get(id)?.name || grownups.get(id)?.name || '';
+  };
+
   const decorate = (id: string, t: Record<string, unknown>) => {
     const family = t.ownerScope === 'family' || String(t.kidId) === FAMILY_OWNER_ID;
     const owner = family ? undefined : kidName.get(String(t.kidId || ''));
-    const keeper = t.keeperKidId ? kidName.get(String(t.keeperKidId)) : undefined;
+    const keeperName = t.keeperKidId ? personName(String(t.keeperKidId)) : '';
     return {
       id, ...t,
       ownerName: owner?.name || '',
-      ...(keeper ? { keeperName: keeper.name } : {}),
+      ...(keeperName ? { keeperName } : {}),
     };
   };
 
@@ -379,8 +409,12 @@ export async function POST(req: NextRequest) {
         return { id: d.id, name: k.name, emoji: k.emoji, ...(k.age !== undefined ? { age: k.age } : {}) };
       }),
       settings,
+      members: Array.from(grownups.entries()).map(([id, g]) => ({
+        id, name: g.name, emoji: g.emoji, role: g.role, isMe: id === myMemberId,
+      })),
       me: {
         role: isParent ? 'parent' : isHelper ? 'helper' : 'kid',
+        memberId: myMemberId,
         childId: viewerChildId,
         canManage: isParent,
       },
@@ -482,6 +516,12 @@ export async function POST(req: NextRequest) {
     }
     if (p.dustDays !== undefined) next.dustDays = num(p.dustDays, 0, 365, 90);
     if (p.meetingLine !== undefined) next.meetingLine = p.meetingLine !== false;
+    if (Array.isArray(p.guests)) {
+      const seen = new Set<string>();
+      next.guests = (p.guests as unknown[]).map((g) => str(g, 40)).filter((g) => {
+        const k = g.toLowerCase(); if (!g || seen.has(k)) return false; seen.add(k); return true;
+      }).slice(0, MAX_GUESTS);
+    }
     next.updatedAt = Date.now();
     next.updatedByName = actorName;
     await privateCol.doc(SETTINGS_DOC).set(next, { merge: true });
@@ -1101,11 +1141,31 @@ export async function POST(req: NextRequest) {
     if (t.categoryId !== 'game') return NextResponse.json({ error: 'not-a-game' }, { status: 409 });
     if (ENDED.includes(String(t.status))) return NextResponse.json({ error: 'already-ended' }, { status: 409 });
     const now = Date.now();
-    const whoIn = (Array.isArray(body.who) ? body.who : []).map((w) => str(w, 80)).filter(Boolean).slice(0, 12);
+    // Everyone counts: 'me', a child, a grown-up (`u:`/`h:`), or a guest
+    // (`g:<name>` — a relative or friend). Unknown ids are dropped.
+    const seenIds = new Set<string>();
+    const whoIn = (Array.isArray(body.who) ? body.who : [])
+      .map((w) => str(w, 80))
+      .map((w) => (w.startsWith('g:') ? `g:${str(w.slice(2), 40)}` : w))
+      .filter((w) => {
+        const ok = w === 'me' || kidName.has(w) || grownups.has(w) || (w.startsWith('g:') && w.length > 2);
+        const key = w.toLowerCase();
+        if (!ok || seenIds.has(key)) return false;
+        seenIds.add(key); return true;
+      })
+      .slice(0, 20);
     const kidsIn = whoIn.filter((w) => kidName.has(w));
-    const names = whoIn.map((w) => (w === 'me' ? actorName : kidName.get(w)?.name || '')).filter(Boolean);
+    const names = whoIn.map(personName).filter(Boolean);
+    // Remember new relatives/friends for next time.
+    const newGuests = whoIn.filter((w) => w.startsWith('g:')).map((w) => w.slice(2))
+      .filter((g) => !settings.guests.some((x) => x.toLowerCase() === g.toLowerCase()));
+    if (newGuests.length) {
+      await privateCol.doc(SETTINGS_DOC).set(
+        { guests: [...settings.guests, ...newGuests].slice(0, MAX_GUESTS) }, { merge: true },
+      );
+    }
     const plays = (Array.isArray(t.plays) ? t.plays : []) as Array<Record<string, unknown>>;
-    const play: Record<string, unknown> = { on: today, at: now, who: whoIn, byName: actorName };
+    const play: Record<string, unknown> = { on: today, at: now, who: whoIn, whoNames: names, byName: actorName };
     const note = str(body.note, 200); if (note) play.note = note;
     const playedCount = Number(t.playedCount || 0) + 1;
     await ref.update({
@@ -1152,7 +1212,8 @@ export async function POST(req: NextRequest) {
     if (p.whereKept !== undefined) patch.whereKept = str(p.whereKept, 120);
     if (p.keeperKidId !== undefined) {
       const k = str(p.keeperKidId, 80);
-      patch.keeperKidId = k && kidName.has(k) ? k : FieldValue.delete();
+      // A child, or a grown-up (`u:` parent / `h:` helper) — the family-iPad rule.
+      patch.keeperKidId = k && (kidName.has(k) || grownups.has(k)) ? k : FieldValue.delete();
     }
     if (p.book !== undefined && t.categoryId === 'book') {
       patch.book = { ...((t.book ?? {}) as Record<string, unknown>), ...bookMeta(p.book) };

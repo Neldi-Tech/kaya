@@ -400,7 +400,9 @@ export interface Treasure {
   // 🎲 the play log (D38 · D40)
   playedCount?: number;
   lastPlayedOn?: string;
-  plays?: Array<{ on: string; at: number; who: string[]; byName: string }>;
+  /** `who` = person ids ('me' · child id · `u:`/`h:` grown-up · `g:<name>`
+   *  guest); `whoNames` = the names at the time (newer plays). */
+  plays?: Array<{ on: string; at: number; who: string[]; whoNames?: string[]; byName: string }>;
   /** D40 · "keep, remind next quarter" — the 🕸 card stays quiet until then. */
   dustSnoozedUntil?: string;
 

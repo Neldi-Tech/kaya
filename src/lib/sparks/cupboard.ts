@@ -49,6 +49,8 @@ export interface CupboardSettings {
   dustDays: number;
   /** N8 · one line in the Sunday Meeting report. */
   meetingLine: boolean;
+  /** 👥 relatives & friends the family plays with (remembered names). */
+  guests: string[];
 }
 
 export const DEFAULT_CUPBOARD_SETTINGS: CupboardSettings = {
@@ -58,6 +60,7 @@ export const DEFAULT_CUPBOARD_SETTINGS: CupboardSettings = {
   gameNight: { enabled: true, dayOfWeek: 5, hour: 18, minute: 30 },
   dustDays: 90,
   meetingLine: true,
+  guests: [],
 };
 
 export const READING_MODE_LABEL: Record<ReadingReminderMode, string> = {
@@ -97,6 +100,19 @@ export interface CupboardItem extends Treasure {
   adultOnly?: boolean;
 }
 
+/** 👥 A grown-up in the family — every parent account, plus active helpers.
+ *  `id` is `u:<uid>` (parent) or `h:<uid>` (helper). */
+export interface CupboardMember {
+  id: string;
+  name: string;
+  emoji: string;
+  role: 'parent' | 'helper';
+  /** This is the person looking at the screen. */
+  isMe: boolean;
+}
+
+export { guestId } from './cupboardPeople';
+
 export interface CupboardShelf {
   items: CupboardItem[];
   /** 🛒 parents/helpers only — scanned while shopping, not yet bought.
@@ -105,8 +121,12 @@ export interface CupboardShelf {
   /** `age` from the child's birthday (absent when no birthday) — gates
    *  the Finish Quiz (D36) and the Game Night picker (D38). */
   kids: Array<{ id: string; name: string; emoji: string; age?: number }>;
+  /** 👥 the family's grown-ups (parents + active helpers). */
+  members?: CupboardMember[];
   settings: CupboardSettings;
   me: {
+    /** My person id: `u:`/`h:` for grown-ups, my child id for a kid. */
+    memberId?: string;
     role: 'parent' | 'kid' | 'helper';
     childId: string;
     /** Parents only — settings, name confirmations, endings of family things. */

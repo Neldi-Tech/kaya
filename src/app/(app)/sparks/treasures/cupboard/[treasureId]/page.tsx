@@ -22,7 +22,7 @@ import {
   kindOf, gameMetaLine, bookMetaLine,
   startReading, markPage, finishReading, setReadingReminder, inviteToRead, respondToInvite,
   READING_MODE_LABEL, logPlay, snoozeDust, lastUsedOn, fetchBookSummary,
-  type CupboardItem, type CupboardShelf,
+  guestId, type CupboardItem, type CupboardShelf,
 } from '@/lib/sparks/cupboard';
 import {
   GAME_KINDS, gameKindDef, isFamilyOwned, STATUS_CHIP, STATUS_LABEL, todayIso,
@@ -35,6 +35,7 @@ import {
 } from '@/components/sparks/CupboardShell';
 import ReadingNoteComposer from '@/components/sparks/ReadingNoteComposer';
 import FinishQuizSheet from '@/components/sparks/FinishQuizSheet';
+import CupboardPeoplePicker, { familyPeople } from '@/components/sparks/CupboardPeoplePicker';
 
 const EVENT_EMOJI: Record<string, string> = {
   registered: '🗄', check: '🔑', broken: '🔧', repaired: '🔧', lost: '❓', found: '✅',
@@ -172,7 +173,7 @@ export default function CupboardItemPage() {
 
       {/* 🎲 C5 · the play log (D38) — games only */}
       {kind === 'game' && !ended && (
-        <PlayPanel item={item} kids={kids} familyId={familyId} busy={busy} canLog={!!shelf} isKid={profile?.role === 'kid'} run={run} />
+        <PlayPanel item={item} kids={kids} shelf={shelf} familyId={familyId} busy={busy} canLog={!!shelf} isKid={profile?.role === 'kid'} run={run} />
       )}
 
       {/* 🕸 C5 · dust (D40) — one gentle card, snoozable */}
@@ -248,7 +249,7 @@ export default function CupboardItemPage() {
       </Card>
 
       {/* 🔑 Keeper (family things only — D25) */}
-      {family && !ended && kids.length > 0 && (
+      {family && !ended && (kids.length > 0 || (shelf?.members?.length ?? 0) > 0) && (
         <Card>
           <div className="font-display font-extrabold text-[12.5px] text-[#0F1F44]">🔑 Who has it right now?</div>
           <p className="text-[10.5px] font-bold text-[#8A8471] mt-0.5 mb-1.5 leading-snug">The keeper — optional. A family thing with a named keeper is the family-iPad rule.</p>
@@ -258,7 +259,7 @@ export default function CupboardItemPage() {
               style={!item.keeperKidId ? { background: WOOD, color: '#fff', borderColor: WOOD } : undefined}>
               🗄 On the shelf
             </button>
-            {kids.map((k) => (
+            {[...(shelf?.members ?? []).map((m) => ({ id: m.id, emoji: m.emoji, name: m.name })), ...kids].map((k) => (
               <button key={k.id} type="button" disabled={!perm.canEdit || busy} onClick={() => run(() => updateCupboardItem(familyId, item.id, { keeperKidId: k.id }))}
                 className="text-[11px] font-extrabold px-2.5 py-1.5 rounded-full border-[1.5px] border-[#E8E0CF] bg-white text-[#0F1F44] disabled:opacity-60"
                 style={item.keeperKidId === k.id ? { background: WOOD, color: '#fff', borderColor: WOOD } : undefined}>
@@ -662,15 +663,27 @@ function AboutPanel({ item, kids, familyId, busy, isParent, run }: {
 
 // ── 🎲 The play log (C5 · D38) ─────────────────────────────────────
 
-function PlayPanel({ item, kids, familyId, busy, canLog, isKid, run }: {
+function PlayPanel({ item, kids, shelf, familyId, busy, canLog, isKid, run }: {
   item: CupboardItem; kids: Array<{ id: string; name: string; emoji: string; age?: number }>;
+  shelf: CupboardShelf | null;
   familyId: string; busy: boolean; canLog: boolean; isKid: boolean;
   run: (fn: () => Promise<unknown>) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
-  const [who, setWho] = useState<Set<string>>(() => new Set(isKid ? [] : ['me']));
+  // Guests added in this session (remembered server-side once logged).
+  const [extraGuests, setExtraGuests] = useState<string[]>([]);
+  const people = shelf ? familyPeople(shelf, extraGuests) : [];
+  const myId = shelf?.me.memberId || (isKid ? shelf?.me.childId : 'me') || '';
+  const [who, setWho] = useState<Set<string>>(() => new Set(myId ? [myId] : []));
   const plays = (item.plays ?? []).slice().reverse().slice(0, 5);
   const toggle = (id: string) => setWho((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const addGuest = (name: string) => {
+    setExtraGuests((g) => (g.some((x) => x.toLowerCase() === name.toLowerCase()) ? g : [...g, name]));
+    setWho((s) => new Set(s).add(guestId(name)));
+  };
+  const namesOf = (p: { who: string[]; whoNames?: string[]; byName: string }) =>
+    (p.whoNames && p.whoNames.length ? p.whoNames
+      : p.who.map((w) => (w === 'me' ? p.byName : kids.find((k) => k.id === w)?.name || ''))).filter(Boolean).join(', ') || p.byName;
   return (
     <Card tone="wood">
       <div className="flex items-center justify-between gap-2">
@@ -682,22 +695,15 @@ function PlayPanel({ item, kids, familyId, busy, canLog, isKid, run }: {
       {open && (
         <div className="mt-2">
           <div className="text-[10.5px] font-extrabold tracking-[.5px] uppercase text-[#8A8471] mb-1">Who was in?</div>
-          <div className="flex flex-wrap gap-1.5">
-            {!isKid && (
-              <button type="button" onClick={() => toggle('me')} className="text-[11px] font-extrabold px-2.5 py-1.5 rounded-full border-[1.5px] border-[#E8E0CF] bg-white text-[#0F1F44]" style={who.has('me') ? { background: JADE, color: '#fff', borderColor: JADE } : undefined}>🧑 Me</button>
-            )}
-            {kids.map((k) => (
-              <button key={k.id} type="button" onClick={() => toggle(k.id)} className="text-[11px] font-extrabold px-2.5 py-1.5 rounded-full border-[1.5px] border-[#E8E0CF] bg-white text-[#0F1F44]" style={who.has(k.id) ? { background: JADE, color: '#fff', borderColor: JADE } : undefined}>{k.emoji} {k.name}</button>
-            ))}
-          </div>
-          <div className="mt-2"><Pill bg={JADE} fg="#fff" disabled={busy} onClick={() => run(() => logPlay(familyId, item.id, Array.from(who)).then(() => setOpen(false)))}>✓ Log tonight&rsquo;s game</Pill></div>
+          <CupboardPeoplePicker people={people} value={who} onToggle={toggle} onAddGuest={addGuest} />
+          <div className="mt-2.5"><Pill bg={JADE} fg="#fff" disabled={busy || who.size === 0} onClick={() => run(() => logPlay(familyId, item.id, Array.from(who)).then(() => { setOpen(false); setExtraGuests([]); }))}>✓ Log tonight&rsquo;s game ({who.size})</Pill></div>
         </div>
       )}
       {plays.length > 0 && (
         <div className="mt-2">
           {plays.map((p, i) => (
             <p key={`${p.at}-${i}`} className="text-[10.8px] font-bold text-[#5B6B8C] m-0 mt-0.5">
-              {toDisplayDate(p.on)} · {p.who.map((w) => (w === 'me' ? p.byName : kids.find((k) => k.id === w)?.name || '')).filter(Boolean).join(', ') || p.byName}
+              {toDisplayDate(p.on)} · {namesOf(p)}
             </p>
           ))}
         </div>
