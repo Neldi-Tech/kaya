@@ -15,7 +15,7 @@ import {
   DEFAULT_CUPBOARD_SETTINGS, READING_MODE_LABEL, DAY_LABEL,
   type CupboardSettings, type CupboardHelperRow, type ReadingReminderMode,
 } from '@/lib/sparks/cupboard';
-import { CupboardFrame, Card, ChoiceChips, WOOD } from '@/components/sparks/CupboardShell';
+import { CupboardFrame, Card, ChoiceChips, WOOD, JADE, inputCls } from '@/components/sparks/CupboardShell';
 
 export default function CupboardSettingsPage() {
   const { profile } = useAuth();
@@ -27,6 +27,7 @@ export default function CupboardSettingsPage() {
   const [loaded, setLoaded] = useState(false);
   const [saved, setSaved] = useState('');
   const [err, setErr] = useState('');
+  const [guestName, setGuestName] = useState('');
 
   useEffect(() => {
     if (!isParent) return;
@@ -166,6 +167,35 @@ export default function CupboardSettingsPage() {
           <Card>
             <div className="font-display font-extrabold text-[12.5px] text-[#0F1F44]">🧾 Sunday Meeting line</div>
             <Toggle on={s.meetingLine} onChange={(v) => save({ meetingLine: v })} label="“This week we read … and played …”" sub="One sentence in the meeting report’s Learn & Grow." />
+          </Card>
+
+          {/* 👥 relatives & friends the family plays with */}
+          <Card>
+            <div className="font-display font-extrabold text-[12.5px] text-[#0F1F44]">👥 Relatives &amp; friends we play with</div>
+            <p className="text-[10.5px] font-bold text-[#8A8471] mt-0.5 mb-2 leading-snug">
+              Everyone in the family is already on every “Who was in?”. People added there — grandparents, cousins, friends — are remembered here for next time.
+            </p>
+            {(s.guests ?? []).length > 0 ? (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {s.guests.map((g) => (
+                  <span key={g} className="inline-flex items-center gap-1 text-[11px] font-extrabold pl-2.5 pr-1 py-1 rounded-full bg-[#E2F3EE]" style={{ color: JADE }}>
+                    👋 {g}
+                    <button type="button" aria-label={`Remove ${g}`} onClick={() => save({ guests: s.guests.filter((x) => x !== g) })}
+                      className="w-5 h-5 rounded-full grid place-items-center bg-white text-[#C0392B] text-[12px] leading-none">×</button>
+                  </span>
+                ))}
+              </div>
+            ) : <p className="text-[11px] italic text-[#8A8471] m-0 mb-2">No one yet.</p>}
+            <div className="flex gap-1.5">
+              <input className={inputCls} value={guestName} maxLength={40} placeholder="e.g. Grandma Rose" onChange={(e) => setGuestName(e.target.value)} />
+              <button type="button" disabled={!guestName.trim()}
+                onClick={() => {
+                  const n = guestName.trim();
+                  if (!(s.guests ?? []).some((x) => x.toLowerCase() === n.toLowerCase())) save({ guests: [...(s.guests ?? []), n] });
+                  setGuestName('');
+                }}
+                className="px-3.5 rounded-full text-[11.5px] font-extrabold text-white disabled:opacity-50" style={{ background: JADE }}>Add</button>
+            </div>
           </Card>
         </>
       )}
