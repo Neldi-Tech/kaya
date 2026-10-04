@@ -34,13 +34,41 @@ function fmtDay(yyyyMmDd: string): string {
   return `${DAY_ABBR[new Date(y, m - 1, d).getDay()]} · ${String(d).padStart(2, '0')}-${MONTH_ABBR[m - 1]}-${y}`;
 }
 
-/** Fisher–Yates on a copy; returns the shuffled options + where the correct
- *  answer landed. Math.random is fine here — questions stay correct because
- *  correctIndex tracks the answer through the shuffle. */
-function shuffleWithAnswer(correct: string, distractors: string[]): { options: string[]; correctIndex: number } {
+/** A small SEEDED random generator (mulberry32 over a string hash). The
+ *  quiz must come out IDENTICAL every time it's rebuilt for the same kid and
+ *  window — the meeting screen refreshes its data mid-quiz (approvals, the
+ *  15 s poll), and a fresh Math.random shuffle made the choices jump,
+ *  change or vanish under a child's finger. */
+export function seededRandom(seed: string): () => number {
+  let h = 1779033703 ^ seed.length;
+  for (let i = 0; i < seed.length; i++) {
+    h = Math.imul(h ^ seed.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  let a = h >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Seeded Fisher–Yates over a copy. */
+function seededShuffle<T>(items: T[], rnd: () => number): T[] {
+  const a = items.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/** Shuffled options + where the correct answer landed (seeded). */
+function shuffleWithAnswer(correct: string, distractors: string[], rnd: () => number): { options: string[]; correctIndex: number } {
   const options = [correct, ...distractors];
   for (let i = options.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(rnd() * (i + 1));
     [options[i], options[j]] = [options[j], options[i]];
   }
   return { options, correctIndex: options.indexOf(correct) };
@@ -54,8 +82,11 @@ export function buildKidQuiz(
   kidDayScores: DayScore[],
   routineNameById: Map<string, string>,
   count: number,
+  /** Same seed → same questions, same option order (e.g. `${kidId}|${from}|${to}`). */
+  seed: string = kidName,
 ): QuizQuestion[] {
   if (count <= 0 || kidDayScores.length === 0) return [];
+  const rnd = seededRandom(seed);
 
   // Per-routine tallies across the window.
   const badByRoutine = new Map<string, number>();
@@ -71,28 +102,30 @@ export function buildKidQuiz(
       excellentByRoutine.set(id, (excellentByRoutine.get(id) || 0) + 1);
       ratedRoutineIds.add(id);
     }
+    // Ties break on the EARLIER date, so the answer never depends on the
+    // order the data arrived in (a mid-meeting refresh can reorder it).
     const isWorse = !worstDay
       || ds.badCount > worstDay.badCount
-      || (ds.badCount === worstDay.badCount && ds.excellentCount < worstDay.excellentCount);
+      || (ds.badCount === worstDay.badCount && ds.excellentCount < worstDay.excellentCount)
+      || (ds.badCount === worstDay.badCount && ds.excellentCount === worstDay.excellentCount && ds.date < worstDay.date);
     if (isWorse) worstDay = ds;
   }
 
   const nameOf = (id: string) => routineNameById.get(id) || id;
-  const routinePool = Array.from(ratedRoutineIds);
+  const routinePool = Array.from(ratedRoutineIds).sort();
   const pickRoutineDistractors = (excludeId: string, n: number): string[] =>
-    routinePool.filter((id) => id !== excludeId).slice(0, 8)
-      .sort(() => Math.random() - 0.5)
+    seededShuffle(routinePool.filter((id) => id !== excludeId).slice(0, 8), rnd)
       .slice(0, n)
       .map(nameOf);
 
   const out: QuizQuestion[] = [];
 
   // Q · tricky-routine — anchored to the most-Bad routine.
-  const worstRoutineId = Array.from(badByRoutine.entries()).sort((a, b) => b[1] - a[1])[0]?.[0];
+  const worstRoutineId = Array.from(badByRoutine.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0];
   if (worstRoutineId) {
     const distractors = pickRoutineDistractors(worstRoutineId, 2);
     if (distractors.length === 2) {
-      const { options, correctIndex } = shuffleWithAnswer(nameOf(worstRoutineId), distractors);
+      const { options, correctIndex } = shuffleWithAnswer(nameOf(worstRoutineId), distractors, rnd);
       out.push({
         kind: 'tricky-routine',
         q: `Which routine was the trickiest for ${kidName} this window?`,
@@ -104,12 +137,11 @@ export function buildKidQuiz(
   }
 
   // Q · tough-day — anchored to the worst day (needs ≥3 distinct days).
-  const dayPool = kidDayScores.map((d) => d.date);
+  const dayPool = kidDayScores.map((d) => d.date).sort();
   if (worstDay && worstDay.badCount > 0 && dayPool.length >= 3) {
-    const others = dayPool.filter((d) => d !== worstDay!.date)
-      .sort(() => Math.random() - 0.5).slice(0, 2).map(fmtDay);
+    const others = seededShuffle(dayPool.filter((d) => d !== worstDay!.date), rnd).slice(0, 2).map(fmtDay);
     if (others.length === 2) {
-      const { options, correctIndex } = shuffleWithAnswer(fmtDay(worstDay.date), others);
+      const { options, correctIndex } = shuffleWithAnswer(fmtDay(worstDay.date), others, rnd);
       out.push({
         kind: 'tough-day',
         q: `Which day was the toughest one this window?`,
@@ -121,11 +153,11 @@ export function buildKidQuiz(
   }
 
   // Q · strong-routine (ALWAYS LAST — the game ends looking up).
-  const bestRoutineId = Array.from(excellentByRoutine.entries()).sort((a, b) => b[1] - a[1])[0]?.[0];
+  const bestRoutineId = Array.from(excellentByRoutine.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0];
   if (bestRoutineId) {
     const distractors = pickRoutineDistractors(bestRoutineId, 2);
     if (distractors.length === 2) {
-      const { options, correctIndex } = shuffleWithAnswer(nameOf(bestRoutineId), distractors);
+      const { options, correctIndex } = shuffleWithAnswer(nameOf(bestRoutineId), distractors, rnd);
       out.push({
         kind: 'strong-routine',
         q: `And the bright side — which routine went BEST for ${kidName}?`,

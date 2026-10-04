@@ -124,7 +124,7 @@ export default function MeetingReviewPage() {
     [windowKey, meetingDate],
   );
 
-  const routines: Routine[] = family?.routines ?? [];
+  const routines: Routine[] = useMemo(() => family?.routines ?? [], [family?.routines]);
   const pointSystem = useMemo(() => readPointSystemConfig(family), [family]);
 
   // 📊 PR5 — bumped when a proposal is approved elsewhere (a parent's phone)
@@ -957,18 +957,45 @@ function BehaviourTab({
       const count = quizCountForBads(stats.badCount);
       if (count === 0) continue;
       const kidScores = dayScores.filter((d) => d.childId === childId);
-      const qs = buildKidQuiz(childById.get(childId)?.name || 'this kid', kidScores, routineNameById, count);
+      // Seeded per kid + window → the SAME questions and option order on
+      // every rebuild (the screen refreshes mid-meeting).
+      const qs = buildKidQuiz(childById.get(childId)?.name || 'this kid', kidScores, routineNameById, count, `${childId}|${range.from}|${range.to}`);
       if (qs.length > 0) m.set(childId, qs);
     }
     return m;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [perKid, dayScores, routineNameById]);
-  const [aiQuiz, setAiQuiz] = useState<Map<string, QuizQuestion[]>>(new Map());
+  }, [perKid, dayScores, routineNameById, range.from, range.to]);
+
+  // 🧊 Freeze each kid's quiz once it first appears for this window. Data
+  // refreshes during the meeting (approvals on another phone, the 15 s
+  // poll) used to rebuild + reset it — wiping a child's picks and making
+  // the choices change or vanish mid-answer. Now only a NEW window resets.
+  const [frozenQuiz, setFrozenQuiz] = useState<Map<string, QuizQuestion[]>>(new Map());
   const [quizPicked, setQuizPicked] = useState<Record<string, Record<number, number>>>({});
   const [quizDone, setQuizDone] = useState<Set<string>>(new Set());
-  useEffect(() => { setQuizPicked({}); setQuizDone(new Set()); setAiQuiz(new Map()); }, [comments]);
+  const aiWarmedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (templateQuiz.size === 0) return;
+    setFrozenQuiz(new Map()); setQuizPicked({}); setQuizDone(new Set());
+    aiWarmedRef.current = new Set();
+  }, [range.from, range.to]);
+  useEffect(() => {
+    setFrozenQuiz((prev) => {
+      let changed = false;
+      const next = new Map(prev);
+      for (const [kidId, qs] of templateQuiz) {
+        if (!next.has(kidId)) { next.set(kidId, qs); changed = true; }
+      }
+      return changed ? next : prev;
+    });
+  }, [templateQuiz]);
+
+  // ✨ Warm the wording once per kid per window. Only `q` / `explain`
+  // change — options, order and the right answer never move.
+  const toWarm = Array.from(frozenQuiz.keys()).filter((k) => !aiWarmedRef.current.has(k)).sort().join(',');
+  useEffect(() => {
+    if (!toWarm) return;
+    const kidIds = toWarm.split(',');
+    for (const k of kidIds) aiWarmedRef.current.add(k);
     let off = false;
     (async () => {
       try {
@@ -978,19 +1005,32 @@ function BehaviourTab({
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({
-            kids: Array.from(templateQuiz.entries()).map(([kidId, questions]) => ({
-              kidId, kidName: childById.get(kidId)?.name || 'the kid', questions,
+            kids: kidIds.map((kidId) => ({
+              kidId, kidName: childById.get(kidId)?.name || 'the kid', questions: frozenQuiz.get(kidId) || [],
             })),
           }),
         });
         const data = await res.json().catch(() => null) as { ok?: boolean; kids?: Array<{ kidId: string; questions: QuizQuestion[] }> } | null;
         if (off || !data?.ok || !Array.isArray(data.kids)) return;
-        setAiQuiz(new Map(data.kids.map((k) => [k.kidId, k.questions])));
+        setFrozenQuiz((prev) => {
+          const next = new Map(prev);
+          for (const k of data.kids!) {
+            const cur = next.get(k.kidId);
+            if (!cur || !Array.isArray(k.questions)) continue;
+            next.set(k.kidId, cur.map((q, i) => {
+              const w = k.questions[i];
+              return w && w.kind === q.kind
+                ? { ...q, q: typeof w.q === 'string' && w.q ? w.q : q.q, explain: typeof w.explain === 'string' && w.explain ? w.explain : q.explain }
+                : q;
+            }));
+          }
+          return next;
+        });
       } catch { /* templates are fine */ }
     })();
     return () => { off = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templateQuiz]);
+  }, [toWarm]);
 
   // 📈 Trend vs the PREVIOUS window of the same length — "3 fewer Bads than
   // last window" beats a bare number. Best-effort; hidden when no prev data.
@@ -1183,7 +1223,7 @@ function BehaviourTab({
           : [];
         // 🎓 Learn & Grow locals — quiz gates the reveal; 0 Bads celebrates.
         const bads = stats?.badCount || 0;
-        const kidQuiz = aiQuiz.get(childId) ?? templateQuiz.get(childId) ?? [];
+        const kidQuiz = frozenQuiz.get(childId) ?? templateQuiz.get(childId) ?? [];
         const revealedNow = bads === 0 || kidQuiz.length === 0 || quizDone.has(childId);
         const picked = quizPicked[childId] || {};
         const answeredAll = kidQuiz.length > 0 && kidQuiz.every((_, i) => picked[i] !== undefined);
@@ -1243,11 +1283,14 @@ function BehaviourTab({
                               <button
                                 key={oi}
                                 type="button"
-                                disabled={pick !== undefined}
-                                onClick={() => setQuizPicked((prev) => ({
-                                  ...prev,
-                                  [childId]: { ...(prev[childId] || {}), [qi]: oi },
-                                }))}
+                                aria-disabled={pick !== undefined}
+                                onClick={() => {
+                                  if (pick !== undefined) return; // one answer per question
+                                  setQuizPicked((prev) => ({
+                                    ...prev,
+                                    [childId]: { ...(prev[childId] || {}), [qi]: oi },
+                                  }));
+                                }}
                                 className={`w-full text-left px-3 py-2 rounded-kaya-sm border text-[12.5px] lg:text-[13px] font-semibold transition-colors ${
                                   showState && isRight
                                     ? 'border-emerald-400/80 bg-emerald-500/15 text-emerald-100'
