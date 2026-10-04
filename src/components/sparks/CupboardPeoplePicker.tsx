@@ -11,15 +11,19 @@ import { useState } from 'react';
 
 import { JADE, inputCls } from './CupboardShell';
 
-export { familyPeople, type Person } from '@/lib/sparks/cupboardPeople';
+export { familyPeople, helperOptions, type Person } from '@/lib/sparks/cupboardPeople';
 import type { Person } from '@/lib/sparks/cupboardPeople';
 
-export default function CupboardPeoplePicker({ people, value, onToggle, onAddGuest }: {
+export default function CupboardPeoplePicker({ people, value, onToggle, onAddGuest, suggestions = [], onAddPerson }: {
   people: Person[];
   value: Set<string>;
   onToggle: (id: string) => void;
   /** Adds (and selects) a relative/friend by name. */
   onAddGuest: (name: string) => void;
+  /** Hidden-by-default people (helpers) offered only inside "＋ Add someone". */
+  suggestions?: Person[];
+  /** Adds (and selects) one of the suggestions. */
+  onAddPerson?: (id: string) => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
@@ -39,7 +43,7 @@ export default function CupboardPeoplePicker({ people, value, onToggle, onAddGue
   const groups: Array<[string, Person[]]> = [
     ['Grown-ups', people.filter((p) => p.kind === 'grownup')],
     ['Children', people.filter((p) => p.kind === 'kid')],
-    ['Relatives & friends', people.filter((p) => p.kind === 'guest')],
+    ['Others', people.filter((p) => p.kind === 'guest')],
   ];
   return (
     <div>
@@ -50,15 +54,31 @@ export default function CupboardPeoplePicker({ people, value, onToggle, onAddGue
         </div>
       ))}
       {adding ? (
-        <div className="flex gap-1.5 mt-1">
+        <div className="mt-1 rounded-[12px] border border-dashed border-[#BFE3D8] bg-white p-2">
+        {suggestions.length > 0 && onAddPerson && (
+          <div className="mb-2">
+            <div className="text-[9.5px] font-extrabold tracking-[.5px] uppercase text-[#8A8471] mb-1">Helpers</div>
+            <div className="flex flex-wrap gap-1.5">
+              {suggestions.map((p) => (
+                <button key={p.id} type="button" onClick={() => { onAddPerson(p.id); setAdding(false); }}
+                  className="text-[11px] font-extrabold px-2.5 py-1.5 rounded-full border-[1.5px] border-[#E8E0CF] bg-white text-[#0F1F44]">
+                  ＋ {p.emoji} {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="text-[9.5px] font-extrabold tracking-[.5px] uppercase text-[#8A8471] mb-1">A relative or friend</div>
+        <div className="flex gap-1.5">
           <input className={inputCls} autoFocus value={name} maxLength={40} placeholder="e.g. Grandma Rose, cousin Amani"
             onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} />
           <button type="button" onClick={add} disabled={!name.trim()} className="px-3 rounded-full text-[11px] font-extrabold text-white disabled:opacity-50" style={{ background: JADE }}>Add</button>
           <button type="button" onClick={() => { setAdding(false); setName(''); }} className="px-2 text-[11px] font-extrabold text-[#5B6B8C]">✕</button>
         </div>
+        </div>
       ) : (
         <button type="button" onClick={() => setAdding(true)} className="mt-1 text-[11px] font-extrabold px-2.5 py-1.5 rounded-full border-[1.5px] border-dashed border-[#BFE3D8] bg-white" style={{ color: JADE }}>
-          ＋ Add someone (relative or friend)
+          ＋ Add someone
         </button>
       )}
     </div>

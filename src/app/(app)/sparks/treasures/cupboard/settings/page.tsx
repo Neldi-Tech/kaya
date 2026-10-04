@@ -173,7 +173,7 @@ export default function CupboardSettingsPage() {
           <Card>
             <div className="font-display font-extrabold text-[12.5px] text-[#0F1F44]">👥 Relatives &amp; friends we play with</div>
             <p className="text-[10.5px] font-bold text-[#8A8471] mt-0.5 mb-2 leading-snug">
-              Everyone in the family is already on every “Who was in?”. People added there — grandparents, cousins, friends — are remembered here for next time.
+              Parents and children are always on every “Who was in?”. Helpers appear only when you tap “＋ Add someone”. Relatives and friends added there are remembered here for next time.
             </p>
             {(s.guests ?? []).length > 0 ? (
               <div className="flex flex-wrap gap-1.5 mb-2">

@@ -35,7 +35,7 @@ import {
 } from '@/components/sparks/CupboardShell';
 import ReadingNoteComposer from '@/components/sparks/ReadingNoteComposer';
 import FinishQuizSheet from '@/components/sparks/FinishQuizSheet';
-import CupboardPeoplePicker, { familyPeople } from '@/components/sparks/CupboardPeoplePicker';
+import CupboardPeoplePicker, { familyPeople, helperOptions } from '@/components/sparks/CupboardPeoplePicker';
 
 const EVENT_EMOJI: Record<string, string> = {
   registered: '🗄', check: '🔑', broken: '🔧', repaired: '🔧', lost: '❓', found: '✅',
@@ -259,7 +259,7 @@ export default function CupboardItemPage() {
               style={!item.keeperKidId ? { background: WOOD, color: '#fff', borderColor: WOOD } : undefined}>
               🗄 On the shelf
             </button>
-            {[...(shelf?.members ?? []).map((m) => ({ id: m.id, emoji: m.emoji, name: m.name })), ...kids].map((k) => (
+            {[...(shelf?.members ?? []).filter((m) => m.role === 'parent' || m.id === item.keeperKidId).map((m) => ({ id: m.id, emoji: m.emoji, name: m.name })), ...kids].map((k) => (
               <button key={k.id} type="button" disabled={!perm.canEdit || busy} onClick={() => run(() => updateCupboardItem(familyId, item.id, { keeperKidId: k.id }))}
                 className="text-[11px] font-extrabold px-2.5 py-1.5 rounded-full border-[1.5px] border-[#E8E0CF] bg-white text-[#0F1F44] disabled:opacity-60"
                 style={item.keeperKidId === k.id ? { background: WOOD, color: '#fff', borderColor: WOOD } : undefined}>
@@ -672,7 +672,9 @@ function PlayPanel({ item, kids, shelf, familyId, busy, canLog, isKid, run }: {
   const [open, setOpen] = useState(false);
   // Guests added in this session (remembered server-side once logged).
   const [extraGuests, setExtraGuests] = useState<string[]>([]);
-  const people = shelf ? familyPeople(shelf, extraGuests) : [];
+  // Helpers stay off the list until added via "＋ Add someone".
+  const [addedIds, setAddedIds] = useState<string[]>([]);
+  const people = shelf ? familyPeople(shelf, extraGuests, addedIds) : [];
   const myId = shelf?.me.memberId || (isKid ? shelf?.me.childId : 'me') || '';
   const [who, setWho] = useState<Set<string>>(() => new Set(myId ? [myId] : []));
   const plays = (item.plays ?? []).slice().reverse().slice(0, 5);
@@ -695,8 +697,10 @@ function PlayPanel({ item, kids, shelf, familyId, busy, canLog, isKid, run }: {
       {open && (
         <div className="mt-2">
           <div className="text-[10.5px] font-extrabold tracking-[.5px] uppercase text-[#8A8471] mb-1">Who was in?</div>
-          <CupboardPeoplePicker people={people} value={who} onToggle={toggle} onAddGuest={addGuest} />
-          <div className="mt-2.5"><Pill bg={JADE} fg="#fff" disabled={busy || who.size === 0} onClick={() => run(() => logPlay(familyId, item.id, Array.from(who)).then(() => { setOpen(false); setExtraGuests([]); }))}>✓ Log tonight&rsquo;s game ({who.size})</Pill></div>
+          <CupboardPeoplePicker people={people} value={who} onToggle={toggle} onAddGuest={addGuest}
+            suggestions={shelf ? helperOptions(shelf, addedIds) : []}
+            onAddPerson={(id) => { setAddedIds((a) => (a.includes(id) ? a : [...a, id])); setWho((s) => new Set(s).add(id)); }} />
+          <div className="mt-2.5"><Pill bg={JADE} fg="#fff" disabled={busy || who.size === 0} onClick={() => run(() => logPlay(familyId, item.id, Array.from(who)).then(() => { setOpen(false); setExtraGuests([]); setAddedIds([]); }))}>✓ Log tonight&rsquo;s game ({who.size})</Pill></div>
         </div>
       )}
       {plays.length > 0 && (

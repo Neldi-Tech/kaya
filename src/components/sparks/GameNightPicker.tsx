@@ -11,7 +11,7 @@
 import { useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { logPlay, gameFits, guestId, type CupboardShelf, type CupboardItem } from '@/lib/sparks/cupboard';
-import CupboardPeoplePicker, { familyPeople } from './CupboardPeoplePicker';
+import CupboardPeoplePicker, { familyPeople, helperOptions } from './CupboardPeoplePicker';
 import { gameKindDef } from '@/lib/sparks/treasures';
 import { Pill, WOOD, WOOD_DK, WOOD_BG, JADE } from './CupboardShell';
 
@@ -30,7 +30,9 @@ export default function GameNightPicker({ familyId, shelf, games, onClose, onPla
   // children, and remembered relatives & friends. Older servers without
   // `members` fall back to "me".
   const [extraGuests, setExtraGuests] = useState<string[]>([]);
-  const fullPeople = useMemo(() => familyPeople(shelf, extraGuests), [shelf, extraGuests]);
+  // Helpers stay off the list until added via "＋ Add someone".
+  const [addedIds, setAddedIds] = useState<string[]>([]);
+  const fullPeople = useMemo(() => familyPeople(shelf, extraGuests, addedIds), [shelf, extraGuests, addedIds]);
   const people: Who[] = useMemo(() => {
     const list: Who[] = fullPeople.map((p) => ({ id: p.id, label: p.label, age: p.age }));
     if (!(shelf.members?.length) && shelf.me.role !== 'kid') list.unshift({ id: 'me', label: meLabel });
@@ -110,6 +112,8 @@ export default function GameNightPicker({ familyId, shelf, games, onClose, onPla
                 people={fullPeople}
                 value={inIds}
                 onToggle={toggle}
+                suggestions={helperOptions(shelf, addedIds)}
+                onAddPerson={(id) => { setAddedIds((a) => (a.includes(id) ? a : [...a, id])); setInIds((s) => new Set(s).add(id)); }}
                 onAddGuest={(name) => {
                   setExtraGuests((g) => (g.some((x) => x.toLowerCase() === name.toLowerCase()) ? g : [...g, name]));
                   setInIds((s) => new Set(s).add(guestId(name)));
