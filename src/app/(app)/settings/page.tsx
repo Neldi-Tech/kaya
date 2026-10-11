@@ -942,6 +942,19 @@ export default function SettingsPage() {
     setSavingSiblingProfiles(false);
   };
 
+  // Privacy — may a kid browse siblings' stats (and the All overview) in
+  // Kids' Stats? Absent ⇒ on. Off ⇒ each kid sees only their own stats.
+  const siblingStatsOn = family?.kidsCanSeeSiblingStats !== false;
+  const [savingSiblingStats, setSavingSiblingStats] = useState(false);
+  const toggleSiblingStats = async () => {
+    if (!profile?.familyId || !family || isGuest || savingSiblingStats) return;
+    setSavingSiblingStats(true);
+    try {
+      await updateFamily(profile.familyId, { kidsCanSeeSiblingStats: !siblingStatsOn } as any);
+    } catch {}
+    setSavingSiblingStats(false);
+  };
+
   // Earning-method picker. Fall back to the Phase-1 default for families that
   // existed before this feature so their UX doesn't suddenly empty out.
   const selectedMethods = family?.earningMethods ?? DEFAULT_EARNING_METHODS;
@@ -2606,6 +2619,34 @@ export default function SettingsPage() {
                       }`}
                     >
                       {siblingProfilesOn ? '✓' : ''}
+                    </span>
+                  </button>
+                  <button
+                    onClick={toggleSiblingStats}
+                    disabled={isGuest || savingSiblingStats}
+                    className={`mt-2 w-full flex items-start gap-3 p-3 rounded-kaya-sm border-2 text-left transition-all ${
+                      siblingStatsOn
+                        ? 'border-kaya-gold bg-kaya-gold/5'
+                        : 'border-kaya-warm-dark hover:border-kaya-sand-light bg-white'
+                    } ${savingSiblingStats ? 'opacity-60' : ''} ${isGuest ? 'opacity-70 cursor-not-allowed' : ''}`}
+                  >
+                    <span className="text-2xl shrink-0 leading-none">📊</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold leading-tight">Kids can see each other&apos;s stats</p>
+                      <p className="text-[11px] text-kaya-sand mt-0.5 leading-relaxed">
+                        {siblingStatsOn
+                          ? "On — in Kids' Stats, any kid can open a sibling's stats and the All overview (view only)."
+                          : "Off — each kid sees only their own stats."}
+                      </p>
+                    </div>
+                    <span
+                      className={`shrink-0 mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center text-[11px] font-bold transition-colors ${
+                        siblingStatsOn
+                          ? 'bg-kaya-gold border-kaya-gold text-white'
+                          : 'border-kaya-warm-dark bg-white text-transparent'
+                      }`}
+                    >
+                      {siblingStatsOn ? '✓' : ''}
                     </span>
                   </button>
                 </div>

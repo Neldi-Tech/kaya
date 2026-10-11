@@ -383,6 +383,9 @@ export interface Family {
   // Family tree are unaffected. Absent ⇒ true (kids can see each other),
   // which matches the behaviour shipped before this toggle existed.
   kidsCanSeeSiblingProfiles?: boolean;
+  /** Kids' Stats — may a kid open a sibling's stats (and the All overview)?
+   *  Absent ⇒ on. Off ⇒ each kid sees only their own stats. */
+  kidsCanSeeSiblingStats?: boolean;
   routines: Routine[];
   // Family-configurable point system rules (tier caps, reducing on/off,
   // Kudos / Improvement Note thresholds). Optional — `readPointSystemConfig`

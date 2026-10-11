@@ -7,8 +7,8 @@
 // the SAME sources as the meeting Points Review (ratings + awards + the pure
 // meetingReview engine) — never a parallel calculation:
 //
-//   • Timeline bar — This week · This month (+ "More ▾": last 7 days, this
-//     year, lifetime, pick month, custom range). ONE selection drives every
+//   • Timeline bar — This week · Last 7 days · This month · Lifetime
+//     (+ "More ▾": this year, pick month, custom range). ONE selection drives every
 //     card. (⚖️ Compare mode lands in PR 2.)
 //   • ⭐ House Points hero — routine-vs-award split (HP = ⌊Σ routine points /
 //     pointsPerHousePoint⌋ + Σ award points, exactly the Reports math), daily
@@ -19,9 +19,12 @@
 //     ⭐ Star-podium appearances from meeting snapshots.
 //   • 🏅 Recent awards strip (full Awards-first Discovery lands in PR 3).
 //
-// Access: kids see ONLY themselves (childId resolved via profile.childId —
-// the || email-match self-heal already ran in AuthContext). Parents/helpers
-// get a kid switcher. Gated behind the existing `stats` kid-module grant.
+// Access: parents/helpers get a kid switcher. Kids land on their OWN stats
+// (childId via profile.childId — the email-match self-heal already ran in
+// AuthContext) and, unless the family turns `kidsCanSeeSiblingStats` off,
+// get the same switcher to view siblings + the All overview READ-ONLY —
+// personal bits (feedback inbox, reflections, goal/help, nudges, catch-up,
+// leadership) stay on their own stats only. Gated behind the existing `stats` kid-module grant.
 // Read-only: rules already allow family members to read ratings/awards —
 // no Firestore-rules change.
 
@@ -174,21 +177,28 @@ export default function MyStatsPage() {
     if (typeof window === 'undefined') return;
     const q = new URLSearchParams(window.location.search);
     const k = q.get('kid'); const r = q.get('reflect'); const t = q.get('thanks');
-    if (k && !isKid) setPickedId(k);
+    if (k) setPickedId(k);
     if (r) setReflectTarget(r);
     if (t) setThanksTarget(t);
   }, [isKid]);
-  const parentPick = pickedId ?? (children.length > 1 ? ALL_KIDS : children[0]?.id ?? null);
-  const myChildId = useMemo(() => {
-    if (isKid) {
-      const direct = profile?.childId?.trim();
-      if (direct) return direct;
-      const myEmail = profile?.email?.toLowerCase() ?? '';
-      return children.find((c) => (c.emailLower || c.email?.toLowerCase() || '') === myEmail)?.id ?? null;
-    }
-    return parentPick === ALL_KIDS ? null : parentPick;
-  }, [isKid, profile?.childId, profile?.email, children, parentPick]);
-  const allMode = !isKid && parentPick === ALL_KIDS && children.length > 0;
+  // The signed-in kid's own child id (null for parents/helpers).
+  const ownChildId = useMemo(() => {
+    if (!isKid) return null;
+    const direct = profile?.childId?.trim();
+    if (direct) return direct;
+    const myEmail = profile?.email?.toLowerCase() ?? '';
+    return children.find((c) => (c.emailLower || c.email?.toLowerCase() || '') === myEmail)?.id ?? null;
+  }, [isKid, profile?.childId, profile?.email, children]);
+  // Kids may browse siblings + All unless the family switched it off.
+  const kidCanBrowse = isKid && family?.kidsCanSeeSiblingStats !== false && children.length > 1;
+  const canSwitch = !isKid || kidCanBrowse;
+  const validPick = pickedId && (pickedId === ALL_KIDS || children.some((c) => c.id === pickedId)) ? pickedId : null;
+  // Parents of 2+ kids land on All; a kid always lands on themselves.
+  const parentPick = (canSwitch ? validPick : null) ?? (isKid ? ownChildId : (children.length > 1 ? ALL_KIDS : children[0]?.id ?? null));
+  const myChildId = parentPick === ALL_KIDS ? null : parentPick;
+  const allMode = canSwitch && parentPick === ALL_KIDS && children.length > 0;
+  // A kid looking at a sibling (or All) sees it read-only.
+  const viewingOwn = !isKid || (!!ownChildId && myChildId === ownChildId);
   const kid = children.find((c) => c.id === myChildId) ?? null;
 
   // ── Timeline bar (ONE selection drives every card) ─────────────────
@@ -329,7 +339,7 @@ export default function MyStatsPage() {
       if (goals.length >= 3) { setGoalMsg('Your prep already has 3 goals — swap one there first.'); return; }
       await setMeetingSubmission(familyId, profile.uid, {
         name: (profile.displayName || 'Me').split(' ')[0],
-        childId: isKid ? myChildId ?? undefined : undefined,
+        childId: isKid ? ownChildId ?? undefined : undefined,
         role: isKid ? 'kid' : 'parent',
         gratitudes: cur?.gratitudes || [],
         appreciations: cur?.appreciations || [],
@@ -421,7 +431,7 @@ export default function MyStatsPage() {
 
   // Pattern nudge → the kid's own bell, once per upcoming occurrence.
   useEffect(() => {
-    if (!pattern || !pattern.soon || !isKid || !familyId || !profile?.uid) return;
+    if (!pattern || !pattern.soon || !isKid || !viewingOwn || !familyId || !profile?.uid) return;
     const guard = `kayaPatternNudge:${myChildId}:${pattern.cat.id}:${iso(new Date()).slice(0, 10)}`;
     try {
       if (localStorage.getItem(guard)) return;
@@ -435,7 +445,7 @@ export default function MyStatsPage() {
       forUserId: profile.uid,
       link: '/stats/me',
     } as Parameters<typeof createNotification>[1]);
-  }, [pattern, isKid, familyId, profile?.uid, myChildId]);
+  }, [pattern, isKid, viewingOwn, familyId, profile?.uid, myChildId]);
 
   // ⚖️ Compare — fetch both windows with the SAME snapshot math.
   useEffect(() => {
@@ -710,14 +720,14 @@ export default function MyStatsPage() {
       <div className="flex items-center gap-3 mb-3">
         <div className="w-12 h-12 rounded-full bg-kaya-warm grid place-items-center text-2xl">{allMode ? '👨‍👩‍👧' : kid?.avatarEmoji}</div>
         <div className="flex-1 min-w-0">
-          <h1 className="font-display text-xl lg:text-2xl font-black leading-tight">{allMode ? "Kids' Stats" : 'My Stats'}</h1>
-          <p className="text-[12px] text-kaya-sand font-bold">{allMode ? `All kids · ${children.length} side by side` : `${kid?.name} · ${kid?.houseName}`}</p>
+          <h1 className="font-display text-xl lg:text-2xl font-black leading-tight">{allMode ? "Kids' Stats" : (isKid && viewingOwn) || !isKid ? 'My Stats' : `${(kid?.name || '').split(' ')[0]}'s Stats`}</h1>
+          <p className="text-[12px] text-kaya-sand font-bold">{allMode ? `All kids · ${children.length} side by side` : `${kid?.name} · ${kid?.houseName}${viewingOwn ? '' : ' · view only'}`}</p>
         </div>
       </div>
 
       {/* 👨‍👩‍👧 Kid chips (v3) — every kid visible; All = the overview.
           5+ kids → chips collapse to All + a dropdown. */}
-      {!isKid && children.length > 0 && (
+      {canSwitch && children.length > 0 && (
         <div className="flex gap-1.5 flex-wrap items-center mb-3">
           {children.length > 1 && (
             <button type="button" onClick={() => setPickedId(ALL_KIDS)}
@@ -748,13 +758,13 @@ export default function MyStatsPage() {
 
       {/* Timeline bar — one selection drives EVERY card */}
       <div className="flex gap-1.5 flex-wrap items-center mb-1">
-        {([['thisWeek', 'This week'], ['thisMonth', 'This month']] as const).map(([k, l]) => (
+        {([['thisWeek', 'This week'], ['last7', 'Last 7 days'], ['thisMonth', 'This month'], ['lifetime', 'Lifetime']] as const).map(([k, l]) => (
           <button key={k} type="button" onClick={() => { setPeriod(k); setMoreOpen(false); }}
             className={`px-3.5 py-1.5 rounded-full text-[12px] font-display font-extrabold transition-colors ${period === k ? 'bg-kaya-chocolate text-white' : 'bg-kaya-warm text-kaya-sand'}`}>
             {l}
           </button>
         ))}
-        {!['thisWeek', 'thisMonth'].includes(period) && (
+        {!['thisWeek', 'last7', 'thisMonth', 'lifetime'].includes(period) && (
           <span className="px-3.5 py-1.5 rounded-full text-[12px] font-display font-extrabold bg-kaya-chocolate text-white">{range.label}</span>
         )}
         {statsCfg.compare && !allMode && (
@@ -837,7 +847,7 @@ export default function MyStatsPage() {
       )}
       {moreOpen && (
         <div className="bg-white border border-kaya-warm-dark rounded-kaya p-3 mb-3 flex gap-1.5 flex-wrap items-center">
-          {([['last7', 'Last 7 days'], ['thisYear', 'This year'], ['lifetime', 'Lifetime']] as const).map(([k, l]) => (
+          {([['thisYear', 'This year']] as const).map(([k, l]) => (
             <button key={k} type="button" onClick={() => { setPeriod(k); setMoreOpen(false); }}
               className={`px-3 py-1.5 rounded-full text-[12px] font-bold ${period === k ? 'bg-kaya-chocolate text-white' : 'bg-kaya-warm text-kaya-sand'}`}>
               {l}
@@ -938,7 +948,7 @@ export default function MyStatsPage() {
           {/* 📬 Feedback — Points Emails 2.0 (E6): the kid's Heat Reports
               in-app, same colours as the email; hides itself when the
               family switched it off or there's nothing yet. */}
-          {myChildId && (family as { kidFeedback?: { inAppInbox?: boolean; includeReasons?: boolean; askReflection?: boolean } } | null)?.kidFeedback?.inAppInbox !== false && (
+          {myChildId && viewingOwn && (family as { kidFeedback?: { inAppInbox?: boolean; includeReasons?: boolean; askReflection?: boolean } } | null)?.kidFeedback?.inAppInbox !== false && (
             <div className="order-3 lg:col-span-2">
               <FeedbackInbox
                 childId={myChildId}
@@ -1029,7 +1039,7 @@ export default function MyStatsPage() {
                             {sel.value === 'excellent' ? '🟢 Excellent' : sel.value === 'good' ? '🟡 Good' : '🔴 Bad'} · {toDisplayDate(sel.date)} · rated by {sel.ratedByName}
                           </p>
                           {sel.note && <p className="text-[12px] mt-1">“{sel.note}”</p>}
-                          {statsCfg.reflections && (
+                          {statsCfg.reflections && viewingOwn && (
                           <div className="mt-1.5 rounded-kaya-sm p-2" style={{ background: '#EFE9FF' }}>
                             <p className="text-[9.5px] font-black uppercase tracking-wider" style={{ color: '#6B3FE0' }}>💬 My reflection</p>
                             <textarea value={reflectDraft} onChange={(e) => setReflectDraft(e.target.value)} rows={2}
@@ -1287,7 +1297,9 @@ export default function MyStatsPage() {
             })()}
           </div>
 
-          {/* 🤖 Coach Kaya (PR 4) */}
+          {/* 🤖 Coach Kaya (PR 4) — speaks to the kid ("You're at…"), so a kid
+              browsing a sibling doesn't see it. Parents still do, per kid. */}
+          {viewingOwn && (
           <div className="order-3 lg:col-span-2 rounded-kaya-lg p-4 text-white" style={{ background: 'linear-gradient(130deg,#11C5A8,#6B3FE0)' }}>
             <p className="text-[9.5px] uppercase tracking-[0.14em] font-bold opacity-85">🤖 Coach Kaya · today</p>
             {/* Layout 3.0: wide card — focus left, tips right on lg */}
@@ -1296,7 +1308,7 @@ export default function MyStatsPage() {
               <div className="rounded-kaya px-3 py-2.5 mt-2" style={{ background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.28)' }}>
                 <p className="text-[13.5px] font-black">{coach.focus.icon} This week&rsquo;s focus: {coach.focus.label}</p>
                 <p className="text-[12px] opacity-90 mt-0.5">You&rsquo;re at {coach.focus.pct}% — win this one and the whole week follows!</p>
-                <div className="flex gap-2 flex-wrap mt-2">
+                {viewingOwn && (<div className="flex gap-2 flex-wrap mt-2">
                   <button type="button" onClick={() => void makeSundayGoal(`${coach.focus!.label} — Excellent every day this week`)}
                     className="px-3 py-1.5 rounded-full text-[11px] font-black" style={{ background: '#fff', color: '#6B3FE0' }}>
                     🎯 Make it my Sunday goal
@@ -1307,7 +1319,7 @@ export default function MyStatsPage() {
                       🤝 I need help with this
                     </button>
                   )}
-                </div>
+                </div>)}
                 {(goalMsg || helpMsg) && <p className="text-[11px] font-bold mt-1.5 opacity-95">{goalMsg} {helpMsg}</p>}
               </div>
             ) : (
@@ -1323,11 +1335,12 @@ export default function MyStatsPage() {
               <p className="text-[10px] font-black opacity-80 mt-0.5">— {coach.quote.by} · new quote every day</p>
             </div>
           </div>
+          )}
 
           {/* ⏰ Catch-Ups (2026-08-10) — under Stats per the approved
               design; sibling score chips only when the family switch
               allows (parents flip it on the Reminders board). */}
-          {myChildId && (
+          {myChildId && viewingOwn && (
             <div className="order-3 lg:col-span-2">
               <CatchUpStrip childId={myChildId} showFamilyScores />
             </div>
@@ -1336,7 +1349,7 @@ export default function MyStatsPage() {
           {/* 👑 LW PR-L4 — the kid's OWN Leadership card (radar + style +
               counters + one-line reasons); parents see it per kid here too.
               Hidden for kids when the family switches kidSeesTraits off. */}
-          {myChildId && profile?.familyId && (profile.role !== 'kid' || readLeaderConfig(family).kidSeesTraits) && (
+          {myChildId && viewingOwn && profile?.familyId && (profile.role !== 'kid' || readLeaderConfig(family).kidSeesTraits) && (
             <div className="order-4 lg:col-span-2">
               <LeadershipCard
                 familyId={profile.familyId}
