@@ -671,7 +671,12 @@ export default function MyStatsPage() {
         if (!lowest || pct < lowest.pct) lowest = { icon: rt.icon, label: rt.label, pct };
       });
       return { kid: c, hp: hpTotal, delta, perfect, lowest: lowest as { icon: string; label: string; pct: number } | null };
-    });
+    })
+      // Ranked: most House Points for the period first (Elia 2026-10-11);
+      // ties → more Excellent days, then name — stable and predictable.
+      .sort((a, b) => b.hp - a.hp || b.perfect - a.perfect || a.kid.name.localeCompare(b.kid.name))
+      // Shared rank on an exact HP tie (1, 1, 3 …), like the Star podium.
+      .map((k, i, arr) => ({ ...k, rank: arr.findIndex((x) => x.hp === k.hp) + 1 }));
   }, [allMode, children, rawRatings, rawAwards, prevRawRatings, prevRawAwards, ppHP, routines, range.from, range.to]);
 
   const pctColor = (p: number) => (p >= 80 ? '#2E9E5B' : p >= 60 ? '#D4A017' : '#E06A7B');
@@ -879,13 +884,16 @@ export default function MyStatsPage() {
         // needs-love strip. Tap any kid → their full page, as they see it.
         <div className="space-y-3">
           <div className="rounded-kaya-lg p-4 text-white" style={{ background: 'linear-gradient(130deg,#6B3FE0,#9b6bff)' }}>
-            <p className="text-[10px] uppercase tracking-[0.14em] font-bold opacity-85">⭐ House Points · {range.label.toLowerCase()} · all kids</p>
+            <p className="text-[10px] uppercase tracking-[0.14em] font-bold opacity-85">⭐ House Points · {range.label.toLowerCase()} · all kids · most points first</p>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-2">
               {kidsOverview.map((k) => (
                 <button key={k.kid.id} type="button" onClick={() => setPickedId(k.kid.id)}
                   className="rounded-kaya p-2.5 text-left"
                   style={{ background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.28)' }}>
-                  <p className="text-[11px] font-black truncate">{k.kid.avatarEmoji} {k.kid.name.split(' ')[0]}</p>
+                  <p className="text-[11px] font-black truncate">
+                    {k.hp > 0 && k.rank <= 3 ? <span aria-label={`Rank ${k.rank}`}>{['🥇', '🥈', '🥉'][k.rank - 1]} </span> : <span className="opacity-70">#{k.rank} </span>}
+                    {k.kid.avatarEmoji} {k.kid.name.split(' ')[0]}
+                  </p>
                   <p className="text-[19px] font-display font-black leading-tight">
                     {k.hp} HP{' '}
                     {k.delta !== null && (
