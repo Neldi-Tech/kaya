@@ -11,13 +11,14 @@ import { useKidAiLevel, aiRequestHeaders } from '@/lib/ai/useAiLevel';
 // (/api/sparks/ai/reflect). Typing is a secondary path the parent gates
 // per-kid + per-weekday. A school-day-aware streak proves consistency.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useLocale } from '@/lib/useLocale';
 import { subscribeToSparksProfile } from '@/lib/sparks/firestore';
 import { uploadSparksPhoto } from '@/lib/sparks/uploadPhoto';
+import { withTimeout } from '@/lib/withTimeout';
 import type { SparksProfile } from '@/lib/sparks/schema';
 import {
   type ReflectionEntry, type ReflectionFeedback, type ReflectionAIRead,
@@ -123,6 +124,15 @@ export default function ReflectionPage() {
     try { return JSON.parse(localStorage.getItem(`kaya_refl_seen_${kidId}`) || '{}'); } catch { return {}; }
   });
   const [scanUrl, setScanUrl] = useState<string | undefined>();
+  // 📷 The page's upload runs in the BACKGROUND (never blocks the screen):
+  // 'saving' → 'done' | 'failed'. `uploadRef` lets Save wait for it briefly.
+  const [uploadState, setUploadState] = useState<'idle' | 'saving' | 'done' | 'failed'>('idle');
+  const uploadRef = useRef<Promise<{ fullUrl: string }> | null>(null);
+  const pendingFileRef = useRef<File | null>(null);
+  /** Bumped per scan — results from an older / cancelled scan are ignored. */
+  const scanRunRef = useRef(0);
+  /** After 20 s of reading, offer a way out. */
+  const [scanSlow, setScanSlow] = useState(false);
   const [source, setSource] = useState<'scan' | 'typed'>('scan');
   const [mode, setMode] = useState<'idle' | 'scanning' | 'review'>('idle');
   const [saving, setSaving] = useState(false);
@@ -310,51 +320,101 @@ export default function ReflectionPage() {
     })();
   };
 
+  // 📷 Upload the page in the background — one retry, each try capped so a
+  // weak network can't hang it. Resolves the run's URL or marks it failed.
+  const startUpload = (file: File, runId: number) => {
+    if (!familyId) return;
+    setUploadState('saving');
+    const p = (async () => {
+      let lastErr: unknown = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try { return await withTimeout(uploadSparksPhoto(familyId, `reflection_${kidId}_${today}`, file), 60_000, 'upload'); }
+        catch (e) { lastErr = e; }
+      }
+      throw lastErr;
+    })();
+    uploadRef.current = p;
+    p.then((up) => {
+      if (scanRunRef.current !== runId) return;
+      setScanUrl(up.fullUrl);
+      setUploadState('done');
+    }).catch((e) => {
+      if (scanRunRef.current !== runId) return;
+      scanTrace('upload', e);
+      setUploadState('failed');
+      const quota = (e as Error | null)?.message?.startsWith('📦') ? (e as Error).message : '';
+      setErr(quota || (sw
+        ? 'Picha haikuhifadhiwa (mtandao dhaifu?). Bonyeza “Jaribu tena”, au hifadhi maneno tu.'
+        : 'The photo didn’t save (weak network?). Tap “Try again”, or save just the words.'));
+    });
+  };
+
   const processScanFile = async (file: File) => {
     if (!file || !familyId) return;
-    setErr(''); setMode('scanning');
-    // 1 · keep the page (one retry) — the photo is the primary record.
-    let up: Awaited<ReturnType<typeof uploadSparksPhoto>> | null = null;
-    let uploadErr: unknown = null;
-    for (let attempt = 0; attempt < 2 && !up; attempt++) {
-      try { up = await uploadSparksPhoto(familyId, `reflection_${kidId}_${today}`, file); }
-      catch (e) { uploadErr = e; }
-    }
-    if (!up) scanTrace('upload', uploadErr);
-    // 2 · Kaya reads it — from a lean JPEG, never the raw capture.
+    const runId = ++scanRunRef.current;
+    setErr(''); setMode('scanning'); setScanSlow(false);
+    setScanUrl(undefined); setSource('scan'); setDraft('');
+    pendingFileRef.current = file;
+    const slowT = setTimeout(() => { if (scanRunRef.current === runId) setScanSlow(true); }, 20_000);
+
+    // 1 · keep the page — in the background, in PARALLEL with the read.
+    startUpload(file, runId);
+
+    // 2 · Kaya reads it — from a lean JPEG, never the raw capture — and
+    //     gives up after 45 s instead of spinning forever.
     let text = '';
     let readErr = '';
+    const ctl = new AbortController();
+    const abortT = setTimeout(() => ctl.abort(), 45_000);
     try {
       const { b64, mime } = await fileToOcrBase64(file);
       const res = await fetch('/api/sparks/ai/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ imageBase64: b64, mediaType: mime, kind: 'reflection' }),
+        signal: ctl.signal,
       });
       const data = await res.json().catch(() => ({}));
       if (data?.skipped) readErr = 'off';
       else if (!res.ok || data?.error) { readErr = String(data?.error || `read-failed-${res.status}`); scanTrace('ocr', readErr); }
       else text = String(data?.text || '').trim();
     } catch (e) {
-      readErr = (e as Error).message || 'read-failed';
-      scanTrace('ocr', e);
+      readErr = ctl.signal.aborted ? 'timeout' : ((e as Error).message || 'read-failed');
+      scanTrace('ocr', ctl.signal.aborted ? 'ocr-timeout-45s' : e);
+    } finally {
+      clearTimeout(abortT); clearTimeout(slowT);
     }
-    setScanUrl(up?.fullUrl);
-    setSource(up ? 'scan' : 'typed');
+    // The kid skipped ahead / re-scanned meanwhile → this result is stale.
+    if (scanRunRef.current !== runId) return;
     setDraft(text);
     setMode('review');
-    const quotaMsg = (uploadErr as Error | null)?.message?.startsWith('📦') ? (uploadErr as Error).message : '';
-    if (!up) {
-      setErr(quotaMsg || (sw
-        ? 'Picha haikuhifadhiwa (mtandao dhaifu?). Maneno ya Kaya yako hapa — changanua tena ukitaka picha.'
-        : 'The photo didn’t save (weak network?). Kaya’s words are here — re-scan if you want the photo kept.'));
-    } else if (readErr === 'off') {
+    setScanSlow(false);
+    if (readErr === 'off') {
       setErr(sw ? 'Usomaji haupatikani sasa — hifadhi picha kama ilivyo, au andika maneno.' : 'Reading is off right now — save the photo as it is, or type what you wrote.');
+    } else if (readErr === 'timeout') {
+      setErr(sw ? 'Kaya ilichukua muda mrefu kusoma — hifadhi picha kama ilivyo, au andika maneno.' : 'Kaya took too long to read — save the photo as it is, or type the words.');
     } else if (readErr) {
       setErr(sw ? 'Kaya haikuweza kusoma ukurasa huu — hifadhi picha kama ilivyo, au andika maneno.' : 'Kaya couldn’t read this page — save the photo as it is, or type the words yourself.');
     } else if (!text) {
       setErr(sw ? 'Kaya haikuona maneno — hifadhi picha kama ilivyo, au andika.' : 'Kaya didn’t find words on the page — save the photo as it is, or type them.');
     }
+  };
+
+  /** "Taking long?" — stop waiting for Kaya's read; the photo keeps saving. */
+  const skipReading = () => {
+    scanRunRef.current += 1; // the in-flight read result is now ignored
+    const runId = scanRunRef.current;
+    setScanSlow(false); setDraft(''); setMode('review');
+    // keep the upload result for THIS run
+    uploadRef.current?.then((up) => { if (scanRunRef.current === runId) { setScanUrl(up.fullUrl); setUploadState('done'); } })
+      .catch(() => { if (scanRunRef.current === runId) setUploadState('failed'); });
+  };
+
+  const retryUpload = () => {
+    const f = pendingFileRef.current;
+    if (!f) return;
+    setErr('');
+    startUpload(f, scanRunRef.current);
   };
 
   // ── Slice 8j · Retake flow ──
@@ -365,7 +425,7 @@ export default function ReflectionPage() {
     if (!file || !familyId) return;
     setErr(''); setRetakeBusy(true);
     try {
-      const up = await uploadSparksPhoto(familyId, `reflection_${kidId}_${today}`, file);
+      const up = await withTimeout(uploadSparksPhoto(familyId, `reflection_${kidId}_${today}`, file), 60_000, 'upload');
       setRetakeChoice({ url: up.fullUrl, file });
     } catch (e2) {
       setErr((e2 as Error).message || 'Upload failed');
@@ -378,14 +438,20 @@ export default function ReflectionPage() {
     try {
       let newText = '';
       if (reread) {
-        const { b64, mime } = await fileToBase64(retakeChoice.file);
-        const res = await fetch('/api/sparks/ai/extract', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ imageBase64: b64, mediaType: mime, kind: 'reflection' }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!data?.skipped) newText = (data?.text as string || '').trim();
+        const { b64, mime } = await fileToOcrBase64(retakeChoice.file);
+        const ctl = new AbortController();
+        const abortT = setTimeout(() => ctl.abort(), 45_000);
+        try {
+          const res = await fetch('/api/sparks/ai/extract', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ imageBase64: b64, mediaType: mime, kind: 'reflection' }),
+            signal: ctl.signal,
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!data?.skipped) newText = (data?.text as string || '').trim();
+        } catch { /* keep the old words — the new photo still attaches */ }
+        finally { clearTimeout(abortT); }
       }
       const r = await retakeReflectionScan(familyId, {
         kidId, date: today, scanUrl: retakeChoice.url,
@@ -428,15 +494,28 @@ export default function ReflectionPage() {
 
   // ── Save + request feedback ──
   const save = async () => {
+    if (!familyId || !authProfile?.uid) return;
+    setSaving(true); setErr('');
+    // 📷 The photo may still be saving in the background — wait for it a
+    // little (bounded), never forever.
+    let url = scanUrl;
+    if (!url && source === 'scan' && uploadState === 'saving' && uploadRef.current) {
+      try { url = (await withTimeout(uploadRef.current, 30_000, 'save-wait')).fullUrl; setScanUrl(url); setUploadState('done'); }
+      catch { /* fall through — save the words without the photo */ }
+    }
     // A photo-only page (Kaya couldn't read it, or the kid prefers not to
     // type) is a real reflection: it keeps the streak and the parent sees
     // the handwriting. The route stores an empty text happily.
-    const photoOnly = !draft.trim() && source === 'scan' && !!scanUrl;
-    if (!familyId || (!draft.trim() && !photoOnly) || !authProfile?.uid) return;
-    setSaving(true); setErr('');
+    const photoOnly = !draft.trim() && source === 'scan' && !!url;
+    if (!draft.trim() && !photoOnly) {
+      setSaving(false);
+      setErr(sw ? 'Picha bado haijahifadhiwa — bonyeza “Jaribu tena”, au andika maneno.' : 'The photo hasn’t saved yet — tap “Try again”, or type the words.');
+      return;
+    }
+    const src: 'scan' | 'typed' = source === 'scan' && url ? 'scan' : 'typed';
     try {
       await saveReflection(familyId, {
-        kidId, date: today, text: draft.trim(), source, scanUrl, by: authProfile.uid,
+        kidId, date: today, text: draft.trim(), source: src, scanUrl: url, by: authProfile.uid,
         ...(polishedDraft && draft.trim() ? { polished: polishedDraft } : {}),
       });
       setPolishedDraft(null);
@@ -450,7 +529,7 @@ export default function ReflectionPage() {
         const next = recent.some((r) => r.date === today)
           ? recent
           : [
-              ({ kidId, date: today, text: draft.trim(), source, scanUrl } as unknown as ReflectionEntry),
+              ({ kidId, date: today, text: draft.trim(), source: src, scanUrl: url } as unknown as ReflectionEntry),
               ...recent,
             ];
         const liveStreak = computeReflectionStreak(next);
@@ -849,6 +928,19 @@ export default function ReflectionPage() {
             /* eslint-disable-next-line @next/next/no-img-element */
             <img src={scanUrl} alt="" className="w-full max-h-44 object-contain rounded-xl border border-[#ECE4D3] bg-white" />
           )}
+          {source === 'scan' && !scanUrl && uploadState === 'saving' && (
+            <div className="rounded-xl border border-dashed border-[#cdbdf0] bg-[#F6EFFF] px-3 py-2 text-[12px] font-bold text-[#5A3CB8]">
+              📷 {sw ? 'Inahifadhi ukurasa wako… unaweza kuendelea.' : 'Saving your page… you can keep going.'}
+            </div>
+          )}
+          {source === 'scan' && !scanUrl && uploadState === 'failed' && (
+            <div className="flex items-center gap-2 rounded-xl border border-[#F3D3A6] bg-[#FFF9EF] px-3 py-2">
+              <span className="text-[12px] font-bold text-[#8A6800] flex-1">📷 {sw ? 'Picha haikuhifadhiwa.' : 'The photo didn’t save.'}</span>
+              <button type="button" onClick={retryUpload} className="px-3 py-1 rounded-full text-[11.5px] font-extrabold text-white" style={{ background: VIOLET }}>
+                ↻ {sw ? 'Jaribu tena' : 'Try again'}
+              </button>
+            </div>
+          )}
           <textarea
             value={draft}
             onChange={(e) => { setDraft(e.target.value); if (polishedDraft) setPolishedDraft(null); }}
@@ -870,7 +962,7 @@ export default function ReflectionPage() {
                 ↻ {sw ? 'Changanua tena' : 'Re-scan'}
               </button>
             )}
-            <button type="button" onClick={save} disabled={saving || !(draft.trim() || (source === 'scan' && scanUrl))}
+            <button type="button" onClick={save} disabled={saving || !(draft.trim() || (source === 'scan' && (scanUrl || uploadState === 'saving')))}
               className="ml-auto px-4 py-2 rounded-xl text-white font-nunito font-black text-[13px] disabled:opacity-50"
               style={{ background: VIOLET }}>
               {saving
@@ -951,8 +1043,21 @@ export default function ReflectionPage() {
                 ? (sw ? 'Kaya inasoma…' : 'Kaya is reading…')
                 : (sw ? 'Changanua tafakari ya leo' : 'Scan today’s reflection')}
             </div>
-            <div className="text-[11px] opacity-80 mt-0.5">{sw ? 'Kaya itasoma mwandiko wako' : 'Kaya reads your handwriting'}</div>
+            <div className="text-[11px] opacity-80 mt-0.5">
+              {mode === 'scanning'
+                ? (sw ? 'Inahifadhi picha na kusoma mwandiko — sekunde chache' : 'Saving the photo and reading your writing — a few seconds')
+                : (sw ? 'Kaya itasoma mwandiko wako' : 'Kaya reads your handwriting')}
+            </div>
           </button>
+          {mode === 'scanning' && scanSlow && (
+            <div className="rounded-xl border border-[#F3D3A6] bg-[#FFF9EF] px-3 py-2.5 text-center">
+              <div className="text-[12px] font-bold text-[#8A6800]">{sw ? 'Inachukua muda (mtandao dhaifu?)' : 'This is taking a while (weak network?)'}</div>
+              <button type="button" onClick={skipReading}
+                className="mt-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-extrabold text-white" style={{ background: VIOLET }}>
+                {sw ? 'Ruka usomaji — weka picha' : 'Skip reading — keep the photo'}
+              </button>
+            </div>
+          )}
           {err && <p className="text-[12px] font-bold text-[#E36F6F]">{err}</p>}
           {canType ? (
             <button type="button" onClick={startTyping}
@@ -1006,7 +1111,7 @@ export default function ReflectionPage() {
         mode="scan"
         contentTight
         onClose={() => setScanOpen(false)}
-        onConfirm={(files) => { if (files[0]) return processScanFile(files[0]); }}
+        onConfirm={(files) => { if (files[0]) void processScanFile(files[0]); }}
       />
 
       {/* 2026-06-23 · Recent handwriting — the actual scanned pages from
