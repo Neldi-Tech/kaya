@@ -57,5 +57,9 @@ try {
 // still travel as data: URLs because they're small; full-res photos go
 // here so we don't bloat Firestore docs.
 const storage = getStorage(app);
+// Firebase's default is to keep retrying a failed upload for 10 MINUTES —
+// on weak school/home Wi-Fi that froze scan screens ("it gets stuck").
+// 2 minutes is plenty for a photo; callers also cap their own wait.
+try { storage.maxUploadRetryTime = 120_000; } catch { /* older SDKs */ }
 
 export { app, auth, db, storage };
