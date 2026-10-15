@@ -93,6 +93,10 @@
       "schedule": "0,30 * * * *"
     },
     {
+      "path": "/api/cron/whatsapp-flush",
+      "schedule": "0,30 * * * *"
+    },
+    {
       "path": "/api/cron/sparks-reflection-weekly",
       "schedule": "0 17 * * 0"
     },

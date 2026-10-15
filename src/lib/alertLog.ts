@@ -82,7 +82,9 @@ export interface AlertLogChannels {
     title?: string; message?: string;
   };
   chat?: { on: boolean; sent: boolean; text: string };
-  whatsapp?: { on: boolean; status?: string };
+  /** 📲 WhatsApp Alerts (15-Oct-2026) — the template blanks AS SENT + each
+   *  parent's tick status. Meter alerts still write `{ on: false, status: 'soon' }`. */
+  whatsapp?: { on: boolean; status?: string } & Partial<Omit<import('./whatsapp.shared').WaChannel, 'on' | 'status'>>;
 }
 
 export interface AlertLogEntry {
@@ -92,7 +94,11 @@ export interface AlertLogEntry {
     // daily digest, and a kid's review-done note to parents.
     | 'helper_weekly' | 'helper_daily' | 'kid_review'
     // 📷 (2026-09-26) — a kid's scan flow reported a failed step.
-    | 'scan_trace';
+    | 'scan_trace'
+    // 📲 WhatsApp Alerts (15-Oct-2026) — 🪞 missed reflections (bell +
+    // email + WhatsApp), 📉 low rating and ➖ deduction (WhatsApp only;
+    // their email keeps its own 🔥 row).
+    | 'reflection_miss' | 'low_rating' | 'deduction';
   /** scan_trace — which step failed (upload · ocr · capture), the error text, the device. */
   step?: string;
   error?: string;
@@ -129,6 +135,22 @@ export interface AlertLogEntry {
   /** Which cascade level resolved the recipients (D11). 'category'/'item'
    *  start appearing with the VIS PR3/PR4 recipient cascade. */
   resolvedBy?: 'global' | 'category' | 'item';
+  // ── 📲 WhatsApp Alerts fields ──
+  /** reflection_miss — missed school days in a row + whether WhatsApp went
+   *  today ('first' for this gap · 'reminder' every +5 · absent = not due). */
+  misses?: number;
+  waRound?: 'first' | 'reminder';
+  /** reflection_miss — the miss count that triggers the next WhatsApp. */
+  nextWaAt?: number;
+  /** low_rating */
+  period?: 'morning' | 'evening';
+  scorePct?: number;
+  linePct?: number;
+  ratedByFirst?: string;
+  /** deduction */
+  points?: number;
+  category?: string;
+  byFirst?: string;
   channels?: AlertLogChannels;
 }
 

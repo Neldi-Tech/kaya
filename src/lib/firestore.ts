@@ -511,6 +511,14 @@ export interface Family {
   /** Payroll email notifications (2026-06-08). Up to 2 extra inboxes that
    *  get payroll emails (beyond the parents' login emails), plus a per-event
    *  on/off. Managed in Settings → Notifications. */
+  /** 📲 WhatsApp Alerts (15-Oct-2026) — family rules: the whole-family
+   *  switch, the low-rating line and quiet hours. Written ONLY through
+   *  /api/whatsapp/settings; resolve with lib/whatsapp.shared.resolveWaRules. */
+  whatsappAlerts?: Partial<import('./whatsapp.shared').WaFamilyRules>;
+  /** 🪞 D2 (15-Oct-2026) — family clock time ('HH:MM', default 18:00) the
+   *  missed-reflection parent alert goes out on bell + email + WhatsApp.
+   *  Set in Sparks setup ("Alert time · all kids"). */
+  reflectionParentAlertAt?: string;
   payrollNotify?: {
     extraEmails?: string[];           // max 2
     events?: {
