@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFirestore, getAdminAuth } from '@/lib/firebaseAdmin';
 import { processAwardEmail } from '@/lib/pointsEmail.server';
+import { runDeductionWa } from '@/lib/whatsapp.server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -39,6 +40,12 @@ export async function POST(req: NextRequest) {
   if (mode === 'preview' && user?.role !== 'parent') return NextResponse.json({ error: 'forbidden' }, { status: 403 });
 
   const ref = db.collection('families').doc(familyId).collection('awards').doc(awardId);
+  // 📲 WhatsApp Alerts (approved 15-Oct-2026, PR4) — points taken off
+  // (kind 'reducing') go by WhatsApp to the connected parents; the giver is
+  // skipped. Own `whatsappAt` stamp; best-effort, never blocks the email.
+  if (mode === 'send') {
+    try { await runDeductionWa(db, familyId, awardId); } catch { /* best-effort */ }
+  }
   if (mode === 'send') {
     const snap = await ref.get();
     if (!snap.exists) return NextResponse.json({ error: 'not-found' }, { status: 404 });

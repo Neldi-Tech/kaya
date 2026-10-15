@@ -234,7 +234,9 @@ export default function AwardPage() {
     // composes the family + outside emails from each award doc (reason
     // card · kind · this week's trail). The kid tier rides giveAward's
     // existing reward-email ping. Fire-and-forget; 0-point kinds skip.
-    if (finalPoints > 0) {
+    // 📲 WhatsApp Alerts PR4 (15-Oct-2026) — deductions call it too: the
+    // gateway sends no email for them, only the ➖ WhatsApp to the parents.
+    if (finalPoints > 0 || isReducing) {
       const ids = results.map((r) => r?.id).filter((id): id is string => !!id && id !== 'guest-award');
       if (ids.length > 0) {
         fbAuth.currentUser?.getIdToken().then((token) => {

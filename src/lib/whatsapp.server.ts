@@ -523,6 +523,8 @@ export async function runLowRatingWa(db: AdminDb, familyId: string, ratingId: st
 export async function runDeductionWa(db: AdminDb, familyId: string, awardId: string, now = new Date()): Promise<'sent' | 'skipped'> {
   if (!waConfigured()) return 'skipped';
   const awardRef = famRef(db, familyId).collection('awards').doc(awardId);
+  const raw = (await awardRef.get()).data() as { kind?: string; points?: number } | undefined;
+  if (!raw || (raw.kind !== 'reducing' && (raw.points ?? 0) >= 0)) return 'skipped'; // cheap exit for every positive award
   const composed = await composeAwardFacts(db, familyId, awardId);
   if (!composed) return 'skipped';
   const { facts, award } = composed;
