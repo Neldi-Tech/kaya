@@ -17,6 +17,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFirestore, getAdminAuth } from '@/lib/firebaseAdmin';
 import { processRatingEmail } from '@/lib/pointsEmail.server';
+import { runLowRatingWa } from '@/lib/whatsapp.server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -45,6 +46,15 @@ export async function POST(req: NextRequest) {
   // Sending is for the people who can rate (parents + helpers); preview is parents only.
   if (user?.role === 'kid') return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   if (mode === 'preview' && user?.role !== 'parent') return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+
+  // 📲 WhatsApp Alerts (approved 15-Oct-2026, PR3) — a rating below the
+  // family line also goes to the connected parents by WhatsApp (rater
+  // skipped, once per rating, ≤1 per kid per day, quiet hours held). Its
+  // own `whatsappAt` stamp, so it runs even when the email already went.
+  // Best-effort: never blocks the email.
+  if (mode === 'send') {
+    try { await runLowRatingWa(db, familyId, ratingId); } catch { /* best-effort */ }
+  }
 
   // Idempotence: a rating emails once. The stamp lives on the rating doc
   // (Admin write) so a double-tap / retry never double-sends.
