@@ -14,6 +14,8 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
+import { updateFamily } from '@/lib/firestore';
+import { REFLECTION_ALERT_DEFAULT, REFLECTION_WA_REPEAT_DAYS } from '@/lib/whatsapp.shared';
 import {
   addSubject, copyRevisionSettingsToAllKids, removeSubject,
   setSiblingPerAreaFlag, setSiblingVisibility, subscribeToSparksProfile,
@@ -386,6 +388,9 @@ function SubjectsCard({
 // the point of the module. The parent opts in typing, and picks which
 // weekdays typing is offered (e.g. scan-only on school days, typing on
 // weekends). Per-kid, persisted as reflection_settings on the profile.
+/** 📲 D2 — the reflection crons run on :00 and :30, so half-hours 06:00–22:00. */
+const ALERT_TIMES = Array.from({ length: 33 }, (_, i) => `${String(6 + Math.floor(i / 2)).padStart(2, '0')}:${i % 2 ? '30' : '00'}`);
+
 const REFLECTION_DAYS: { id: DayOfWeek; label: string }[] = [
   { id: 'mon', label: 'M' }, { id: 'tue', label: 'T' }, { id: 'wed', label: 'W' },
   { id: 'thu', label: 'Th' }, { id: 'fri', label: 'F' }, { id: 'sat', label: 'Sa' }, { id: 'sun', label: 'Su' },
@@ -506,6 +511,18 @@ function ReflectionRemindersCard({
   const [profile, setProfile] = useState<SparksProfile | null>(null);
   const [saving, setSaving] = useState(false);
   useEffect(() => subscribeToSparksProfile(familyId, kid.id, setProfile), [familyId, kid.id]);
+  // 📲 D2 (15-Oct-2026) — ONE family alert time for every kid's parent alert.
+  const { family, refresh } = useFamily();
+  const [alertAtLocal, setAlertAtLocal] = useState<string | null>(null);
+  const alertAt = alertAtLocal || family?.reflectionParentAlertAt || REFLECTION_ALERT_DEFAULT;
+  const saveAlertAt = async (v: string) => {
+    setAlertAtLocal(v);
+    setSaving(true);
+    try { await updateFamily(familyId, { reflectionParentAlertAt: v }); await refresh(); }
+    catch { setAlertAtLocal(null); }
+    finally { setSaving(false); }
+  };
+  const first = kid.name.split(' ')[0];
 
   const effective: ReflectionReminderSettings = {
     ...DEFAULT_REFLECTION_REMINDERS,
@@ -542,7 +559,7 @@ function ReflectionRemindersCard({
         </span>
       </div>
       <p className="text-[12.5px] text-[#5A6488] m-0 mt-1 mb-4">
-        Push {kid.name.split(' ')[0]} when the day’s reflection is still missing — and tell you if she misses several days in a row.
+        Push {kid.name.split(' ')[0]} when the day’s reflection is still missing — and tell you if {first} misses several days in a row.
       </p>
 
       {/* Kid reminder toggle */}
@@ -622,8 +639,8 @@ function ReflectionRemindersCard({
         aria-pressed={effective.parent_alert_enabled}
       >
         <span className="text-left">
-          <span className="block font-nunito font-extrabold text-[13px] text-[#0F1F44]">🟡 Alert me if she misses</span>
-          <span className="block text-[11px] text-[#5A6488]">Push + email after N consecutive missed active days</span>
+          <span className="block font-nunito font-extrabold text-[13px] text-[#0F1F44]">🟡 Alert me if {first} misses</span>
+          <span className="block text-[11px] text-[#5A6488]">Bell + email after N missed school days in a row, and WhatsApp for parents who switched it on</span>
         </span>
         <span className={`w-[42px] h-[24px] rounded-full relative shrink-0 transition-colors ${effective.parent_alert_enabled ? 'bg-[#5A3CB8]' : 'bg-[#cfd3e0]'}`}>
           <span className={`absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white transition-all ${effective.parent_alert_enabled ? 'right-[3px]' : 'left-[3px]'}`} />
@@ -631,19 +648,41 @@ function ReflectionRemindersCard({
       </button>
 
       {effective.parent_alert_enabled && (
-        <label className="mt-2 block bg-[#FBF7EE] border border-[#ECE4D3] rounded-xl px-3 py-2.5">
-          <div className="text-[10px] font-extrabold uppercase tracking-[0.6px] text-[#5A6488]">After how many missed days?</div>
-          <select
-            value={effective.parent_alert_after_n_days}
-            onChange={(e) => patch({ parent_alert_after_n_days: Math.max(1, Math.min(14, Number(e.target.value))) })}
-            disabled={saving}
-            className="mt-1 w-full bg-white border border-[#ECE4D3] rounded px-2 py-1 text-[13px] font-extrabold text-[#0F1F44]"
-          >
-            {[1,2,3,4,5,7,10,14].map((n) => (
-              <option key={n} value={n}>{n} day{n === 1 ? '' : 's'}</option>
-            ))}
-          </select>
-        </label>
+        <>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <label className="block bg-[#FBF7EE] border border-[#ECE4D3] rounded-xl px-3 py-2.5">
+              <div className="text-[10px] font-extrabold uppercase tracking-[0.6px] text-[#5A6488]">After how many missed days?</div>
+              <select
+                value={effective.parent_alert_after_n_days}
+                onChange={(e) => patch({ parent_alert_after_n_days: Math.max(1, Math.min(14, Number(e.target.value))) })}
+                disabled={saving}
+                className="mt-1 w-full bg-white border border-[#ECE4D3] rounded px-2 py-1 text-[13px] font-extrabold text-[#0F1F44]"
+              >
+                {[1,2,3,4,5,7,10,14].map((n) => (
+                  <option key={n} value={n}>{n} day{n === 1 ? '' : 's'}</option>
+                ))}
+              </select>
+            </label>
+            {/* 📲 D2 — family-wide: changing it here changes it for every kid. */}
+            <label className="block bg-[#FBF7EE] border border-[#ECE4D3] rounded-xl px-3 py-2.5">
+              <div className="text-[10px] font-extrabold uppercase tracking-[0.6px] text-[#5A6488]">Alert time · all kids</div>
+              <select
+                value={alertAt}
+                onChange={(e) => void saveAlertAt(e.target.value)}
+                disabled={saving}
+                className="mt-1 w-full bg-white border border-[#ECE4D3] rounded px-2 py-1 text-[13px] font-extrabold text-[#0F1F44]"
+              >
+                {ALERT_TIMES.includes(alertAt) ? null : <option value={alertAt}>{alertAt}</option>}
+                {ALERT_TIMES.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <div className="text-[10px] text-[#5A6488] mt-1 leading-snug">Same time for every kid</div>
+            </label>
+          </div>
+          <div className="mt-2 rounded-xl px-3 py-2.5 bg-[#EAF7EF] border border-[#CBEBD7] text-[11.5px] text-[#23613E] leading-relaxed">
+            📲 <b className="font-extrabold">WhatsApp:</b> once when the gap reaches {effective.parent_alert_after_n_days} day{effective.parent_alert_after_n_days === 1 ? '' : 's'}, then every {REFLECTION_WA_REPEAT_DAYS} more school days, and it stops when {first} writes. Bell + email: every day at {alertAt}.{' '}
+            <Link href="/settings#whatsapp" className="font-extrabold text-[#23613E] underline">WhatsApp settings →</Link>
+          </div>
+        </>
       )}
     </div>
   );

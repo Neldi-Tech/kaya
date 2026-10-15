@@ -19,6 +19,7 @@ import { relativeDayLabel, toDisplayDate } from '@/lib/dates';
 import { meterEmoji, type UtilityMeterType } from '@/lib/utilityMeters';
 import { formatCents } from '@/components/pantry/format';
 import { Page, PageHeader } from '@/components/layout/Page';
+import { WaRow, WaSheet, isWaKind } from '@/components/whatsapp/WaTrace';
 
 type Tab = 'email' | 'chat' | 'inapp';
 
@@ -118,6 +119,9 @@ export default function AlertLogPage() {
         <div key={g.key}>
           <p className="text-[10px] font-nunito font-black uppercase tracking-[1.5px] text-hive-muted mt-4 mb-1.5">{dayLabel(g.key)}</p>
           {g.rows.map((e) => {
+            // 📲 WhatsApp Alerts (15-Oct-2026) — 🪞 missed reflections · 📉 low
+            // rating · ➖ deduction rows, with the 📲 "Who got it" trace.
+            if (isWaKind(e)) return <WaRow key={e.id} e={e} onOpen={() => setOpen(e)} />;
             // 📦 System alarms (STOR PR1) — storage bucket full; parents
             // were emailed + belled. Fixed template, so the row IS the trace.
             // 📷 scan_trace (2026-09-26) — a kid's photo flow hit a snag;
@@ -261,6 +265,8 @@ export default function AlertLogPage() {
               <div className="w-12 h-1 rounded-full bg-hive-line"></div>
             </div>
             <div className="px-4">
+              {isWaKind(open) ? <WaSheet key={open.id} e={open} /> : (
+              <>
               {open.kind === 'kid_reward' || open.kind === 'kid_digest' || open.kind === 'kid_statement' || open.kind === 'points_email' ? (
                 <div className="flex items-center gap-2">
                   <span className="text-xl">{kindEmoji(open)}</span>
@@ -318,6 +324,8 @@ export default function AlertLogPage() {
                 >
                   Open request {open.requestName ? open.requestName.split(' · ')[0] : ''} →
                 </Link>
+              )}
+              </>
               )}
             </div>
           </div>
