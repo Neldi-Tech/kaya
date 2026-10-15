@@ -67,6 +67,7 @@ import PointsAudienceRow from '@/components/settings/PointsAudienceRow';
 import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
 import RoutinesEditor from '@/components/settings/RoutinesEditor';
 import NotificationSettings from '@/components/settings/NotificationSettings';
+import WhatsAppAlertsCard from '@/components/settings/WhatsAppAlertsCard';
 import { useTierAccess } from '@/lib/tierAccess';
 import { DEFAULT_TIERS } from '@/lib/tiers';
 
@@ -1153,6 +1154,7 @@ export default function SettingsPage() {
           ...(isParent ? [
             { id: 'participation', icon: '🌟', label: 'Ages', keywords: 'participation little stars sparks meetings' },
             { id: 'ai-level', icon: '🤖', label: 'AI level', keywords: 'ai level intensity marking homework strict gentle balanced stretch exam ready kaya ai coach' },
+            { id: 'whatsapp', icon: '📲', label: 'WhatsApp', keywords: 'whatsapp alerts phone number messages twilio reflection rating deduction quiet hours stop' },
             { id: 'greetings', icon: '✉️', label: 'Cards', keywords: 'greeting cards people book contacts signature whatsapp honoree kaya writes' },
             { id: 'kids', icon: '👀', label: 'Kids', keywords: 'modules visibility what kids see household' },
             { id: 'security', icon: '🔐', label: 'Security', keywords: 'password login reset code privacy sign out' },
@@ -3165,6 +3167,10 @@ export default function SettingsPage() {
               {isParent && <div className="mt-3"><EmailGroupsCard /></div>}
             </CollapsibleSection>
           )}
+
+          {/* 📲 WhatsApp alerts (approved 15-Oct-2026) — each parent connects
+              their own number; family rules at the bottom. Parents only (R1). */}
+          {!isGuest && isParent && <WhatsAppAlertsCard />}
 
           {/* ✉️ Greeting cards (Reminders 2.0, approved 22-Aug-2026) — People
               Book (honorees outside Kaya) + family signature + Kaya Writes. */}
