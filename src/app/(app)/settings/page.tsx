@@ -3501,6 +3501,14 @@ export default function SettingsPage() {
             </div>
           )}
 
+          {/* 🗑 Account deletion (Google Play requires an in-app path). */}
+          {isParent && (
+            <a
+              href="/legal/delete-account"
+              className="w-full h-11 mb-2.5 flex items-center justify-center bg-white border border-kaya-warm-dark text-kaya-sand rounded-kaya text-sm font-semibold hover:text-red-500 transition-colors no-underline"
+            >🗑 Delete my account</a>
+          )}
+
           {/* Sign out */}
           <button
             onClick={handleSignOut}

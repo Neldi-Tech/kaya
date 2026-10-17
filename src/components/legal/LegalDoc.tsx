@@ -20,6 +20,7 @@ const DOCS = [
   { href: '/legal/terms', label: 'Terms of Service' },
   { href: '/legal/privacy', label: 'Privacy Policy' },
   { href: '/legal/childrens-privacy', label: 'Children’s Privacy' },
+  { href: '/legal/delete-account', label: 'Delete your account' },
 ] as const;
 
 export function LegalSection({ title, children }: { title: string; children: React.ReactNode }) {
