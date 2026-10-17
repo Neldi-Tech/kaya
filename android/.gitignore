@@ -1,8 +1,13 @@
+# The Android project here is hand-written and committed (see README).
 # Build output
 .gradle/
 build/
 app/build/
 local.properties
-# 🔐 Signing keys — NEVER commit. Kept in GitHub secrets + the password vault.
-*.jks
+*.aab
+*.apk
+*.idsig
+# 🔐 SIGNING KEYS — losing these means this listing can never be updated.
+# Back up to the Kaya Home Inc password vault. NEVER commit.
 *.keystore
+*.jks
