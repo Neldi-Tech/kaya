@@ -1,0 +1,115 @@
+# 📱 Kaya for Android — builds the Play Store bundle (.aab) and the
+# direct-download APK from android/ (a Trusted Web Activity around
+# https://www.ourkaya.com). See android/README.md.
+#
+# Runs on: a PR touching android/ (proves it builds), a tag `android-v*`,
+# or by hand (Actions → "Android app build" → Run workflow).
+#
+# Signing: with the ANDROID_* secrets set it signs with Kaya Home Inc's
+# upload key (Play-ready). Without them it signs with a throwaway TEST key —
+# fine to install on a phone, NOT for Play (a warning says so).
+name: Android app build
+
+on:
+  pull_request:
+    paths: ['android/**', '.github/workflows/android-build.yml']
+  push:
+    tags: ['android-v*']
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'Version name shown to users (e.g. 1.0.1)'
+        required: false
+        default: '1.0.0'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Android SDK platform + build tools
+        run: |
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" --install "platforms;android-36" "build-tools;36.0.0" > /dev/null
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      - name: Signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          KS="$RUNNER_TEMP/kaya-upload.jks"
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$KS"
+            {
+              echo "KAYA_KEYSTORE=$KS"
+              echo "KAYA_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+              echo "KAYA_KEY_ALIAS=$KEY_ALIAS"
+              echo "KAYA_KEY_PASSWORD=${KEY_PASSWORD:-$KEYSTORE_PASSWORD}"
+              echo "KAYA_SIGNED_WITH=Kaya Home Inc upload key"
+            } >> "$GITHUB_ENV"
+          else
+            keytool -genkeypair -keystore "$KS" -alias kaya-test -keyalg RSA -keysize 2048 \
+              -validity 3650 -storepass kayatest -keypass kayatest \
+              -dname "CN=Kaya TEST build (not for Play)" > /dev/null 2>&1
+            {
+              echo "KAYA_KEYSTORE=$KS"
+              echo "KAYA_KEYSTORE_PASSWORD=kayatest"
+              echo "KAYA_KEY_ALIAS=kaya-test"
+              echo "KAYA_KEY_PASSWORD=kayatest"
+              echo "KAYA_SIGNED_WITH=TEST key (throwaway — not for Play)"
+            } >> "$GITHUB_ENV"
+            echo "::warning::No ANDROID_KEYSTORE_B64 secret — signed with a throwaway TEST key. Installs on a phone; do NOT upload to Play."
+          fi
+
+      - name: Build bundle (.aab) + APK
+        env:
+          KAYA_VERSION_CODE: ${{ github.run_number }}
+          KAYA_VERSION_NAME: ${{ inputs.version_name || '1.0.0' }}
+        run: gradle --no-daemon -p android bundleRelease assembleRelease
+
+      - name: Collect + summarise
+        run: |
+          mkdir -p out
+          cp android/app/build/outputs/bundle/release/app-release.aab "out/kaya-${{ github.run_number }}.aab"
+          cp android/app/build/outputs/apk/release/app-release.apk "out/kaya-${{ github.run_number }}.apk"
+          FP=$(keytool -list -v -keystore "$KAYA_KEYSTORE" -alias "$KAYA_KEY_ALIAS" -storepass "$KAYA_KEYSTORE_PASSWORD" | grep -m1 'SHA256:' | sed 's/.*SHA256: *//')
+          {
+            echo "## 📱 Kaya for Android — build ${{ github.run_number }}"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Package | \`com.ourkaya.app\` |"
+            echo "| Version | ${{ inputs.version_name || '1.0.0' }} (code ${{ github.run_number }}) |"
+            echo "| Signed with | $KAYA_SIGNED_WITH |"
+            echo "| Signing cert SHA-256 | \`$FP\` |"
+            echo ""
+            echo "Download **kaya-android** below: \`.aab\` → Play Console · \`.apk\` → install directly on a phone."
+          } >> "$GITHUB_STEP_SUMMARY"
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kaya-android
+          path: out/
+          retention-days: 30

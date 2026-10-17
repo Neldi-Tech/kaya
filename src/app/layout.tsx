@@ -8,6 +8,7 @@ import { HiveProvider } from '@/contexts/HiveContext';
 import { PantryProvider } from '@/contexts/PantryContext';
 import UpdatePrompt from '@/components/UpdatePrompt';
 import InstallPrompt from '@/components/InstallPrompt';
+import AppModeBoot from '@/components/app/AppModeBoot';
 import './globals.css';
 
 // The Hive section uses Nunito (display) + Lato (body) per the v2 design
@@ -70,6 +71,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   {children}
                   <UpdatePrompt />
                   <InstallPrompt />
+                  <AppModeBoot />
                 </PantryProvider>
               </HiveProvider>
             </FamilyProvider>

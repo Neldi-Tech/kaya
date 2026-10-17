@@ -15,6 +15,7 @@ import Link from 'next/link';
 import { useHive } from '@/contexts/HiveContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useTierAccess } from '@/lib/tierAccess';
+import { useIsAndroidApp } from '@/lib/appMode';
 import { formatBytes, tierCapBytes, usagePercent, usageState } from '@/lib/storage';
 import { isProbablyTierCode } from '@/lib/tierCodes';
 import { auth } from '@/lib/firebase';
@@ -34,7 +35,38 @@ const GOLD = '#D4A847';
 const CREAM = '#FBF7EE';
 const MUTED = '#6E7791';
 
+// 📱 Inside the Kaya Android app (Google Play), digital purchases would have
+// to go through Play Billing. Families buy outside the app for now, so the
+// app shows a neutral "your plan" view — no prices, no checkout, and no
+// wording that steers anyone to pay elsewhere (also a Play policy line).
 export default function SubscriptionPage() {
+  const inApp = useIsAndroidApp();
+  return inApp ? <InAppPlan /> : <SubscriptionPageWeb />;
+}
+
+function InAppPlan() {
+  const access = useTierAccess();
+  const tier = access.tiers[access.tierId];
+  return (
+    <div className="max-w-[560px] mx-auto px-5 pt-12 pb-20">
+      <div className="rounded-2xl px-5 py-5 bg-white" style={{ border: '1.5px solid rgba(15,31,68,0.08)', boxShadow: '0 2px 12px rgba(15,31,68,0.04)' }}>
+        <div className="text-[11px] font-extrabold tracking-wider uppercase" style={{ color: MUTED }}>Your plan</div>
+        <div className="flex items-center gap-3 mt-2">
+          <div className="text-[30px] leading-none">{tier?.emoji}</div>
+          <div className="min-w-0">
+            <div className="text-[18px] font-black" style={{ color: NAVY }}>{tier?.name}</div>
+            {tier?.tagline && <div className="text-[12.5px] font-semibold" style={{ color: MUTED }}>{tier.tagline}</div>}
+          </div>
+        </div>
+        <p className="text-[12.5px] font-semibold mt-4 mb-0 leading-relaxed" style={{ color: MUTED }}>
+          Plan changes aren’t available in the Kaya app. Everything included in your plan works here as usual.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function SubscriptionPageWeb() {
   const access = useTierAccess();
   const { config, fxUsdToFamily } = useHive();
   const { family } = useFamily();

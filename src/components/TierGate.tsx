@@ -9,6 +9,7 @@
 
 import Link from 'next/link';
 import { useTierAccess, moduleMeta } from '@/lib/tierAccess';
+import { useIsAndroidApp } from '@/lib/appMode';
 import { DEFAULT_ADDONS, type ModuleId } from '@/lib/tiers';
 
 export function TierGate({ moduleId, children }: { moduleId: ModuleId; children: React.ReactNode }) {
@@ -20,6 +21,8 @@ export function TierGate({ moduleId, children }: { moduleId: ModuleId; children:
 function Upsell({ moduleId, currentTierName }: { moduleId: ModuleId; currentTierName: string }) {
   const meta = moduleMeta(moduleId);
   const addon = DEFAULT_ADDONS.find((a) => a.moduleId === moduleId);
+  // 📱 Inside the Android app: no prices, no upgrade path (Play Billing rules).
+  const inApp = useIsAndroidApp();
   return (
     <div className="min-h-[70vh] flex items-center justify-center px-5 py-12 bg-[#FBF7EE]">
       <div className="max-w-md w-full bg-white rounded-[24px] p-8 shadow-[0_24px_60px_rgba(15,31,68,0.08)] border border-[rgba(15,31,68,0.08)] text-center">
@@ -35,17 +38,21 @@ function Upsell({ moduleId, currentTierName }: { moduleId: ModuleId; currentTier
         </h1>
         <p className="text-[#6E7791] text-[14px] mt-2 leading-relaxed">
           You&apos;re on <b className="text-[#0F1F44]">{currentTierName}</b>. {meta?.description ?? ''}{' '}
-          {addon
-            ? <>It&apos;s available as a Home add-on (${(addon.priceMonthly / 100).toFixed(0)}/mo) or included in Castle.</>
-            : <>Upgrade to Home or Castle to use it.</>}
+          {inApp
+            ? null
+            : addon
+              ? <>It&apos;s available as a Home add-on (${(addon.priceMonthly / 100).toFixed(0)}/mo) or included in Castle.</>
+              : <>Upgrade to Home or Castle to use it.</>}
         </p>
         <div className="mt-6 flex flex-col gap-2.5">
-          <Link
-            href="/settings/subscription"
-            className="bg-[#D4A847] text-[#0F1F44] px-5 py-3 rounded-xl font-extrabold text-[14px]"
-          >
-            See plans &amp; upgrade →
-          </Link>
+          {!inApp && (
+            <Link
+              href="/settings/subscription"
+              className="bg-[#D4A847] text-[#0F1F44] px-5 py-3 rounded-xl font-extrabold text-[14px]"
+            >
+              See plans &amp; upgrade →
+            </Link>
+          )}
           <Link
             href="/home"
             className="text-[#6E7791] font-semibold text-[13px]"

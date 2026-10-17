@@ -1,5 +1,7 @@
 'use client';
 
+import { useIsAndroidApp } from '@/lib/appMode';
+
 // The Keepsake → Family upgrade prompt. Surfaces when a free-tier
 // user hits a gate (creating a 2nd album, adding the 201st photo,
 // trying custom access on a sub-album, etc.). For week-1 ship the
@@ -20,6 +22,8 @@ interface Props {
 export default function UpgradeCard({
   reason, ctaMode = 'notify', onNotify, onUpgrade, usage,
 }: Props) {
+  // 📱 Inside the Android app: no price / upgrade button (Play Billing rules).
+  const inApp = useIsAndroidApp();
   return (
     <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 flex flex-col gap-3">
       <div className="flex items-start gap-3">
@@ -65,7 +69,7 @@ export default function UpgradeCard({
         </div>
       </div>
 
-      {ctaMode === 'notify' ? (
+      {inApp ? null : ctaMode === 'notify' ? (
         <button
           onClick={onNotify}
           className="h-11 rounded-kaya-sm bg-kaya-chocolate text-kaya-gold-light font-display font-black text-sm hover:bg-kaya-chocolate-light transition-colors"

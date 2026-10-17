@@ -1,0 +1,11 @@
+// Kaya for Android — a Trusted Web Activity (TWA) around https://www.ourkaya.com.
+// Built by .github/workflows/android-build.yml (see android/README.md).
+pluginManagement {
+    repositories { google(); mavenCentral(); gradlePluginPortal() }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories { google(); mavenCentral() }
+}
+rootProject.name = 'Kaya'
+include ':app'
