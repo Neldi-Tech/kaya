@@ -1,0 +1,70 @@
+plugins { id 'com.android.application' }
+
+// ── The whole app is configuration: which site to open, and how it looks ──
+def twa = [
+    applicationId   : 'com.ourkaya.app',          // PERMANENT once published on Play
+    hostName        : 'www.ourkaya.com',
+    launchPath      : '/home?source=android-app',  // app mode → in-app purchases hidden (src/lib/appMode.ts)
+    appName         : 'Kaya — Where Families Grow',
+    launcherName    : 'Kaya',
+    themeColor      : '#1E120B',
+    navigationColor : '#1E120B',
+    backgroundColor : '#FDFBF7',
+]
+
+android {
+    namespace 'com.ourkaya.app'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId twa.applicationId
+        minSdk 24
+        targetSdk 36
+        // CI passes a strictly increasing code (Play rejects a repeat).
+        versionCode((System.getenv('KAYA_VERSION_CODE') ?: '1').toInteger())
+        versionName(System.getenv('KAYA_VERSION_NAME') ?: '1.0.0')
+
+        resValue 'string', 'appName', twa.appName
+        resValue 'string', 'launcherName', twa.launcherName
+        resValue 'string', 'launchUrl', "https://${twa.hostName}${twa.launchPath}"
+        resValue 'string', 'hostName', twa.hostName
+        resValue 'color', 'colorPrimary', twa.themeColor
+        resValue 'color', 'navigationColor', twa.navigationColor
+        resValue 'color', 'backgroundColor', twa.backgroundColor
+        resValue 'color', 'iconBackground', twa.backgroundColor
+        // Digital Asset Links — the app's half of the handshake. The site's half
+        // is /.well-known/assetlinks.json (src/app/api/assetlinks/route.ts).
+        resValue 'string', 'assetStatements',
+            '[{ "relation": ["delegate_permission/common.handle_all_urls"], ' +
+            '"target": { "namespace": "web", "site": "https://' + twa.hostName + '" } }]'
+    }
+
+    signingConfigs {
+        release {
+            // Supplied by CI from GitHub secrets (or a throwaway TEST key).
+            def ks = System.getenv('KAYA_KEYSTORE')
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv('KAYA_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('KAYA_KEY_ALIAS')
+                keyPassword System.getenv('KAYA_KEY_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // Google's official TWA library (LauncherActivity + notification delegation).
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+}

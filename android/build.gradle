@@ -1,0 +1,6 @@
+plugins {
+    // Pinned. Google Play's minimum targetSdk rises every August — bump
+    // compileSdk/targetSdk in app/build.gradle (and AGP here if needed)
+    // when Play Console asks for it.
+    id 'com.android.application' version '8.11.1' apply false
+}

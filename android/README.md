@@ -5,11 +5,14 @@ Android shell that renders `https://www.ourkaya.com` full-screen, with no URL
 bar, using the user's installed Chrome engine. There is no second codebase —
 every deploy to Vercel is instantly live inside the installed app.
 
-Generated and maintained with [Bubblewrap](https://github.com/GoogleChromeLabs/bubblewrap).
+Owner: **Kaya Home Inc** · package **`com.ourkaya.app`** (permanent once published).
 
-> **The generated Android project is deliberately NOT committed.** It is
-> reproducible from `twa-manifest.json` + the live web manifest. What *must*
-> be kept safe is the signing keystore — see [Signing keys](#4-signing-keys).
+> **This folder IS the Android app.** A small, hand-written TWA project
+> (Google's `androidbrowserhelper`) — no Android Studio, no Bubblewrap, no
+> developer laptop needed. GitHub builds it: **Actions → "Android app build"
+> → Run workflow** → download `kaya-android` (the `.aab` for Play, the `.apk`
+> to install directly). Everything that changes the app's look or URL is in
+> [`app/build.gradle`](app/build.gradle) (`def twa = [...]`).
 
 ---
 
@@ -19,106 +22,87 @@ Generated and maintained with [Bubblewrap](https://github.com/GoogleChromeLabs/b
 | --- | --- | --- |
 | Web app manifest (`id`, `scope`, maskable icons, shortcuts) | [`public/manifest.json`](../public/manifest.json) | ✅ |
 | Digital Asset Links endpoint | [`src/app/api/assetlinks/route.ts`](../src/app/api/assetlinks/route.ts), rewritten to `/.well-known/assetlinks.json` in [`next.config.js`](../next.config.js) | ✅ endpoint live, ⚠️ awaiting fingerprint |
-| Privacy Policy URL | `/legal/privacy` | ✅ live |
-| Terms URL | `/legal/terms` | ✅ live |
-| Children's Privacy notice | `/legal/childrens-privacy` | ✅ live |
-| Push notifications | FCM service worker, delegated to Android by the TWA | ✅ |
+| **App mode** (in-app purchases hidden) | [`src/lib/appMode.ts`](../src/lib/appMode.ts) — the app launches `/home?source=android-app` | ✅ |
+| Privacy Policy / Terms / Children's Privacy | `/legal/privacy` · `/legal/terms` · `/legal/childrens-privacy` | ⚠️ update pending approval |
+| Account deletion page (Play requirement) | `/legal/delete-account` | ⚠️ pending approval |
+| Push notifications | FCM service worker, delegated to Android by the TWA (`DelegationService`) | ✅ |
 | Install prompt suppressed in-app | `InstallPrompt` bails on `display-mode: standalone` | ✅ |
 
 ---
 
-## 1. Prerequisites
+## 1. Build it (no laptop needed)
 
-Bubblewrap will offer to download a JDK and the Android SDK build-tools on
-first run (~1.5 GB into `~/.bubblewrap`). Accept — you do not need Android
-Studio.
+**GitHub → Actions → "Android app build" → Run workflow** (pick a *Version
+name* like `1.0.1`). In ~5 minutes the run page shows a summary (package,
+version, signing fingerprint) and an artifact **`kaya-android`** with:
 
-```bash
-npm install -g @bubblewrap/cli
-```
+- `kaya-<n>.aab` → upload to **Play Console**
+- `kaya-<n>.apk` → install directly on a phone (Option C — direct download)
 
----
-
-## 2. Generate the Android project
-
-Run from **this** directory. Bubblewrap reads the *live* web manifest, which is
-why the manifest hardening had to ship first.
-
-```bash
-bubblewrap init --manifest=https://www.ourkaya.com/manifest.json
-```
-
-Answer the prompts with these values. **The package name is permanent once
-published — it can never be changed for this listing.**
-
-| Prompt | Value |
-| --- | --- |
-| Domain | `www.ourkaya.com` |
-| Application name | `Kaya — Where Families Grow` |
-| Short name | `Kaya` |
-| Application ID / package | `com.ourkaya.app` |
-| Start URL | `/` |
-| Icon URL | `https://www.ourkaya.com/icon-512.png` |
-| Maskable icon URL | `https://www.ourkaya.com/icon-512.png` |
-| Status bar colour | `#1E120B` |
-| Navigation bar colour | `#1E120B` |
-| Splash screen colour | `#FDFBF7` |
-| Display mode | `standalone` |
-| Orientation | `portrait` |
-| Version code | `1` |
-| Version name | `1.0.0` |
-| Include support for Play Billing | **No** — see [Payments](#6-payments-the-one-real-policy-risk) |
-| Request geolocation permission | **No** |
-| Enable notification delegation | **Yes** (Kaya uses FCM push) |
-
-This writes `twa-manifest.json` plus a Gradle project into this directory.
-Commit `twa-manifest.json`; everything else is generated output.
+The version code is the run number, so it always increases (Play rejects a
+repeat). It also builds automatically on any PR that touches `android/`, and
+on a tag `android-v*`.
 
 ### Target SDK
 
-Google Play enforces a minimum `targetSdkVersion` for new apps and it moves
-every August. Bubblewrap's current release targets the level required at the
-time it was published — **check Play Console's rejection message if the upload
-is refused**, then bump `targetSdkVersion` in `twa-manifest.json` and re-run
-`bubblewrap update`. Do not guess this value from memory.
+Google Play's minimum `targetSdk` rises every August. This project targets
+**API 36**. If Play Console refuses an upload for the target level, bump
+`compileSdk`/`targetSdk` in `app/build.gradle` (and the platform in the
+workflow) — don't guess, read the rejection message.
 
 ---
 
-## 3. Build the App Bundle
+## 2. Signing keys (one-time, 🔐 Kaya Home Inc's most important app asset)
+
+Without secrets the workflow signs with a **throwaway TEST key** — fine for
+trying the APK on a phone, **never for Play**. For real releases create the
+**upload key** once:
 
 ```bash
-bubblewrap build
+keytool -genkeypair -v -keystore kaya-upload.jks -alias kaya-upload \
+  -keyalg RSA -keysize 2048 -validity 10000 \
+  -dname "CN=Kaya Home Inc, O=Kaya Home Inc"
+base64 -w0 kaya-upload.jks > kaya-upload.jks.b64
 ```
 
-Produces `app-release-bundle.aab` (upload this to Play) and
-`app-release-signed.apk` (sideload this to test on a real device).
+Add four **GitHub → Settings → Secrets and variables → Actions** secrets:
 
-Re-running after any change to `twa-manifest.json`:
+| Secret | Value |
+| --- | --- |
+| `ANDROID_KEYSTORE_B64` | contents of `kaya-upload.jks.b64` |
+| `ANDROID_KEYSTORE_PASSWORD` | the keystore password |
+| `ANDROID_KEY_ALIAS` | `kaya-upload` |
+| `ANDROID_KEY_PASSWORD` | the key password (same as above if you used one) |
 
-```bash
-bubblewrap update && bubblewrap build
-```
+> Back up `kaya-upload.jks` + passwords in the Kaya Home Inc password vault.
+> Enrol in **Play App Signing** (the default): Google holds the real app
+> signing key, so a lost *upload* key can be reset through Play support —
+> but treat it as irreplaceable anyway. Never commit it (`*.jks` is ignored).
 
-Bump `appVersionCode` (integer, must increase every upload) and
-`appVersionName` (human-readable) for each Play release.
+**Direct-download APK vs Play:** an APK signed with the upload key and the
+Play-installed app have different signatures. Families who sideloaded early
+must uninstall once and install from Play. After Play launch, offer the
+**Play-signed universal APK** for direct download (Play Console → App bundle
+explorer → Downloads) so both paths stay upgradeable.
 
 ---
 
-## 4. Signing keys
+## 3. Payments (decided)
 
-`bubblewrap init` creates `android.keystore` and asks for two passwords.
+Google Play requires Play Billing for digital purchases made *inside* an app.
+**Decision (Elia, Oct 2026): families pay outside the app for now.** In app
+mode Kaya hides every purchase surface — Settings → Subscription shows a
+neutral "Your plan" card, feature locks show no prices or upgrade button,
+and nothing tells users to pay elsewhere (anti-steering is also a Play rule).
+If Play Billing is wanted later: Digital Goods API + Play products.
 
-> 🔐 **Back this up before doing anything else.** The keystore plus both
-> passwords are the *only* way to push an update to this listing. Losing them
-> means the app can never be updated — the listing has to be republished under
-> a new package name, and every install is orphaned.
->
-> Store `android.keystore` + passwords in the Kaya password manager / 1Password
-> vault. It is git-ignored here and must never be committed.
+---
 
-Enrolling in **Play App Signing** (the default for new apps) gives Google a
-recovery path for the *app signing* key, but the *upload* key in this keystore
-is still yours to protect.
+## 4. Store assets
+
+App icon 512×512 = [`public/icon-512.png`](../public/icon-512.png). Still
+needed for the listing: feature graphic 1024×500, at least two phone
+screenshots, short description (≤80 chars), full description (≤4000 chars).
 
 ---
 
@@ -128,15 +112,12 @@ This is the step that removes the URL bar. Until it is done the app works but
 renders with a Chrome address bar across the top — which reads as broken and
 will draw reviewer comments.
 
-1. Upload the `.aab` to Play Console (Internal testing is fine for this).
+1. Upload the `.aab` (built with the real upload key, §2) to Play Console — Internal testing is fine for this.
 2. Go to **Test and release → Setup → App signing**.
 3. Copy the **SHA-256 certificate fingerprint** under *App signing key
    certificate* — this is Google's key, not your local one.
-4. Also grab your local upload key fingerprint so sideloaded test builds
-   verify too:
-   ```bash
-   keytool -list -v -keystore android.keystore -alias android | grep SHA256
-   ```
+4. Also take the upload key fingerprint (printed in every workflow run's
+   summary) so direct-download APKs verify too.
 5. In Vercel → project `kaya` → **Settings → Environment Variables**, set for
    **Production, Preview and Development**:
 
@@ -159,31 +140,7 @@ will draw reviewer comments.
 
 ---
 
-## 6. Payments — the one real policy risk
-
-Kaya sells subscription tiers (Nest / Home / Castle) through **Stripe**.
-Google Play's Payments policy requires digital purchases made *inside* an app
-to go through Google Play Billing (15–30% fee). A TWA that walks a user into a
-Stripe checkout is the exact pattern that policy targets.
-
-This is a business decision, not a technical one. The options:
-
-- **Gate it.** Detect the TWA and hide the upgrade/checkout entry point inside
-  the Android app; families subscribe on the website. Lowest risk, zero fee,
-  some friction. (Detect via `document.referrer.startsWith('android-app://')`.)
-- **Play Billing.** Re-run `bubblewrap init` answering *Yes* to Play Billing
-  and implement the Digital Goods API. Compliant everywhere, costs the fee, and
-  is real engineering work.
-- **External link (US only).** Post-*Epic v. Google*, US listings may link out
-  to external payment. Narrower than it sounds and the rules are still moving —
-  worth confirming against current policy before relying on it.
-
-**Nothing in this repo gates the Stripe flow yet.** Decide before the first
-production release.
-
----
-
-## 7. Play Console checklist
+## 6. Play Console checklist
 
 Declarations for a **mixed audience (parents + children)** listing:
 
@@ -199,8 +156,8 @@ Declarations for a **mixed audience (parents + children)** listing:
 - **Content rating**: complete the IARC questionnaire. Declare the in-app
   social surfaces honestly — family chat, Moments, and the Buzz community are
   user-generated content and need moderation plus a report mechanism.
-- **Financial features**: declare the Stripe subscription if it stays reachable
-  in-app (see §6).
+- **Financial features**: none in-app — purchase surfaces are hidden in app
+  mode (see §3).
 - **Store listing**: app icon 512×512, feature graphic 1024×500, at least two
   phone screenshots, short description (≤80 chars), full description
   (≤4000 chars).
