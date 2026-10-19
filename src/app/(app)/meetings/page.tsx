@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import CoachMark from '@/components/ui/CoachMark';
@@ -12,7 +13,7 @@ import TodaysSongCard from '@/components/meetings/TodaysSongCard';
 import { createMeeting, getMeetings, getAllMeetings, Meeting, todayString } from '@/lib/firestore';
 import BackButton from '@/components/ui/BackButton';
 import MeetingReportSheet, { fmtMeetingDay } from '@/components/meetings/MeetingReportSheet';
-import { subscribeMeetingSubmissions, isCurrentCycle, meetingCycleKey, type MeetingSubmission } from '@/lib/meetingSubmissions';
+import { subscribeMeetingSubmissions, isCurrentCycle, meetingCycleKey, holdMeetingLate, type MeetingSubmission } from '@/lib/meetingSubmissions';
 import { getAllMeetingSubmissionHistory, type SubmissionHistoryDoc } from '@/lib/meetingSubmissionHistory';
 import { participatesInMeetings } from '@/lib/participation';
 import { PAGE_WIDTH_CLASS } from '@/components/layout/Page';
@@ -33,6 +34,7 @@ const BASE_AGENDA = [
 
 export default function MeetingsPage() {
   const { profile } = useAuth();
+  const router = useRouter();
   const { family, children } = useFamily();
   // Little Stars (2026-07-26): meeting prompts, attendance + Highlights
   // stats only count participating kids. The report sheet keeps the full
@@ -56,6 +58,10 @@ export default function MeetingsPage() {
   const [reportMeeting, setReportMeeting] = useState<Meeting | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'green' | 'amber'>('all');
   const [staleSubs, setStaleSubs] = useState<MeetingSubmission[]>([]);
+  const [allSubs, setAllSubs] = useState<MeetingSubmission[]>([]);
+  const [historyDocs, setHistoryDocs] = useState<SubmissionHistoryDoc[]>([]);
+  const [holdingLate, setHoldingLate] = useState(false);
+  const [holdLateError, setHoldLateError] = useState(false);
   // Meetings 2.0 — closing-song picker now opens as a sheet from the
   // Tonight strip instead of sitting permanently above the tabs.
   const [showSong, setShowSong] = useState(false);
@@ -159,6 +165,7 @@ export default function MeetingsPage() {
     if (!profile?.familyId) return;
     const dow = family?.meetingSetup?.schedule?.dayOfWeek;
     return subscribeMeetingSubmissions(profile.familyId, (subs) => {
+      setAllSubs(subs);
       setStaleSubs(subs.filter((s) => !isCurrentCycle(s, dow)));
     });
   }, [profile?.familyId, family?.meetingSetup?.schedule?.dayOfWeek]);
@@ -182,6 +189,83 @@ export default function MeetingsPage() {
       .filter((g) => g.key === 'earlier' || !meetings.some((m) => near(m.date, g.key)))
       .sort((a, b) => b.key.localeCompare(a.key));
   }, [staleSubs, meetings]);
+
+  // 🕰️ Hold it late (2026-10-19) — a meeting that was planned but never
+  // held. Parents only (they decide + the restore is a parent-gated write).
+  // Reads from BOTH places the prep can live: still-upcoming docs (any
+  // cycle but the current one) and prep the cards already tidied into My
+  // Submissions. Shows the most recent missed day within 3 weeks.
+  const isParent = profile?.role === 'parent';
+  useEffect(() => {
+    if (!profile?.familyId || !isParent) return;
+    getAllMeetingSubmissionHistory(profile.familyId).then(setHistoryDocs).catch(() => {});
+  }, [profile?.familyId, isParent]);
+
+  const lateMeeting = useMemo(() => {
+    const dow = family?.meetingSetup?.schedule?.dayOfWeek;
+    const curKey = meetingCycleKey(dow);
+    if (!isParent || typeof dow !== 'number' || !curKey) return null;
+    const day = (k: string) => new Date(`${k}T00:00:00`).getTime();
+    const todayMs = day(todayString());
+    const near = (a: string, b: string) => Math.abs(day(a) - day(b)) <= 3 * 86400000;
+    const groups = new Map<string, Set<string>>();
+    const add = (key: string, name: string) => {
+      if (!key || key === curKey || key >= todayString()) return;
+      if (todayMs - day(key) > 21 * 86400000) return;
+      if (meetings.some((m) => near(m.date, key))) return;
+      const g = groups.get(key) || new Set<string>();
+      if (name) g.add(name);
+      groups.set(key, g);
+    };
+    for (const s of allSubs) {
+      if (!(s.gratitudes?.some(Boolean) || s.appreciations?.some(Boolean) || s.goals?.some(Boolean))) continue;
+      const key = s.cycleKey || (s.updatedAt ? meetingCycleKey(dow, new Date(s.updatedAt)) : '') || '';
+      add(key, s.name);
+    }
+    for (const h of historyDocs) {
+      for (const e of h.entries || []) {
+        if (e.gratitudes?.length || e.appreciations?.length || e.goals?.length) add(e.date, h.name);
+      }
+    }
+    const keys = Array.from(groups.keys()).sort().reverse();
+    if (keys.length === 0) return null;
+    return { key: keys[0], curKey, names: Array.from(groups.get(keys[0]) || []) };
+  }, [isParent, family?.meetingSetup?.schedule?.dayOfWeek, allSubs, historyDocs, meetings]);
+
+  const holdItLate = async () => {
+    if (!profile?.familyId || !lateMeeting) return;
+    setHoldingLate(true);
+    setHoldLateError(false);
+    const r = await holdMeetingLate(profile.familyId, lateMeeting.key, lateMeeting.curKey);
+    if (!r.ok) { setHoldingLate(false); setHoldLateError(true); return; }
+    router.push('/meetings/present');
+  };
+
+  const LateMeetingBanner = () => {
+    if (!lateMeeting) return null;
+    return (
+      <div className="mb-5 rounded-kaya border-2 border-amber-300 bg-amber-50 p-4">
+        <p className="font-display font-extrabold text-[14px] text-kaya-chocolate">
+          🕰️ {fmtMeetingDay(lateMeeting.key)}&rsquo;s meeting wasn&rsquo;t held
+        </p>
+        <p className="text-[12px] font-semibold text-amber-800 mt-0.5">
+          {lateMeeting.names.length > 0 ? `Prep from ${lateMeeting.names.join(', ')} is safe. ` : ''}
+          Hold it today and everyone&rsquo;s notes come back into the presenter.
+        </p>
+        <button
+          type="button"
+          onClick={holdItLate}
+          disabled={holdingLate}
+          className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-kaya-chocolate text-white font-display font-extrabold text-[12.5px] px-4 py-2 disabled:opacity-60"
+        >
+          {holdingLate ? 'Bringing notes back…' : '🗓️ Hold it today →'}
+        </button>
+        {holdLateError && (
+          <p className="text-[12px] font-semibold text-red-600 mt-2">Couldn&rsquo;t restore the notes — please try again.</p>
+        )}
+      </div>
+    );
+  };
 
   const handleSave = async () => {
     if (!profile?.familyId) return;
@@ -345,6 +429,7 @@ export default function MeetingsPage() {
             schedule banner + Presenter CTA + settings link, so the page
             starts at the tabs. */}
         <TonightStrip />
+        <LateMeetingBanner />
 
         <div className="mb-5"><Tabs /></div>
 
@@ -533,6 +618,7 @@ export default function MeetingsPage() {
             schedule banner + Presenter CTA + setup card; tabs get the
             full row below so they never clip. */}
         <TonightStrip />
+        <div className="max-w-2xl"><LateMeetingBanner /></div>
 
         <div className="mb-6 max-w-2xl"><Tabs /></div>
 
