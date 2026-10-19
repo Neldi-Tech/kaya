@@ -123,9 +123,28 @@ export function meetingCycleStartMs(scheduleDow: number | undefined, now: Date =
   return d.getTime();
 }
 
+/** ⏳ Late-meeting grace (2026-10-19, Elia: "we could not do Sunday
+ *  meeting yesterday, but we want to do today — now we can't see the notes").
+ *  A meeting that slips by a day or two keeps its prep visible: for this
+ *  many days AFTER the meeting day, the PREVIOUS cycle still counts as
+ *  current. After that, "Hold it late" (holdMeetingLate) still restores it. */
+export const MEETING_GRACE_DAYS = 2;
+
+/** YYYY-MM-DD of the previous meeting day when it was 1..MEETING_GRACE_DAYS
+ *  days ago (i.e. we are inside the grace window), else null. */
+export function graceCycleKey(scheduleDow: number | undefined, now: Date = new Date()): string | null {
+  if (typeof scheduleDow !== 'number') return null;
+  const d = new Date(now); d.setHours(0, 0, 0, 0);
+  const back = (d.getDay() - scheduleDow + 7) % 7; // 0 = today is meeting day
+  if (back < 1 || back > MEETING_GRACE_DAYS) return null;
+  d.setDate(d.getDate() - back);
+  return isoLocal(d);
+}
+
 /** Is this submission part of the CURRENT meeting cycle (so it should
  *  show in the card + presenter)? No schedule → no gating (legacy
- *  behaviour). Stamped submissions match by cycleKey.
+ *  behaviour). Stamped submissions match by cycleKey. The previous cycle
+ *  also counts while inside the late-meeting grace window.
  *
  *  v4 fix (2026-06-21): the old legacy fallback (`updatedAt >= cycleStart`)
  *  could not tell THIS cycle from the PREVIOUS one — a submission saved on
@@ -136,11 +155,38 @@ export function meetingCycleStartMs(scheduleDow: number | undefined, now: Date =
 export function isCurrentCycle(s: MeetingSubmission, scheduleDow: number | undefined, now: Date = new Date()): boolean {
   if (typeof scheduleDow !== 'number') return true;
   const key = meetingCycleKey(scheduleDow, now);
-  if (s.cycleKey) return s.cycleKey === key;
+  const grace = graceCycleKey(scheduleDow, now);
+  const ok = (k: string | null | undefined) => !!k && (k === key || k === grace);
+  if (s.cycleKey) return ok(s.cycleKey);
   // Legacy (pre-cycleKey) submission: derive its cycle from when it was
   // saved and require it to match this cycle. No timestamp → treat as stale.
   if (!s.updatedAt) return false;
-  return meetingCycleKey(scheduleDow, new Date(s.updatedAt)) === key;
+  return ok(meetingCycleKey(scheduleDow, new Date(s.updatedAt)));
+}
+
+/** 🕰️ "Hold it late" — bring a missed meeting's prep back into the CURRENT
+ *  cycle so the presenter shows it. Server-side (Admin) because a parent
+ *  can't write other members' prep docs under rules. Re-stamps stale prep
+ *  and restores prep the cards already tidied into My Submissions. */
+export async function holdMeetingLate(
+  familyId: string,
+  staleKey: string,
+  toKey: string,
+): Promise<{ ok: boolean; restamped?: number; restored?: number }> {
+  try {
+    const { auth } = await import('./firebase');
+    const token = await auth.currentUser?.getIdToken();
+    if (!token) return { ok: false };
+    const res = await fetch('/api/meetings/finish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ action: 'holdLate', familyId, staleKey, toKey }),
+    });
+    if (!res.ok) return { ok: false };
+    return await res.json();
+  } catch {
+    return { ok: false };
+  }
 }
 
 /** Resolve the full multi-tag for an appreciation line, with back-compat:

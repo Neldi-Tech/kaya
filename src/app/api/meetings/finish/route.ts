@@ -16,6 +16,7 @@
 // Actions:
 //   { action: 'upsert', familyId, meeting }            → set meetings/weekly-<date>
 //   { action: 'patch',  familyId, meetingId, updates } → merge fields onto a meeting
+//   { action: 'holdLate', familyId, staleKey, toKey }   → bring a missed meeting's prep into this cycle
 //   { action: 'themePoint', familyId, childId, byName } → kid-led "remembered the theme" +1
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -51,6 +52,8 @@ export async function POST(req: NextRequest) {
     awards?: Array<{ childId?: string; roleName?: string }>;
     byName?: string;
     childId?: string;
+    staleKey?: string;
+    toKey?: string;
   };
   try { body = await req.json(); } catch { return NextResponse.json({ ok: false, error: 'bad-json' }, { status: 400 }); }
 
@@ -107,6 +110,101 @@ export async function POST(req: NextRequest) {
     snap.docs.forEach((d) => batch.delete(d.ref));
     await batch.commit();
     return NextResponse.json({ ok: true, cleared: snap.size });
+  }
+
+  // 🕰️ Hold it late (2026-10-19): a meeting slipped past its day, the prep
+  // cards then tidied everyone's notes into My Submissions and the presenter
+  // went blank. This brings that cycle's prep back into the CURRENT cycle:
+  //   • still-upcoming docs stamped with `staleKey` are re-stamped to `toKey`
+  //   • archived history entries dated `staleKey` are copied back into the
+  //     member's upcoming doc (only when it has no content of its own) and
+  //     removed from history — the next finish re-archives them under the
+  //     real meeting date, so nothing is duplicated.
+  // Parents only (users doc role) — deciding to hold a missed meeting is a
+  // parent call, so unlike clearSubmissions there is no kid-leader path.
+  if (body.action === 'holdLate') {
+    const iso = /^\d{4}-\d{2}-\d{2}$/;
+    const staleKey = typeof body.staleKey === 'string' ? body.staleKey : '';
+    const toKey = typeof body.toKey === 'string' ? body.toKey : '';
+    if (!iso.test(toKey) || (staleKey !== 'earlier' && !iso.test(staleKey))) {
+      return NextResponse.json({ ok: false, error: 'bad-args' }, { status: 400 });
+    }
+    if (!callerSnap.exists || callerSnap.data()?.role !== 'parent') {
+      return NextResponse.json({ ok: false, error: 'parents-only' }, { status: 403 });
+    }
+    const famRef = db.collection('families').doc(familyId);
+    const subsCol = famRef.collection('upcomingMeetingSubmissions');
+    const histCol = famRef.collection('meetingSubmissionHistory');
+    const [subsSnap, histSnap, kidsSnap] = await Promise.all([
+      subsCol.get(), histCol.get(), famRef.collection('children').get(),
+    ]);
+    const hasContent = (x: Record<string, unknown>) =>
+      ['gratitudes', 'appreciations', 'goals'].some((k) => Array.isArray(x[k]) && (x[k] as unknown[]).some(Boolean));
+    const now = Date.now();
+    const batch = db.batch();
+    const haveContent = new Set<string>();
+    let restamped = 0;
+    let restored = 0;
+
+    subsSnap.docs.forEach((d) => {
+      const x = d.data() as Record<string, unknown>;
+      if (!hasContent(x)) return;
+      haveContent.add(d.id);
+      const k = typeof x.cycleKey === 'string' ? x.cycleKey : '';
+      const isStale = staleKey === 'earlier' ? !k : k === staleKey;
+      if (!isStale) return;
+      batch.set(d.ref, { cycleKey: toKey, updatedAt: now }, { merge: true });
+      restamped += 1;
+    });
+
+    if (staleKey !== 'earlier') {
+      for (const h of histSnap.docs) {
+        const hd = h.data() as {
+          name?: string; emoji?: string;
+          entries?: Array<{
+            date?: string; gratitudes?: string[]; appreciations?: string[]; goals?: string[];
+            appreciationTagNames?: (string | null)[]; appreciationTagName?: string;
+            goalsReflection?: unknown[];
+          }>;
+        };
+        const entries = hd.entries || [];
+        const e = entries.find((x) => x.date === staleKey);
+        if (!e || haveContent.has(h.id)) continue;
+        const gratitudes = (e.gratitudes || []).filter(Boolean);
+        const appreciations = e.appreciations || [];
+        const goals = (e.goals || []).filter(Boolean);
+        if (gratitudes.length + appreciations.length + goals.length === 0) continue;
+        const kid = kidsSnap.docs.find((c) => c.data().uid === h.id);
+        const uSnap = await db.collection('users').doc(h.id).get();
+        const urole = uSnap.exists ? uSnap.data()?.role : '';
+        const role = kid ? 'kid' : urole === 'helper' ? 'helper' : 'parent';
+        const appreciationTags = appreciations.map((_, i) => {
+          const n = e.appreciationTagNames?.[i] ?? (i === 0 ? e.appreciationTagName : undefined);
+          if (!n) return { ids: [] as string[], names: [] as string[], all: false };
+          if (n === 'Everyone') return { ids: [] as string[], names: [] as string[], all: true };
+          return { ids: [] as string[], names: n.split(', ').filter(Boolean), all: false };
+        });
+        batch.set(subsCol.doc(h.id), {
+          uid: h.id,
+          name: hd.name || '',
+          ...(hd.emoji ? { emoji: hd.emoji } : {}),
+          ...(kid ? { childId: kid.id } : {}),
+          role,
+          gratitudes, appreciations, goals, appreciationTags,
+          cycleKey: toKey,
+          updatedAt: now,
+        });
+        restored += 1;
+        // Entry moves back to "upcoming" — drop it from history unless a
+        // later review already stamped goal reflections on it.
+        if (!e.goalsReflection) {
+          batch.set(h.ref, { entries: entries.filter((x) => x.date !== staleKey) }, { merge: true });
+        }
+      }
+    }
+
+    if (restamped + restored > 0) await batch.commit();
+    return NextResponse.json({ ok: true, restamped, restored });
   }
 
   // 🧒 Kid-led (2026-08-16): the family doc is parents-only to update, so a
